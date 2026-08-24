@@ -36,7 +36,79 @@ export const initialShaadiVendors = [
   },
 
   // ==========================================
-  // 2. HOME MAKEOVER - DIRECT WORKERS & WORKS
+  // 2. WEDDING STUFF BUYING (शादी खरीदारी - फर्नीचर, इलेक्ट्रॉनिक्स व ज्वेलरी)
+  // ==========================================
+  {
+    id: 'sh-stuff-furniture',
+    category: 'shaadi',
+    subCategory: 'wedding-stuff-buying',
+    budgetTier: 'budget-smart',
+    guestScale: 'intimate-250',
+    name: 'Shree Krishna Furnitures & Electronics (Complete Marriage Trousseau & Appliance Package)',
+    startingPackage: '₹ 75,000 Complete Package',
+    sellerName: 'Manoj Khandelwal',
+    location: 'Tijara Phatak, Alwar',
+    phone: '9876543286',
+    whatsapp: '9876543286',
+    image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=700',
+    description: 'Complete marriage trousseau package: Solid Teak Double Bed + 3-Door Steel Almirah + 7-Seater Sofa + 43" 4K Smart TV + Double Door Refrigerator + Washing Machine with free home delivery.',
+    badge: 'Bed + Sofa + 4 Appliances Combo',
+  },
+  {
+    id: 'sh-stuff-jewellery',
+    category: 'shaadi',
+    subCategory: 'wedding-stuff-buying',
+    budgetTier: 'grand-royale',
+    guestScale: 'grand-750',
+    name: 'Mahalaxmi Jewellers (916 BIS Hallmark Bridal Gold, Silver & Polki Sets)',
+    startingPackage: 'Hallmark Gold Rate + Zero Waste Offers',
+    sellerName: 'Rameshwar Soni',
+    location: 'Sarafa Bazaar, Hope Circus, Alwar',
+    phone: '9876543287',
+    whatsapp: '9876543287',
+    image: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=700',
+    description: '100% BIS Hallmarked bridal necklace sets, matching jhumkas, maang tikka, silver gifting utensil sets, and certified diamond couple rings with exchange guarantee.',
+    badge: '100% BIS Hallmark • 0% Deduction',
+  },
+
+  // ==========================================
+  // 3. FUNCTION WHOLESALERS (फंक्शन थोक बाजार - किराना, कपड़ा व डिस्पोजल)
+  // ==========================================
+  {
+    id: 'sh-wholesale-grocery',
+    category: 'shaadi',
+    subCategory: 'function-wholesalers',
+    budgetTier: 'grand-royale',
+    guestScale: 'grand-750',
+    name: 'Kedarnath & Sons (Wholesale Wedding Grocery, Pure Desi Ghee & Dry Fruits)',
+    startingPackage: 'Mandi Wholesale Rates • Bulk Bags',
+    sellerName: 'Mukesh Kedarnath',
+    location: 'Kedarganj Mandi, Alwar',
+    phone: '9876543288',
+    whatsapp: '9876543288',
+    image: 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=700',
+    description: 'Bulk wholesale supply for wedding halwais: 15kg Sarson oil & Desi Ghee tins, premium Kaju/Badam/Kishmish bags, spices, sugar bags, and Basmati rice at direct mandi prices.',
+    badge: 'Desi Ghee Drums • Bulk Dry Fruits',
+  },
+  {
+    id: 'sh-wholesale-disposables',
+    category: 'shaadi',
+    subCategory: 'function-wholesalers',
+    budgetTier: 'budget-smart',
+    guestScale: 'grand-750',
+    name: 'Agarwal Packaging & Shahi Gifting Fabrics Wholesalers',
+    startingPackage: 'Direct Factory Bulk Pricing',
+    sellerName: 'Sunil Agarwal',
+    location: 'Pansari Bazaar, Alwar',
+    phone: '9876543289',
+    whatsapp: '9876543289',
+    image: 'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=700',
+    description: 'Wholesale suiting-shirting gift packs, chunri safas, luxury printed sweet boxes, dry fruit potlis, and biodegradable sugarcane bagasse plates with paper cups.',
+    badge: 'Wholesale Gifting Fabrics • Eco Plates',
+  },
+
+  // ==========================================
+  // 4. HOME MAKEOVER - DIRECT WORKERS & WORKS
   // ==========================================
   {
     id: 'sh-work-painter',
@@ -104,7 +176,7 @@ export const initialShaadiVendors = [
   },
 
   // ==========================================
-  // 3. GUEST MANAGEMENT - STAYS & DRIVERS
+  // 5. GUEST MANAGEMENT - STAYS & DRIVERS
   // ==========================================
   {
     id: 'sh-stay-hotel',
@@ -156,7 +228,7 @@ export const initialShaadiVendors = [
   },
 
   // ==========================================
-  // 4. CORE CEREMONY SPECIALISTS
+  // 6. CORE CEREMONY SPECIALISTS
   // ==========================================
   {
     id: 'sh-resort-1',

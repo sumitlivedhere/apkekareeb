@@ -7,6 +7,7 @@ import RestaurantsHub from './RestaurantsHub';
 import FashionHub from './FashionHub';
 import ElectronicsHub from './ElectronicsHub';
 import FurnitureHub from './FurnitureHub';
+import FestivalHub from './FestivalHub';
 import VehicleHub from './VehicleHub';
 import MarketHub from './MarketHub';
 import ReCommerceHub from './ReCommerceHub';
@@ -51,6 +52,8 @@ export default function CategoryHub({
       return <FurnitureHub selectedCity={selectedCity} onSelectSubCategory={onSelectSubCategory} onBack={onBack} {...restProps} />;
     case 'vehicles':
       return <VehicleHub selectedCity={selectedCity} onSelectSubCategory={onSelectSubCategory} onBack={onBack} {...restProps} />;
+    case 'festival':
+      return <FestivalHub selectedCity={selectedCity}onSelectSubCategory={onSelectSubCategory}onSelectFestivalCategory={onSelectSubCategory}onBack={onBack}/>;
     case 'market':
       return <MarketHub selectedCity={selectedCity} onSelectSubCategory={onSelectSubCategory} onBack={onBack} {...restProps} />;
     case 'recommerce':

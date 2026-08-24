@@ -14,6 +14,7 @@ import { initialCommunityDrives } from '../data/communityData';
 import { initialReCommerceListings } from '../data/reCommerceData';
 import { initialPropertyListings } from '../data/propertyData';
 import { initialFitnessListings } from '../data/fitnessData';
+import { initialFestivalOffers } from '../data/festivalData';
 import { initialMedicalListings } from '../data/medicalData';
 import { initialCreatorsListings } from '../data/creatorsData';
 
@@ -107,6 +108,7 @@ export function normalizeDBListing(item) {
     item.visitingCharge ||
     item.consultationFee ||
     item.priceForTwo ||
+    item.startingPackage ||
     'Contact for Price';
 
   const nameVal = item.title || item.name || 'Untitled Listing';
@@ -156,6 +158,7 @@ export function normalizeDBListing(item) {
     visitingCharge: priceVal,
     consultationFee: priceVal,
     priceForTwo: priceVal,
+    startingPackage: priceVal,
     sellerName: personOrBiz,
     driverName: personOrBiz,
     trainerName: personOrBiz,
@@ -234,6 +237,9 @@ class HyperlocalEngineStore {
       ),
       shaadiVendors: (initialShaadiVendors || []).map((i) =>
         normalizeDBListing({ ...i, category: 'shaadi' })
+      ),
+      festivalOffers: (initialFestivalOffers || []).map((i) =>
+        normalizeDBListing({ ...i, category: 'festival' })
       ),
       advertisingProviders: (initialAdvertisingProviders || []).map((i) =>
         normalizeDBListing({ ...i, category: 'advertising' })
@@ -381,7 +387,6 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
-  // 🌟 Hydrates threads with 5-Day Expiration Filter & Audio Note Mappings
   hydrateThreads(threadsRows) {
     if (!Array.isArray(threadsRows) || threadsRows.length === 0) return;
     const grouped = {};
@@ -390,7 +395,6 @@ class HyperlocalEngineStore {
     threadsRows.forEach((row) => {
       const createdAtTime = new Date(row.created_at).getTime();
 
-      // ⏳ Auto-cleanup: Filter out records older than 5 days
       if (now - createdAtTime > FIVE_DAYS_MS) return;
 
       const listingId = String(row.listing_id);
@@ -458,7 +462,6 @@ class HyperlocalEngineStore {
   getThreadComments(listingId, fallback = []) {
     const comments = this.state.threads[String(listingId)] || fallback;
     const now = Date.now();
-    // 5-day expiration safeguard
     return comments.filter((c) => {
       if (!c.created_at) return true;
       return now - new Date(c.created_at).getTime() <= FIVE_DAYS_MS;
@@ -614,7 +617,6 @@ export async function hydrateFromDB() {
       hyperlocalStore.hydrateBulk(listingsData);
     }
 
-    // ⏳ Only query active threads from the last 5 days
     const fiveDaysAgo = new Date(Date.now() - FIVE_DAYS_MS).toISOString();
     const { data: threadsData, error: threadsError } = await supabase
       .from('listing_threads')

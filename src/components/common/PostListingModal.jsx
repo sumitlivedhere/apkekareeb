@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { uploadListingImagesToStorage, publishHyperlocalListing } from '../../services/listingService';
+import { getCategoryById } from '../../data/taxonomyRegistry';
 
 const CATEGORY_OPTIONS = [
   { id: 'property', label: '🏢 Property & Real Estate' },
@@ -9,6 +10,7 @@ const CATEGORY_OPTIONS = [
   { id: 'medical', label: '🩺 Medical, Clinic & Doctors' },
   { id: 'fitness', label: '🏋️ Gyms, Fitness & Trainers' },
   { id: 'education', label: '📚 Coaching, Tuition & Schools' },
+  { id: 'festival', label: '🎪 Festival Offers & Melas' },
   { id: 'shaadi', label: '💍 Wedding & Event Vendor' },
   { id: 'construction', label: '🏗️ Construction & Material' },
   { id: 'advertising', label: '📢 Wall, Rooftop & Ad Spaces' },
@@ -25,6 +27,7 @@ export default function PostListingModal({
   onSuccess,
 }) {
   const [category, setCategory] = useState(defaultCategory);
+  const [subCategory, setSubCategory] = useState('');
   const [title, setTitle] = useState('');
   const [price, setPrice] = useState('');
   const [sellerName, setSellerName] = useState('');
@@ -38,6 +41,19 @@ export default function PostListingModal({
   const [previewUrls, setPreviewUrls] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [compressProgress, setCompressProgress] = useState('');
+
+  // Fetch subcategories dynamically from taxonomy registry
+  const categoryConfig = getCategoryById(category);
+  const availableSubCategories = categoryConfig?.subCategories || [];
+
+  // Update default subCategory when category changes
+  useEffect(() => {
+    if (availableSubCategories.length > 0) {
+      setSubCategory(availableSubCategories[0].id);
+    } else {
+      setSubCategory(category);
+    }
+  }, [category]);
 
   const handlePhotoCapture = (e) => {
     const files = Array.from(e.target.files || []);
@@ -100,7 +116,7 @@ export default function PostListingModal({
       title: title.trim(),
       name: title.trim(),
       category,
-      subCategory: category,
+      subCategory: subCategory || category,
       price: formattedPrice,
       rates: formattedPrice,
       sellerName: sellerName.trim() || 'Verified Local Member',
@@ -169,6 +185,26 @@ export default function PostListingModal({
               ))}
             </select>
           </div>
+
+          {/* Dynamic Sub-Category Selector (Appears for Shaadi & categories with sub-specialties) */}
+          {availableSubCategories.length > 0 && (
+            <div>
+              <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                Sub-Specialty / Category Type *
+              </label>
+              <select
+                value={subCategory}
+                onChange={(e) => setSubCategory(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 outline-hidden focus:border-rose-400"
+              >
+                {availableSubCategories.map((sub) => (
+                  <option key={sub.id} value={sub.id}>
+                    {sub.icon ? `${sub.icon} ` : ''}{sub.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Title */}
           <div>

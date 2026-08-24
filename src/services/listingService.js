@@ -569,3 +569,71 @@ export function getCategoryFallback(catId) {
   };
   return fallbacks[catId] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
 }
+
+// Seller and Admin interaction for updating respective listings
+
+
+/**
+ * Seller submits an edit proposal (does not overwrite live listing immediately)
+ */
+export async function submitSellerEditProposal(listingId, proposedData) {
+  if (!supabase) return { success: true };
+  try {
+    const { data, error } = await supabase
+      .from('listings')
+      .update({
+        pending_changes: proposedData,
+        has_pending_approval: true,
+      })
+      .eq('id', listingId);
+
+    return { data, error };
+  } catch (err) {
+    console.error('Submit edit error:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Admin approves proposed edits to make them live
+ */
+export async function approveListingChanges(listingId, approvedData) {
+  if (!supabase) return { success: true };
+  try {
+    const { data, error } = await supabase
+      .from('listings')
+      .update({
+        ...approvedData,
+        pending_changes: null,
+        has_pending_approval: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', listingId);
+
+    return { data, error };
+  } catch (err) {
+    console.error('Approve changes error:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Admin rejects proposed changes
+ */
+export async function rejectListingChanges(listingId) {
+  if (!supabase) return { success: true };
+  try {
+    const { data, error } = await supabase
+      .from('listings')
+      .update({
+        pending_changes: null,
+        has_pending_approval: false,
+      })
+      .eq('id', listingId);
+
+    return { data, error };
+  } catch (err) {
+    console.error('Reject changes error:', err);
+    return { error: err };
+  }
+}

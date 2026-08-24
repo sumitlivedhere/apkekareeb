@@ -245,25 +245,45 @@ export const TAXONOMY_REGISTRY = [
     { id: 'cleaning-pest-control', name: 'Deep Cleaning & Anti-Termite Pest Control (दीमक रोकथाम व सफाई)', icon: '🧹', tag: 'PHASE 5' },
   ],
 },
- // In src/data/taxonomyRegistry.js inside TAXONOMY_REGISTRY
-// In src/data/taxonomyRegistry.js inside TAXONOMY_REGISTRY
+
 {
-  id: 'shaadi',
-  name: 'Shaadi & Wedding 360° (विवाह सेवा व शादी की तैयारी)',
-  icon: '💍',
-  bucketKey: 'shaadiVendors',
-  subCategories: [
-    { id: 'combo-offers', name: 'All-in-One Shaadi Combos (शादी कॉम्बो पैकेजेस - भारी छूट)', icon: '🎁', tag: 'MAX SAVINGS' },
-    { id: 'home-makeover-workers', name: 'Home Makeover Workers (घर का मेकओवर - कारीगर व मिस्त्री)', icon: '🏠', tag: 'INDIVIDUAL PROS' },
-    { id: 'guest-management', name: 'Guest Management - Stays & Drivers (अतिथि प्रबंधन - होटल व गाड़ियां)', icon: '🏨', tag: 'STAYS & FLEET' },
-    { id: 'marriage-gardens', name: 'Grand Marriage Gardens & Resorts (मैरिज गार्डन व वेन्यू)', icon: '🏰', tag: 'AC BANQUETS' },
-    { id: 'halwai-caterers', name: 'Shahi Halwai & Catering (शाही हलवाई व भोजन व्यवस्था)', icon: '🍲', tag: 'DESI GHEE' },
-    { id: 'tent-light-sound', name: 'Theme Decor, Mandap & DJ Sound (टेंट, मंडप व डीजे)', icon: '🎪', tag: 'COLD PYRO' },
-    { id: 'photographers-cinematic', name: '4K Drone & Cinematic Shoots (फोटोग्राफी व ड्रोन शूट)', icon: '📸', tag: '4K CINEMATIC' },
-    { id: 'bridal-makeup-mehendi', name: 'Bridal Makeup & Mehendi Artists (दुल्हन मेकअप व मेहंदी)', icon: '💄', tag: 'HD AIRBRUSH' },
-    { id: 'baraat-rituals-pooja', name: 'Ghodi, Bagghi, Band & Pandit Ji (घोड़ी, बग्गी, साफा व पूजा)', icon: '🎺', tag: 'ROYAL SWAGAT' },
-  ],
-},
+    id: 'shaadi',
+    name: 'Shaadi & Wedding 360° (विवाह सेवा व शादी की तैयारी)',
+    icon: '💍',
+    bucketKey: 'shaadiVendors',
+    subCategories: [
+      { id: 'combo-offers', name: 'All-in-One Shaadi Combos (शादी कॉम्बो पैकेजेस - भारी छूट)', icon: '🎁', tag: 'MAX SAVINGS' },
+      { id: 'wedding-stuff-buying', name: 'Wedding Stuff Buying (शादी खरीदारी - फर्नीचर, इलेक्ट्रॉनिक्स व ज्वेलरी)', icon: '🛍️', tag: 'WEDDING SHOPPING' },
+      { id: 'function-wholesalers', name: 'Function Wholesalers (फंक्शन थोक बाजार - किराना, कपड़ा व डिस्पोजल)', icon: '📦', tag: 'WHOLESALE BULK' },
+      { id: 'home-makeover-workers', name: 'Home Makeover Workers (घर का मेकओवर - कारीगर व मिस्त्री)', icon: '🏠', tag: 'INDIVIDUAL PROS' },
+      { id: 'guest-management', name: 'Guest Management - Stays & Drivers (अतिथि प्रबंधन - होटल व गाड़ियां)', icon: '🏨', tag: 'STAYS & FLEET' },
+      { id: 'marriage-gardens', name: 'Grand Marriage Gardens & Resorts (मैरिज गार्डन व वेन्यू)', icon: '🏰', tag: 'AC BANQUETS' },
+      { id: 'halwai-caterers', name: 'Shahi Halwai & Catering (शाही हलवाई व भोजन व्यवस्था)', icon: '🍲', tag: 'DESI GHEE' },
+      { id: 'tent-light-sound', name: 'Theme Decor, Mandap & DJ Sound (टेंट, मंडप व डीजे)', icon: '🎪', tag: 'COLD PYRO' },
+      { id: 'photographers-cinematic', name: '4K Drone & Cinematic Shoots (फोटोग्राफी व ड्रोन शूट)', icon: '📸', tag: '4K CINEMATIC' },
+      { id: 'bridal-makeup-mehendi', name: 'Bridal Makeup & Mehendi Artists (दुल्हन मेकअप व मेहंदी)', icon: '💄', tag: 'HD AIRBRUSH' },
+      { id: 'baraat-rituals-pooja', name: 'Ghodi, Bagghi, Band & Pandit Ji (घोड़ी, बग्गी, साफा व पूजा)', icon: '🎺', tag: 'ROYAL SWAGAT' },
+    ],
+  },
+  
+  {
+    id: 'festival',
+    name: 'Festival Offers & Melas (त्योहारी ऑफर्स व मेले)',
+    icon: '🎪',
+    bucketKey: 'festivalOffers',
+    themeColor: 'from-amber-500/20 via-[#1a0508] to-rose-500/20',
+    subCategories: [
+      { id: 'dhanteras-electronics-auto', name: 'Dhanteras Auto & Appliances (गाड़ी, टीवी व इलेक्ट्रॉनिक्स)', icon: '🚗', tag: 'DHANTERAS DEALS' },
+      { id: 'gold-jewellery-bartan', name: 'Sarafa, Gold & Bartan Bazaar (सोना-चांदी व बर्तन बाजार)', icon: '🪙', tag: 'HALLMARK 916' },
+      { id: 'sweets-dryfruits-hampers', name: 'Alwar Kalakand, Sweets & Hampers (अलवर कलाकंद व मिठाई)', icon: '🍬', tag: 'DESI GHEE' },
+      { id: 'fashion-ethnic-beauty', name: 'Festive Lehariya, Ethnic & Beauty (लहरिया, कपड़े व पार्लर)', icon: '👘', tag: 'FESTIVE STYLE' },
+      { id: 'lights-decor-diyas', name: 'Clay Diyas, LED Lights & Torans (दीये, लाइटिंग व सजावट)', icon: '🪔', tag: 'KUMHAR & LIGHTS' },
+      { id: 'express-home-prep', name: 'Express Home Clean & Paint (घर की रंगाई व सफाई)', icon: '🧹', tag: 'EXPRESS PREP' },
+      { id: 'city-melas-programs', name: 'Alwar Melas, Ramlila & Events (मेले, रामलीला व दर्शन गाइड)', icon: '🎡', tag: 'CITY EVENTS' },
+      { id: 'flash-deals-clearance', name: 'Hope Circus Late-Night Deals (होप सर्कस नाइट बाजार)', icon: '⚡', tag: 'MIDNIGHT BAZAAR' },
+    ],
+  },
+
  {
     id: 'recommerce',
     name: 'Re-Commerce / Second Hand (पुराना बाज़ार व थ्रिफ्ट)',

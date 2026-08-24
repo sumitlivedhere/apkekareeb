@@ -4,7 +4,7 @@ import { getCategoryById } from '../data/taxonomyRegistry';
 import ActionButtons from './common/ActionButtons';
 import ListingDetailModal from './common/ListingDetailModal';
 
-function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
+function FestivalCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
   const interestCount = useInterestSlice(
     item.id,
     Number(item.interestCount || item.interest_count || 0)
@@ -16,7 +16,7 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
       item.id,
       interestCount,
       item.name || item.title,
-      item.sellerName || item.name || 'Wedding Specialist'
+      item.sellerName || item.name || 'Festival Merchant'
     );
   };
 
@@ -25,7 +25,7 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
       ? item.images
       : item.image
       ? [item.image]
-      : ['https://images.unsplash.com/photo-1519741497674-611481863552?w=700'];
+      : ['https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700'];
 
   const coverImg = gallery[0];
 
@@ -44,7 +44,6 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
           : 'border-[#5a111f]/80'
       }`}
     >
-      {/* Top Ambient Glow on Card Hover */}
       <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/0 group-hover:bg-amber-500/10 rounded-full blur-2xl transition-all pointer-events-none"></div>
 
       {/* Photo Banner */}
@@ -55,13 +54,13 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
           loading="lazy"
           className="w-full h-full object-cover group-hover:scale-103 transition duration-500"
           onError={(e) => {
-            e.target.src = 'https://images.unsplash.com/photo-1519741497674-611481863552?w=700';
+            e.target.src = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700';
           }}
         />
 
-        {/* Package / Price Tag */}
+        {/* Package / Offer Tag */}
         <span className="absolute bottom-2.5 left-2.5 text-xs font-black px-3 py-1 rounded-xl text-amber-200 bg-[#160206]/90 backdrop-blur-md border border-amber-400/40 shadow-md">
-          💰 {item.startingPackage || item.price || item.rates || 'Quotation on Request'}
+          🏷️ {item.startingPackage || item.price || item.rates || 'Special Festive Deal'}
         </span>
 
         {/* Multi-Photo Indicator */}
@@ -71,7 +70,7 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
           </span>
         )}
 
-        {/* Live Star Interest Badge */}
+        {/* Star Interest Counter */}
         <button
           type="button"
           onClick={handleStarClick}
@@ -91,13 +90,13 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
             </h3>
             {(item.sellerName || item.name) && (
               <p className="text-[10.5px] text-amber-400 font-bold mt-0.5 truncate flex items-center space-x-1">
-                <span>💍</span>
+                <span>🏪</span>
                 <span>{item.sellerName || item.name}</span>
               </p>
             )}
           </div>
           <span className="text-[9px] font-black text-amber-300 bg-[#380911] border border-amber-400/30 px-2 py-0.5 rounded-md shrink-0 tracking-wider shadow-xs">
-            {String(item.subCategory || item.vendorType || 'SHAADI').toUpperCase()}
+            {item.badge || 'FESTIVE OFFER'}
           </span>
         </div>
 
@@ -131,8 +130,8 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
       {/* 1-Click Action Buttons */}
       <div onClick={(e) => e.stopPropagation()} className="pt-1">
         <ActionButtons
-          phone={item.phone || '9876543210'}
-          whatsapp={item.whatsapp || item.phone || '919876543210'}
+          phone={item.phone || '9876543291'}
+          whatsapp={item.whatsapp || item.phone || '919876543291'}
           message={getMessageTemplate(item)}
         />
       </div>
@@ -140,7 +139,7 @@ function ShaadiCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
   );
 }
 
-export default function ShaadiFeed({
+export default function FestivalFeed({
   vendors: propVendors,
   selectedSubCategory,
   selectedCategory,
@@ -149,11 +148,11 @@ export default function ShaadiFeed({
   onBack,
   onNewNotification,
 }) {
-  const storeVendors = useStoreSlice('shaadiVendors') || [];
+  const storeVendors = useStoreSlice('festivalOffers') || [];
   const allVendors = propVendors && propVendors.length > 0 ? propVendors : storeVendors;
 
   const targetSub = (selectedSubCategory || selectedCategory || 'all').toLowerCase().trim();
-  const categoryConfig = getCategoryById('shaadi') || { subCategories: [] };
+  const categoryConfig = getCategoryById('festival') || { subCategories: [] };
   const subCategories = categoryConfig.subCategories || [];
 
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
@@ -201,26 +200,26 @@ export default function ShaadiFeed({
   }, [allVendors, targetSub, selectedCity, searchQuery]);
 
   const getSubCategoryTitle = () => {
-    if (targetSub === 'all') return 'All Shaadi & Wedding Services';
+    if (targetSub === 'all') return 'All Festive Offers & Melas';
     const matched = subCategories.find((s) => s.id === targetSub);
     return matched ? matched.name : targetSub.replace('-', ' ').toUpperCase();
   };
 
   const getMessageTemplate = (item) => {
-    return `Namaste ${item.sellerName || item.name || ''}, I want to book / inquire regarding "${item.name || item.title}" seen on TownHub Shaadi in ${selectedCity}. Are you available on our event dates?`;
+    return `Namaste ${item.sellerName || item.name || ''}, I saw your festive offer "${item.name || item.title}" on TownHub Alwar. Can you confirm the deal details and availability?`;
   };
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#180307] via-[#0d0103] to-[#140206] p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-100 pb-24 select-none">
       
-      {/* Decorative Celebration Top Strip */}
+      {/* Decorative Top Strip */}
       <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-500 to-yellow-400 shadow-[0_0_12px_rgba(251,191,36,0.7)] rounded-full"></div>
 
-      {/* Royal Wedding Category Header */}
+      {/* Royal Festive Category Header */}
       <div className="bg-gradient-to-r from-[#3b0811] via-[#24040a] to-[#3b0811] p-3.5 rounded-2xl border border-amber-400/40 shadow-[0_6px_20px_rgba(59,8,17,0.45)] flex items-center justify-between">
         <div>
           <div className="flex items-center space-x-1.5 text-[9px] font-black text-amber-400 tracking-wider">
-            <span>✨ SHUBH VIVAH LISTINGS</span>
+            <span>🎪 ALWAR FESTIVE DEALS</span>
             <span>•</span>
             <span className="text-rose-200/80">{selectedCity.toUpperCase()}</span>
           </div>
@@ -228,7 +227,7 @@ export default function ShaadiFeed({
             {getSubCategoryTitle()}
           </h2>
           <p className="text-[10px] text-amber-200/75 font-medium mt-0.5">
-            {filteredVendors.length} verified wedding specialists available in {selectedCity}
+            {filteredVendors.length} active festive offers available in {selectedCity}
           </p>
         </div>
 
@@ -244,16 +243,16 @@ export default function ShaadiFeed({
       {/* Cards List */}
       {filteredVendors.length === 0 ? (
         <div className="bg-gradient-to-br from-[#24050c] via-[#170307] to-[#120205] rounded-3xl p-8 text-center border border-[#520f1c] shadow-lg space-y-2">
-          <span className="text-3xl block animate-bounce">💍</span>
-          <h4 className="text-xs font-black text-amber-200">No Wedding Vendors Found</h4>
+          <span className="text-3xl block animate-bounce">🎪</span>
+          <h4 className="text-xs font-black text-amber-200">No Festive Listings Found</h4>
           <p className="text-rose-200/70 font-medium text-[10.5px]">
-            No listings currently available under {targetSub !== 'all' ? targetSub : 'this category'} in {selectedCity}.
+            No offers currently posted under {targetSub !== 'all' ? targetSub : 'this category'} in {selectedCity}.
           </p>
         </div>
       ) : (
         <div className="space-y-3.5">
           {filteredVendors.map((v) => (
-            <ShaadiCardItem
+            <FestivalCardItem
               key={v.id}
               item={v}
               selectedCity={selectedCity}
@@ -264,7 +263,7 @@ export default function ShaadiFeed({
         </div>
       )}
 
-      {/* Dedicated Detail View Modal */}
+      {/* Detail Modal */}
       {selectedDetailItem && (
         <ListingDetailModal
           item={selectedDetailItem}

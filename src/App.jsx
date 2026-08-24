@@ -13,10 +13,12 @@ import HyperlocalHomeFeed from './HyperlocalHomeFeed';
 import TownHubView from './categories/TownHubView';
 import NotificationCenter from './components/NotificationCenter';
 import AuthModal from './components/common/AuthModal';
+import AdminKeyModal from './components/common/AdminKeyModal';
 
-// Lazy Loaded Modals
+// Lazy Loaded Modals & Admin Dashboard
 const ContextualListingModal = lazy(() => import('./components/ContextualListingModal'));
 const ListingDetailModal = lazy(() => import('./components/common/ListingDetailModal'));
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 
 // Code-Split Lazy Loaded Hubs
 const SurpriseFeed = lazy(() => import('./components/SurpriseFeed'));
@@ -24,6 +26,8 @@ const ProviderDashboard = lazy(() => import('./ProviderDashboard'));
 const MedicalHub = lazy(() => import('./categories/MedicalHub'));
 const PropertyHub = lazy(() => import('./categories/PropertyHub'));
 const VehicleHub = lazy(() => import('./categories/VehicleHub'));
+const FestivalFeed = lazy(() => import('./components/FestivalFeed'));
+const FestivalHub = lazy(() => import('./categories/FestivalHub'));
 const ElectronicsHub = lazy(() => import('./categories/ElectronicsHub'));
 const FashionHub = lazy(() => import('./categories/FashionHub'));
 const FurnitureHub = lazy(() => import('./categories/FurnitureHub'));
@@ -86,8 +90,12 @@ export default function App() {
   const { location: userLocation, isLocating, detectLocation } = useUserLocation();
   const selectedCity = userLocation?.city || 'Alwar';
 
-  // 🛡️ User Authentication & Verification State
+  // 🛡️ Authentication & Master Admin Key State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(
+    () => localStorage.getItem('townhub_admin_unlocked') === 'true'
+  );
+  const [isAdminKeyModalOpen, setIsAdminKeyModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authActionTitle, setAuthActionTitle] = useState('Verify Phone to Continue');
 
@@ -159,28 +167,29 @@ export default function App() {
     hyperlocalStore.addNotification(notif);
   };
 
-  // 🛡️ Action Gates: Require Verified Identity for Posting & Provider Access
+  // 👑 Master Admin Posting Handler
   const handleOpenPostModal = () => {
-    if (!currentUser) {
-      setAuthActionTitle('Verify Phone to Post Listing');
-      setIsAuthModalOpen(true);
-      return;
+    if (isAdminUnlocked || currentUser) {
+      setIsListingModalOpen(true);
+    } else {
+      setIsAdminKeyModalOpen(true);
     }
-    setIsListingModalOpen(true);
   };
 
   const handleOpenBusinessHub = () => {
-    if (!currentUser) {
+    if (isAdminUnlocked || currentUser) {
+      navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
+    } else {
       setAuthActionTitle('Verify Phone to Open Business Hub');
       setIsAuthModalOpen(true);
-      return;
     }
-    navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
   };
 
   const handleLogout = async () => {
-    if (window.confirm('Do you want to log out of this account?')) {
+    if (window.confirm('Do you want to log out / reset Admin session?')) {
       await logoutUser();
+      localStorage.removeItem('townhub_admin_unlocked');
+      setIsAdminUnlocked(false);
       setCurrentUser(null);
     }
   };
@@ -207,14 +216,14 @@ export default function App() {
 
   // 🌟 Touch Swipe Gesture Handlers
   const handleTouchStart = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen) return;
+    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen) return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
     touchStartTime.current = Date.now();
   };
 
   const handleTouchEnd = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen) return;
+    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen) return;
 
     const target = e.target;
     if (target.closest('.overflow-x-auto, input, textarea, select')) return;
@@ -259,6 +268,7 @@ export default function App() {
       restaurants: 'restaurants-hub',
       malls: 'malls-hub',
       shaadi: 'shaadi-hub',
+      festival: 'festival-hub',
       construction: 'construction-hub',
       advertising: 'advertising-hub',
       community: 'community-hub',
@@ -291,6 +301,7 @@ export default function App() {
       restaurants: 'restaurants-feed',
       malls: 'malls-feed',
       shaadi: 'shaadi-feed',
+      festival: 'festival-feed',
       construction: 'construction-feed',
       advertising: 'advertising-feed',
       community: 'community-feed',
@@ -365,7 +376,7 @@ export default function App() {
 
         {/* Right Action Cluster */}
         <div className="flex items-center space-x-1.5 shrink-0">
-          {currentScreen !== 'home' && currentScreen !== 'provider-dashboard' && (
+          {currentScreen !== 'home' && currentScreen !== 'provider-dashboard' && currentScreen !== 'admin-dashboard' && (
             <button
               type="button"
               onClick={handleOpenPostModal}
@@ -400,8 +411,18 @@ export default function App() {
             )}
           </button>
 
-          {/* 👤 Verified User Status Pill / Login Trigger */}
-          {currentUser ? (
+          {/* 👑 Admin / User Status Badge */}
+          {isAdminUnlocked ? (
+            <button
+              type="button"
+              onClick={() => navigateTo({ screen: 'admin-dashboard', searchQuery: '' })}
+              className="flex items-center space-x-1 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 rounded-xl px-2 py-1.5 cursor-pointer active:scale-95 transition"
+              title="Open Admin Dashboard"
+            >
+              <span className="text-[10px]">👑</span>
+              <span className="text-[10px] font-black text-amber-300">Admin</span>
+            </button>
+          ) : currentUser ? (
             <button
               type="button"
               onClick={handleLogout}
@@ -416,13 +437,10 @@ export default function App() {
           ) : (
             <button
               type="button"
-              onClick={() => {
-                setAuthActionTitle('Login / Register via Phone OTP');
-                setIsAuthModalOpen(true);
-              }}
+              onClick={() => setIsAdminKeyModalOpen(true)}
               className="px-2 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
             >
-              Login
+              👑 Admin
             </button>
           )}
         </div>
@@ -463,6 +481,13 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed(selectedCategory, sub)}
               onBack={goBack}
+            />
+          )}
+
+          {currentScreen === 'admin-dashboard' && (
+            <AdminDashboard
+              selectedCity={selectedCity}
+              onBack={() => navigateTo({ screen: 'home' })}
             />
           )}
 
@@ -566,6 +591,15 @@ export default function App() {
             <ShaadiHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('shaadi', sub)}
+              onBack={goBack}
+            />
+          )}
+
+          {currentScreen === 'festival-hub' && (
+            <FestivalHub
+              selectedCity={selectedCity}
+              onSelectSubCategory={(sub) => handleOpenFeed('festival', sub)}
+              onSelectFestivalCategory={(sub) => handleOpenFeed('festival', sub)}
               onBack={goBack}
             />
           )}
@@ -711,6 +745,16 @@ export default function App() {
           )}
           {currentScreen === 'shaadi-feed' && (
             <ShaadiFeed
+              selectedSubCategory={selectedSubCategory}
+              selectedCity={selectedCity}
+              searchQuery={searchQuery}
+              onBack={goBack}
+              onNewNotification={handleNewNotification}
+            />
+          )}
+          {currentScreen === 'festival-feed' && (
+            <FestivalFeed
+              selectedCategory={selectedCategory}
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
@@ -877,6 +921,17 @@ export default function App() {
         )}
       </Suspense>
 
+      {/* 👑 Admin Key Modal */}
+      <AdminKeyModal
+        isOpen={isAdminKeyModalOpen}
+        onClose={() => setIsAdminKeyModalOpen(false)}
+        onSuccess={() => {
+          setIsAdminUnlocked(true);
+          setIsAdminKeyModalOpen(false);
+          setIsListingModalOpen(true);
+        }}
+      />
+
       {isNotificationsOpen && (
         <NotificationCenter
           notifications={notifications}
@@ -886,7 +941,7 @@ export default function App() {
         />
       )}
 
-      {/* 🛡️ Resident Phone Verification Modal */}
+      {/* Resident Phone Verification Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         selectedCity={selectedCity}
