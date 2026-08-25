@@ -50,6 +50,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [recordedVoiceNote, setRecordedVoiceNote] = useState(null);
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -730,7 +731,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL (WITH VOICE & FULLSCREEN)        */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL                                   */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
