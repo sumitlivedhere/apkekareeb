@@ -5,10 +5,12 @@ import {
   rejectListingChanges,
   sendAdminFeedbackToSeller,
   uploadVoiceNoteToStorage,
+  uploadListingImagesToStorage,
+  uploadListingVideosToStorage,
   saveNotificationToDB,
 } from '../../services/listingService';
 import { logoutAdmin, isAdminAuthorized } from '../../services/authService';
-import { TAXONOMY_REGISTRY } from '../../data/taxonomyRegistry';
+import { TAXONOMY_REGISTRY, getCategoryById } from '../../data/taxonomyRegistry';
 import {
   getOptimizedVoiceStream,
   createOptimizedMediaRecorder,
@@ -33,11 +35,33 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [timeFilterType, setTimeFilterType] = useState('all'); // 'all' | 'hours' | 'days' | 'last_week' | 'last_month' | 'this_year'
   const [timeValue, setTimeValue] = useState(1); // 1-24 for hours, 1-7 for days
 
-  // 🔍 Interactive Review Studio Modal State
+  // 👤 1-Tap Merchant Portfolio Dossier State
+  const [selectedSeller, setSelectedSeller] = useState(null); // { phone, name }
+  const [sellerPortfolioTab, setSellerPortfolioTab] = useState('all'); // 'all' | 'approved' | 'pending' | 'feedback'
+
+  // 🔍 Interactive Review Studio Modal & Admin Correction State
   const [inspectingItem, setInspectingItem] = useState(null);
+  const [isAdminEditing, setIsAdminEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    category: 'property',
+    subCategory: 'all',
+    price: '',
+    capacity: '',
+    location: '',
+    timing: '09:00 AM - 09:00 PM',
+    description: '',
+    descPoints: ['', '', '', ''],
+    images: [], // Holds active image strings or new File objects
+    videos: [], // Holds active video objects or new File objects
+  });
+
   const [activeMediaTab, setActiveMediaTab] = useState('photos'); // 'photos' | 'videos'
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
+
+  const adminPhotoInputRef = useRef(null);
+  const adminVideoInputRef = useRef(null);
 
   // 📷 Fullscreen Lightbox State
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -74,7 +98,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🚪 Lock & Exit: Clears session and returns directly to the main feed
+  // 🚪 Lock & Exit
   const handleAdminLogout = () => {
     if (window.confirm('Lock and exit Master Admin Control?')) {
       logoutAdmin();
@@ -90,7 +114,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     setIsRefreshing(false);
   };
 
-  // ⏱️ Time-based Filter Calculator
+  // ⏱️ Time Filter Calculator
   const applyTimeFilter = (timestamp) => {
     if (timeFilterType === 'all') return true;
     if (!timestamp) return true;
@@ -165,14 +189,185 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 🟢 Approve & Publish Handler
+  // 👤 Specific Selected Seller's Listings (Categorized)
+  const sellerListings = useMemo(() => {
+    if (!selectedSeller?.phone) return [];
+    const cleanTargetPhone = String(selectedSeller.phone).replace(/\D/g, '').slice(-10);
+
+    return allListings.filter((item) => {
+      const p1 = String(item.phone || '').replace(/\D/g, '').slice(-10);
+      const p2 = String(item.pending_changes?.phone || '').replace(/\D/g, '').slice(-10);
+      return p1 === cleanTargetPhone || p2 === cleanTargetPhone;
+    });
+  }, [allListings, selectedSeller]);
+
+  const sellerApproved = useMemo(() => {
+    return sellerListings.filter((i) => i.is_active === true && !i.has_pending_approval);
+  }, [sellerListings]);
+
+  const sellerPending = useMemo(() => {
+    return sellerListings.filter(
+      (i) =>
+        (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) &&
+        !i.admin_feedback &&
+        !i.seller_feedback_reply
+    );
+  }, [sellerListings]);
+
+  const sellerFeedbackActive = useMemo(() => {
+    return sellerListings.filter(
+      (i) =>
+        (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) &&
+        (Boolean(i.admin_feedback) || Boolean(i.seller_feedback_reply))
+    );
+  }, [sellerListings]);
+
+  const displayedSellerListings = useMemo(() => {
+    if (sellerPortfolioTab === 'approved') return sellerApproved;
+    if (sellerPortfolioTab === 'pending') return sellerPending;
+    if (sellerPortfolioTab === 'feedback') return sellerFeedbackActive;
+    return sellerListings;
+  }, [sellerPortfolioTab, sellerListings, sellerApproved, sellerPending, sellerFeedbackActive]);
+
+  // Populate Admin Correction Form & Media State
+  const handleOpenInspector = (item) => {
+    const changes = item.pending_changes || {};
+    const effectiveTitle = changes.title || item.title || item.name || '';
+    const effectivePrice = changes.price || item.price || item.rates || '';
+    const effectiveCap = changes.capacity || item.capacity || item.stockCount || 'Ready Stock';
+    const effectiveLocation = changes.location || item.location || selectedCity;
+    const effectiveTiming = changes.timing || item.timing || item.activeHours || '09:00 AM - 09:00 PM';
+    const effectiveCat = changes.category || item.category || 'property';
+    const effectiveSubCat = changes.subCategory || changes.sub_category || item.subCategory || item.sub_category || 'all';
+    const effectiveDesc = changes.description || item.description || '';
+
+    const photos = changes.images || changes.image_urls || item.images || (changes.image ? [changes.image] : [item.image]);
+    const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
+    const videos = changes.videos || changes.video_urls || item.videos || [];
+
+    let parsedPoints = ['', '', '', ''];
+    if (effectiveDesc) {
+      const lines = effectiveDesc.split('\n').map((l) => l.replace(/^[•\-\d.\s]+/, '').trim()).filter(Boolean);
+      parsedPoints = [lines[0] || '', lines[1] || '', lines[2] || '', lines[3] || ''];
+    }
+
+    setEditFormData({
+      title: effectiveTitle,
+      category: effectiveCat,
+      subCategory: effectiveSubCat,
+      price: effectivePrice,
+      capacity: effectiveCap,
+      location: effectiveLocation,
+      timing: effectiveTiming,
+      description: effectiveDesc,
+      descPoints: parsedPoints,
+      images: cleanPhotos,
+      videos: videos,
+    });
+
+    setInspectingItem(item);
+    setIsAdminEditing(false);
+    setActivePhotoIdx(0);
+    setActiveVideoIdx(0);
+    setActiveMediaTab('photos');
+    setFeedbackText(item.admin_feedback || '');
+    setRecordedVoiceNote(null);
+  };
+
+  // 📷 Admin Add Photo Handler
+  const handleAdminAddPhoto = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const newPreviews = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      isNew: true,
+    }));
+    setEditFormData((prev) => ({ ...prev, images: [...prev.images, ...newPreviews] }));
+    e.target.value = '';
+  };
+
+  const handleAdminRemovePhoto = (idx) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== idx),
+    }));
+  };
+
+  // 🎥 Admin Add Video Handler
+  const handleAdminAddVideo = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const tempUrl = URL.createObjectURL(file);
+    setEditFormData((prev) => ({
+      ...prev,
+      videos: [...prev.videos, { file, url: tempUrl, name: file.name, duration: 30, isNew: true }],
+    }));
+    e.target.value = '';
+  };
+
+  const handleAdminRemoveVideo = (idx) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      videos: prev.videos.filter((_, i) => i !== idx),
+    }));
+  };
+
+  // 🟢 Approve & Publish Handler (Incorporates Admin Media & Text Corrections)
   const handleApprove = async (item) => {
     setActionInProgressId(item.id);
     try {
-      const changes = item.pending_changes || {};
+      let finalChanges = item.pending_changes || {};
+
+      let finalImages = editFormData.images;
+      let finalVideos = editFormData.videos;
+
+      if (isAdminEditing) {
+        // Upload any newly added files
+        const newImageFiles = finalImages.filter((img) => img?.file).map((img) => img.file);
+        const uploadedNewImageUrls = newImageFiles.length > 0 ? await uploadListingImagesToStorage(newImageFiles) : [];
+        
+        const existingImageUrls = finalImages.filter((img) => typeof img === 'string');
+        finalImages = [...existingImageUrls, ...uploadedNewImageUrls];
+
+        const newVideoObjects = finalVideos.filter((v) => v?.file);
+        const uploadedNewVideos = newVideoObjects.length > 0 ? await uploadListingVideosToStorage(newVideoObjects) : [];
+        const existingVideos = finalVideos.filter((v) => !v?.file);
+        finalVideos = [...existingVideos, ...uploadedNewVideos];
+
+        const validPoints = editFormData.descPoints.filter((p) => p && p.trim().length > 0);
+        const combinedDesc =
+          validPoints.length > 0
+            ? validPoints.map((p) => `• ${p.trim()}`).join('\n')
+            : editFormData.title;
+
+        finalChanges = {
+          ...finalChanges,
+          title: editFormData.title.trim(),
+          name: editFormData.title.trim(),
+          category: editFormData.category,
+          subCategory: editFormData.subCategory,
+          sub_category: editFormData.subCategory,
+          price: editFormData.price.trim(),
+          rates: editFormData.price.trim(),
+          startingPackage: editFormData.price.trim(),
+          capacity: editFormData.capacity.trim(),
+          stockCount: editFormData.capacity.trim(),
+          location: editFormData.location.trim(),
+          timing: editFormData.timing.trim(),
+          activeHours: editFormData.timing.trim(),
+          description: combinedDesc,
+          image: finalImages[0] || item.image,
+          images: finalImages,
+          image_urls: finalImages,
+          videos: finalVideos,
+          video_urls: finalVideos.map((v) => (typeof v === 'string' ? v : v.url)),
+        };
+      }
+
       const updatedPayload = {
         ...item,
-        ...changes,
+        ...finalChanges,
         is_active: true,
         has_pending_approval: false,
         pending_changes: null,
@@ -181,21 +376,24 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       };
 
       await approveListingChanges(item.id, updatedPayload);
-      hyperlocalStore.insertListing(item.category, updatedPayload);
+      hyperlocalStore.insertListing(updatedPayload.category || item.category, updatedPayload);
 
       const notifObj = {
         tag: 'APPROVED',
-        title: `Listing Approved: "${changes.title || item.title}"`,
-        message: `Listing is now live with verified status across ${selectedCity}.`,
+        title: `Listing Approved: "${finalChanges.title || item.title}"`,
+        message: `Listing is verified and live across ${selectedCity}${isAdminEditing ? ' with verified admin media/text corrections.' : '.'}`,
         targetId: item.id,
-        category: item.category,
+        category: updatedPayload.category,
         recipient_role: 'seller',
-        recipient_phone: changes.phone || item.phone,
+        recipient_phone: finalChanges.phone || item.phone,
       };
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
 
-      if (inspectingItem?.id === item.id) setInspectingItem(null);
+      if (inspectingItem?.id === item.id) {
+        setInspectingItem(null);
+        setIsAdminEditing(false);
+      }
     } catch (err) {
       console.error('Approve error:', err);
       alert('Failed to approve listing. Please check your network connection.');
@@ -230,7 +428,10 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
 
-      if (inspectingItem?.id === item.id) setInspectingItem(null);
+      if (inspectingItem?.id === item.id) {
+        setInspectingItem(null);
+        setIsAdminEditing(false);
+      }
     } catch (err) {
       console.error('Reject error:', err);
       alert('Failed to reject changes.');
@@ -334,7 +535,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       setFeedbackText('');
       setRecordedVoiceNote(null);
       if (inspectingItem?.id === item.id) setInspectingItem(null);
-    } catch (err) {
+    } catch {
       alert('Failed to send feedback note.');
     } finally {
       setIsSendingFeedback(false);
@@ -528,7 +729,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </select>
           </div>
 
-          {/* Stepper controls for Hours (1-24) & Days (1-7) */}
           {timeFilterType === 'hours' && (
             <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 text-[10px]">
               <span className="text-amber-300 font-bold">Past {timeValue} Hour{timeValue > 1 ? 's' : ''}:</span>
@@ -606,6 +806,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               pendingApprovals.map((item) => {
                 const changes = item.pending_changes || {};
                 const isProposal = Boolean(item.pending_changes);
+                const sellerPhone = changes.phone || item.phone;
+                const sellerName = changes.sellerName || item.sellerName;
 
                 return (
                   <div
@@ -613,18 +815,33 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     className="bg-slate-900 border border-amber-500/40 rounded-2xl p-3.5 space-y-3 shadow-md relative overflow-hidden"
                   >
                     <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider">
+                      <div className="min-w-0 flex-1 pr-2">
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider inline-block">
                           {isProposal ? '✏️ PROPOSED EDIT' : '🆕 NEW ENLISTMENT'}
                         </span>
-                        <h4 className="text-xs font-black text-slate-100 mt-1">
+                        <h4 className="text-xs font-black text-slate-100 mt-1 truncate">
                           {changes.title || item.title}
                         </h4>
-                        <p className="text-[10px] text-amber-300 font-bold">
-                          👤 {changes.sellerName || item.sellerName} • 📞 {changes.phone || item.phone}
-                        </p>
+
+                        {/* 👤 1-Tap Merchant Dossier Trigger */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSeller({ phone: sellerPhone, name: sellerName });
+                            setSellerPortfolioTab('all');
+                          }}
+                          className="mt-0.5 text-[10px] text-amber-300 hover:text-amber-200 font-bold flex items-center space-x-1 cursor-pointer group"
+                        >
+                          <span className="group-hover:underline">👤 {sellerName}</span>
+                          <span>•</span>
+                          <span className="font-mono">📞 {sellerPhone}</span>
+                          <span className="text-[8px] bg-amber-400/20 px-1 py-0.2 rounded text-amber-300 font-bold">
+                            View All ({allListings.filter(l => String(l.phone || l.pending_changes?.phone).slice(-10) === String(sellerPhone).slice(-10)).length}) ➔
+                          </span>
+                        </button>
                       </div>
-                      <span className="text-[9px] text-slate-400 font-semibold bg-slate-800 px-2 py-0.5 rounded-md">
+
+                      <span className="text-[9px] text-slate-400 font-semibold bg-slate-800 px-2 py-0.5 rounded-md shrink-0">
                         {changes.category || item.category}
                       </span>
                     </div>
@@ -638,14 +855,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setInspectingItem(item);
-                          setActivePhotoIdx(0);
-                          setActiveVideoIdx(0);
-                          setActiveMediaTab('photos');
-                          setFeedbackText(item.admin_feedback || '');
-                          setRecordedVoiceNote(null);
-                        }}
+                        onClick={() => handleOpenInspector(item)}
                         className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md cursor-pointer active:scale-95 transition flex items-center space-x-1"
                       >
                         <span>🔍</span>
@@ -694,9 +904,18 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </span>
                     <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
                   </div>
-                  <p className="text-[9.5px] text-slate-400 mt-0.5">
-                    {item.sellerName} • {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
-                  </p>
+                  
+                  {/* 👤 1-Tap Merchant Dossier */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSeller({ phone: item.phone, name: item.sellerName });
+                      setSellerPortfolioTab('all');
+                    }}
+                    className="text-[9.5px] text-amber-300 hover:text-amber-200 mt-0.5 block text-left cursor-pointer"
+                  >
+                    👤 {item.sellerName} • 📞 {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
+                  </button>
                 </div>
                 <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
                   {item.category}
@@ -716,9 +935,16 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               >
                 <div className="min-w-0 pr-2">
                   <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
-                  <p className="text-[9.5px] text-slate-400">
-                    {item.sellerName} • {item.phone} • <span className="text-amber-400 font-bold">{item.price}</span>
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSeller({ phone: item.phone, name: item.sellerName });
+                      setSellerPortfolioTab('all');
+                    }}
+                    className="text-[9.5px] text-slate-400 hover:text-amber-300 text-left block cursor-pointer"
+                  >
+                    👤 {item.sellerName} • 📞 {item.phone} • <span className="text-amber-400 font-bold">{item.price}</span>
+                  </button>
                 </div>
                 <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
                   {item.category}
@@ -731,7 +957,204 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL                                   */}
+      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL                               */}
+      {/* ========================================================================= */}
+      {selectedSeller && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
+          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            
+            {/* Dossier Header */}
+            <div className="p-4 bg-slate-950 border-b border-slate-800 shrink-0">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-900">
+                <div>
+                  <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
+                    👑 MERCHANT DOSSIER & PORTFOLIO
+                  </span>
+                  <h3 className="text-sm font-black text-slate-100 flex items-center space-x-1.5 mt-0.5">
+                    <span>👤 {selectedSeller.name}</span>
+                  </h3>
+                  <span className="text-cyan-300 font-mono text-[11px] block">📞 {selectedSeller.phone}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedSeller(null)}
+                  className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Instant WhatsApp & Phone Actions */}
+              <div className="flex items-center justify-between pt-2.5">
+                <span className="text-[9.5px] text-slate-400 font-bold">
+                  Total Listings: <span className="text-amber-400">{sellerListings.length}</span>
+                </span>
+                
+                <div className="flex items-center space-x-2">
+                  <a
+                    href={`https://wa.me/91${String(selectedSeller.phone).slice(-10)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px] flex items-center space-x-1"
+                  >
+                    <span>💬</span>
+                    <span>WhatsApp</span>
+                  </a>
+                  <a
+                    href={`tel:+91${String(selectedSeller.phone).slice(-10)}`}
+                    className="px-2.5 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-lg font-bold text-[9.5px] flex items-center space-x-1"
+                  >
+                    <span>📞</span>
+                    <span>Call</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Categorization Pills */}
+            <div className="p-2.5 bg-slate-950/80 border-b border-slate-800 flex items-center space-x-1.5 overflow-x-auto text-[9.5px] font-bold shrink-0">
+              <button
+                type="button"
+                onClick={() => setSellerPortfolioTab('all')}
+                className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                  sellerPortfolioTab === 'all' ? 'bg-slate-700 text-white font-black' : 'bg-slate-900 text-slate-400'
+                }`}
+              >
+                All ({sellerListings.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSellerPortfolioTab('approved')}
+                className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                  sellerPortfolioTab === 'approved' ? 'bg-emerald-500 text-slate-950 font-black' : 'bg-slate-900 text-emerald-400'
+                }`}
+              >
+                🟢 Live ({sellerApproved.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSellerPortfolioTab('pending')}
+                className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                  sellerPortfolioTab === 'pending' ? 'bg-amber-400 text-slate-950 font-black' : 'bg-slate-900 text-amber-300'
+                }`}
+              >
+                ⏳ Pending ({sellerPending.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSellerPortfolioTab('feedback')}
+                className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                  sellerPortfolioTab === 'feedback' ? 'bg-cyan-400 text-slate-950 font-black' : 'bg-slate-900 text-cyan-300'
+                }`}
+              >
+                💬 Replied/Notes ({sellerFeedbackActive.length})
+              </button>
+            </div>
+
+            {/* Portfolio Listings Scroll Area */}
+            <div className="p-3.5 overflow-y-auto space-y-2.5 flex-1">
+              {displayedSellerListings.length === 0 ? (
+                <div className="text-center p-8 text-slate-500 text-xs font-bold">
+                  No listings in this category.
+                </div>
+              ) : (
+                displayedSellerListings.map((item) => {
+                  const isPending = item.has_pending_approval || !item.is_active || Boolean(item.pending_changes);
+                  const hasFeedback = Boolean(item.admin_feedback) || Boolean(item.seller_feedback_reply);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-2xl border bg-slate-950 space-y-2 ${
+                        hasFeedback
+                          ? 'border-cyan-500/40 bg-cyan-950/20'
+                          : isPending
+                          ? 'border-amber-500/40'
+                          : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center space-x-1.5 mb-1">
+                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 uppercase">
+                              {item.category}
+                            </span>
+                            {isPending && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                ⏳ PENDING
+                              </span>
+                            )}
+                            {hasFeedback && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
+                                💬 FEEDBACK
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="text-xs font-black text-slate-100 truncate">
+                            {item.pending_changes?.title || item.title}
+                          </h4>
+                          <span className="text-emerald-400 font-bold text-[10px]">
+                            {item.pending_changes?.price || item.price}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInspector(item)}
+                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[9.5px] rounded-xl shadow cursor-pointer shrink-0"
+                        >
+                          🔍 Inspect
+                        </button>
+                      </div>
+
+                      {item.admin_feedback && (
+                        <div className="p-2 rounded-xl bg-amber-950/40 border border-amber-500/30 text-[9px] text-amber-200">
+                          👑 <strong>Your Note:</strong> "{item.admin_feedback}"
+                        </div>
+                      )}
+
+                      {item.seller_feedback_reply && (
+                        <div className="p-2 rounded-xl bg-cyan-950/40 border border-cyan-400/30 text-[9px] text-cyan-200">
+                          👤 <strong>Merchant Reply:</strong> "{item.seller_feedback_reply}"
+                        </div>
+                      )}
+
+                      {isPending && (
+                        <div className="flex items-center space-x-2 pt-1 border-t border-slate-900">
+                          <button
+                            type="button"
+                            onClick={() => handleApprove(item)}
+                            disabled={actionInProgressId === item.id}
+                            className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9.5px] rounded-lg cursor-pointer"
+                          >
+                            ✓ Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(item)}
+                            disabled={actionInProgressId === item.id}
+                            className="px-3 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[9.5px] rounded-lg cursor-pointer"
+                          >
+                            ✕ Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL (WITH ADMIN CORRECTION MODE)       */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -741,19 +1164,35 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
               <div className="min-w-0 pr-2">
                 <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
-                  🔍 MODERATION INSPECTOR
+                  🔍 MODERATION INSPECTOR {isAdminEditing && '• ✏️ CORRECTION MODE'}
                 </span>
                 <h3 className="text-xs font-black text-slate-100 truncate">
                   {inspectingItem.pending_changes?.title || inspectingItem.title}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setInspectingItem(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs cursor-pointer"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAdminEditing((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-xl text-[9.5px] font-black transition cursor-pointer ${
+                    isAdminEditing
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'bg-slate-800 text-amber-300 border border-amber-400/40'
+                  }`}
+                >
+                  {isAdminEditing ? '👁️ View Original' : '✏️ Edit & Correct'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectingItem(null);
+                    setIsAdminEditing(false);
+                  }}
+                  className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Scrollable Inspector Studio */}
@@ -761,12 +1200,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               
               {/* Media Player Box with Fullscreen Trigger */}
               {(() => {
-                const changes = inspectingItem.pending_changes || {};
-                const photos = changes.images || changes.image_urls || inspectingItem.images || (changes.image ? [changes.image] : [inspectingItem.image]);
+                const photos = editFormData.images || [];
                 const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
-                const videos = (changes.videos || changes.video_urls || inspectingItem.videos || []).map((v) =>
-                  typeof v === 'string' ? { url: v, duration: 30 } : v
-                );
+                const videos = editFormData.videos || [];
 
                 return (
                   <div className="space-y-2">
@@ -811,8 +1247,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         )
                       ) : (
                         <video
-                          key={videos[activeVideoIdx]?.url}
-                          src={videos[activeVideoIdx]?.url}
+                          key={videos[activeVideoIdx]?.url || videos[activeVideoIdx]?.preview}
+                          src={videos[activeVideoIdx]?.url || videos[activeVideoIdx]?.preview}
                           controls
                           autoPlay
                           playsInline
@@ -833,112 +1269,298 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </button>
                     </div>
 
-                    {/* Photo Thumbnails */}
-                    {activeMediaTab === 'photos' && cleanPhotos.length > 1 && (
-                      <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-                        {cleanPhotos.map((imgUrl, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setActivePhotoIdx(idx)}
-                            className={`w-12 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer ${
-                              activePhotoIdx === idx ? 'border-amber-400 scale-95' : 'border-slate-800 opacity-60'
-                            }`}
-                          >
-                            <img src={imgUrl} alt="thumb" className="w-full h-full object-cover" />
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {/* Photo Thumbnails & Admin Add/Delete Controls */}
+                    {activeMediaTab === 'photos' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[9px]">
+                          <span className="text-slate-400 font-bold">Attached Photos</span>
+                          {isAdminEditing && (
+                            <button
+                              type="button"
+                              onClick={() => adminPhotoInputRef.current?.click()}
+                              className="text-amber-300 font-black underline cursor-pointer"
+                            >
+                              + Add Photo
+                            </button>
+                          )}
+                          <input type="file" ref={adminPhotoInputRef} multiple accept="image/*" onChange={handleAdminAddPhoto} className="hidden" />
+                        </div>
 
-                    {/* Video Selector Tabs */}
-                    {activeMediaTab === 'videos' && videos.length > 1 && (
-                      <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-                        {videos.map((vid, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setActiveVideoIdx(idx)}
-                            className={`flex-1 py-1.5 px-2 rounded-xl text-[10px] font-black transition cursor-pointer ${
-                              activeVideoIdx === idx
-                                ? 'bg-cyan-400 text-slate-950 shadow-md'
-                                : 'bg-slate-950 text-slate-400 border border-slate-800'
-                            }`}
-                          >
-                            🎬 Video {idx + 1} ({vid.duration || 30}s)
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Structured Details */}
-              {(() => {
-                const changes = inspectingItem.pending_changes || {};
-                const sellerPhone = changes.phone || inspectingItem.phone;
-
-                return (
-                  <div className="space-y-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-[10.5px]">
-                    <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                      <div>
-                        <span className="text-[8.5px] text-slate-400 uppercase block">Merchant Contact</span>
-                        <span className="text-slate-100 font-black">{changes.sellerName || inspectingItem.sellerName}</span>
-                        <span className="text-cyan-300 font-mono block">📞 {sellerPhone}</span>
-                      </div>
-
-                      <div className="flex items-center space-x-1.5">
-                        <a
-                          href={`https://wa.me/91${String(sellerPhone).slice(-10)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px]"
-                        >
-                          💬 WhatsApp
-                        </a>
-                        <a
-                          href={`tel:+91${String(sellerPhone).slice(-10)}`}
-                          className="px-2 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-lg font-bold text-[9.5px]"
-                        >
-                          📞 Call
-                        </a>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 border-b border-slate-900 pb-2">
-                      <div>
-                        <span className="text-[8.5px] text-slate-500 uppercase block">Price Rate</span>
-                        <span className="text-emerald-400 font-black text-xs">{changes.price || inspectingItem.price}</span>
-                      </div>
-                      <div>
-                        <span className="text-[8.5px] text-slate-500 uppercase block">Ready Stock</span>
-                        <span className="text-cyan-300 font-bold">{changes.capacity || inspectingItem.capacity || 'Ready Stock'}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 border-b border-slate-900 pb-2">
-                      <div>
-                        <span className="text-[8.5px] text-slate-500 uppercase block">Active Hours</span>
-                        <span className="text-slate-200 font-bold">{changes.timing || inspectingItem.timing || '09:00 AM - 09:00 PM'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[8.5px] text-slate-500 uppercase block">Location</span>
-                        <span className="text-slate-300 truncate block">📍 {changes.location || inspectingItem.location || 'Alwar'}</span>
-                      </div>
-                    </div>
-
-                    {(changes.description || inspectingItem.description) && (
-                      <div>
-                        <span className="text-[8.5px] text-slate-400 uppercase block mb-1">Key Highlights:</span>
-                        <div className="text-slate-200 leading-relaxed whitespace-pre-line text-[10px]">
-                          {changes.description || inspectingItem.description}
+                        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+                          {cleanPhotos.map((imgUrl, idx) => (
+                            <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border-2 shrink-0 group">
+                              <img
+                                src={imgUrl}
+                                alt="thumb"
+                                onClick={() => setActivePhotoIdx(idx)}
+                                className={`w-full h-full object-cover cursor-pointer ${activePhotoIdx === idx ? 'border-amber-400' : 'opacity-60'}`}
+                              />
+                              {isAdminEditing && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdminRemovePhoto(idx)}
+                                  className="absolute top-0.5 right-0.5 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] font-black cursor-pointer shadow"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
+
+                    {/* Video Selector Tabs & Admin Add/Delete Controls */}
+                    {activeMediaTab === 'videos' && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[9px]">
+                          <span className="text-slate-400 font-bold">Attached Videos</span>
+                          {isAdminEditing && (
+                            <button
+                              type="button"
+                              onClick={() => adminVideoInputRef.current?.click()}
+                              className="text-cyan-300 font-black underline cursor-pointer"
+                            >
+                              + Add Video
+                            </button>
+                          )}
+                          <input type="file" ref={adminVideoInputRef} accept="video/*" onChange={handleAdminAddVideo} className="hidden" />
+                        </div>
+
+                        {videos.length > 0 && (
+                          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+                            {videos.map((vid, idx) => (
+                              <div key={idx} className="relative shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveVideoIdx(idx)}
+                                  className={`py-1.5 px-3 rounded-xl text-[10px] font-black transition cursor-pointer ${
+                                    activeVideoIdx === idx
+                                      ? 'bg-cyan-400 text-slate-950 shadow-md'
+                                      : 'bg-slate-950 text-slate-400 border border-slate-800'
+                                  }`}
+                                >
+                                  🎬 Video {idx + 1}
+                                </button>
+                                {isAdminEditing && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminRemoveVideo(idx)}
+                                    className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] font-black cursor-pointer shadow"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
+
+              {/* ✏️ ADMIN EDITING & CORRECTION FIELDS */}
+              {isAdminEditing ? (
+                <div className="space-y-3 bg-slate-950 p-3.5 rounded-2xl border border-amber-400/40 text-[10.5px]">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                    <span className="text-[9.5px] font-black text-amber-300 uppercase">
+                      ✏️ Edit Listing Details & Media as Admin
+                    </span>
+                    <span className="text-[8.5px] text-slate-400">Merchant will get notified</span>
+                  </div>
+
+                  {/* Category & Subcategory Modifier */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Sector *</label>
+                      <select
+                        value={editFormData.category}
+                        onChange={(e) => {
+                          const newCat = e.target.value;
+                          const catObj = getCategoryById(newCat);
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            category: newCat,
+                            subCategory: catObj?.subCategories?.[0]?.id || 'all',
+                          }));
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-slate-100 text-[10px] font-bold"
+                      >
+                        {Object.keys(TAXONOMY_REGISTRY).map((catKey) => {
+                          const cat = TAXONOMY_REGISTRY[catKey];
+                          return <option key={cat.id} value={cat.id}>{cat.name.split('(')[0]}</option>;
+                        })}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Subcategory *</label>
+                      <select
+                        value={editFormData.subCategory}
+                        onChange={(e) => setEditFormData({ ...editFormData, subCategory: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-slate-100 text-[10px] font-bold"
+                      >
+                        <option value="all">🌟 All / General</option>
+                        {(getCategoryById(editFormData.category)?.subCategories || []).map((sub) => (
+                          <option key={sub.id} value={sub.id}>{sub.name.split('(')[0]}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div>
+                    <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Listing Title *</label>
+                    <input
+                      type="text"
+                      value={editFormData.title}
+                      onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 font-bold"
+                    />
+                  </div>
+
+                  {/* Price & Stock */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Price Rate *</label>
+                      <input
+                        type="text"
+                        value={editFormData.price}
+                        onChange={(e) => setEditFormData({ ...editFormData, price: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-emerald-400 font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Stock / Units</label>
+                      <input
+                        type="text"
+                        value={editFormData.capacity}
+                        onChange={(e) => setEditFormData({ ...editFormData, capacity: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-cyan-300 font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Hours & Location */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Active Hours</label>
+                      <input
+                        type="text"
+                        value={editFormData.timing}
+                        onChange={(e) => setEditFormData({ ...editFormData, timing: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-200 font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Location</label>
+                      <input
+                        type="text"
+                        value={editFormData.location}
+                        onChange={(e) => setEditFormData({ ...editFormData, location: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-200 font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Highlights Bullet Editor */}
+                  <div className="space-y-1.5">
+                    <label className="text-[8.5px] font-bold text-slate-400 block">4 Key Highlights</label>
+                    {[0, 1, 2, 3].map((idx) => (
+                      <input
+                        key={idx}
+                        type="text"
+                        value={editFormData.descPoints[idx]}
+                        onChange={(e) => {
+                          const next = [...editFormData.descPoints];
+                          next[idx] = e.target.value;
+                          setEditFormData({ ...editFormData, descPoints: next });
+                        }}
+                        placeholder={`Point ${idx + 1}...`}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 text-[10px]"
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Structured Details View with 1-Tap Dossier */
+                (() => {
+                  const changes = inspectingItem.pending_changes || {};
+                  const sellerPhone = changes.phone || inspectingItem.phone;
+                  const sellerName = changes.sellerName || inspectingItem.sellerName;
+
+                  return (
+                    <div className="space-y-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-[10.5px]">
+                      <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                        <div>
+                          <span className="text-[8.5px] text-slate-400 uppercase block">Merchant Contact</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSeller({ phone: sellerPhone, name: sellerName });
+                              setSellerPortfolioTab('all');
+                            }}
+                            className="text-slate-100 font-black hover:text-amber-300 text-left block cursor-pointer"
+                          >
+                            👤 {sellerName} <span className="text-amber-400 text-[9px] underline ml-1 font-normal">(View Portfolio ➔)</span>
+                          </button>
+                          <span className="text-cyan-300 font-mono block">📞 {sellerPhone}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <a
+                            href={`https://wa.me/91${String(sellerPhone).slice(-10)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px]"
+                          >
+                            💬 WhatsApp
+                          </a>
+                          <a
+                            href={`tel:+91${String(sellerPhone).slice(-10)}`}
+                            className="px-2 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-lg font-bold text-[9.5px]"
+                          >
+                            📞 Call
+                          </a>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 border-b border-slate-900 pb-2">
+                        <div>
+                          <span className="text-[8.5px] text-slate-500 uppercase block">Price Rate</span>
+                          <span className="text-emerald-400 font-black text-xs">{changes.price || inspectingItem.price}</span>
+                        </div>
+                        <div>
+                          <span className="text-[8.5px] text-slate-500 uppercase block">Ready Stock</span>
+                          <span className="text-cyan-300 font-bold">{changes.capacity || inspectingItem.capacity || 'Ready Stock'}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 border-b border-slate-900 pb-2">
+                        <div>
+                          <span className="text-[8.5px] text-slate-500 uppercase block">Active Hours</span>
+                          <span className="text-slate-200 font-bold">{changes.timing || inspectingItem.timing || '09:00 AM - 09:00 PM'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[8.5px] text-slate-500 uppercase block">Location</span>
+                          <span className="text-slate-300 truncate block">📍 {changes.location || inspectingItem.location || 'Alwar'}</span>
+                        </div>
+                      </div>
+
+                      {(changes.description || inspectingItem.description) && (
+                        <div>
+                          <span className="text-[8.5px] text-slate-400 uppercase block mb-1">Key Highlights:</span>
+                          <div className="text-slate-200 leading-relaxed whitespace-pre-line text-[10px]">
+                            {changes.description || inspectingItem.description}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
 
               {/* 📬 Merchant Reply Inspector Box */}
               {inspectingItem.seller_feedback_reply && (
@@ -1044,7 +1666,11 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 disabled={actionInProgressId === inspectingItem.id}
                 className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-50"
               >
-                {actionInProgressId === inspectingItem.id ? 'Publishing Live... ⏳' : '✓ Approve & Publish Live'}
+                {actionInProgressId === inspectingItem.id
+                  ? 'Publishing Live... ⏳'
+                  : isAdminEditing
+                  ? '✓ Approve with Corrections & Publish'
+                  : '✓ Approve & Publish Live'}
               </button>
 
               <button
@@ -1062,14 +1688,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 📷 FULLSCREEN MEDIA LIGHTBOX (PHOTOS & VIDEOS WITH SWIPE / ARROWS)         */}
+      {/* 📷 FULLSCREEN MEDIA LIGHTBOX                                              */}
       {/* ========================================================================= */}
       {isLightboxOpen && inspectingItem && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between p-4 animate-fade-in select-none">
           <div className="flex items-center justify-between text-white pb-2">
             <span className="text-xs font-black">
               {lightboxType === 'photos'
-                ? `Photo ${lightboxIndex + 1} of ${(inspectingItem.pending_changes?.images || inspectingItem.images || []).length}`
+                ? `Photo ${lightboxIndex + 1} of ${(editFormData.images || []).length}`
                 : `Walkthrough Video ${lightboxIndex + 1}`}
             </span>
             <button
@@ -1085,7 +1711,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             {lightboxType === 'photos' ? (
               <img
                 src={
-                  (inspectingItem.pending_changes?.images || inspectingItem.images || [])[lightboxIndex] ||
+                  (editFormData.images || [])[lightboxIndex] ||
                   inspectingItem.image
                 }
                 alt="Fullscreen Preview"
@@ -1094,8 +1720,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             ) : (
               <video
                 src={
-                  (inspectingItem.pending_changes?.videos || inspectingItem.videos || [])[lightboxIndex]?.url ||
-                  (inspectingItem.pending_changes?.videos || inspectingItem.videos || [])[lightboxIndex]
+                  (editFormData.videos || [])[lightboxIndex]?.url ||
+                  (editFormData.videos || [])[lightboxIndex]?.preview ||
+                  (editFormData.videos || [])[lightboxIndex]
                 }
                 controls
                 autoPlay
@@ -1104,7 +1731,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               />
             )}
 
-            {lightboxType === 'photos' && (inspectingItem.pending_changes?.images || inspectingItem.images || []).length > 1 && (
+            {lightboxType === 'photos' && (editFormData.images || []).length > 1 && (
               <>
                 <button
                   type="button"
@@ -1118,10 +1745,10 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   type="button"
                   onClick={() =>
                     setLightboxIndex((prev) =>
-                      Math.min((inspectingItem.pending_changes?.images || inspectingItem.images || []).length - 1, prev + 1)
+                      Math.min((editFormData.images || []).length - 1, prev + 1)
                     )
                   }
-                  disabled={lightboxIndex === (inspectingItem.pending_changes?.images || inspectingItem.images || []).length - 1}
+                  disabled={lightboxIndex === (editFormData.images || []).length - 1}
                   className="absolute right-2 w-10 h-10 rounded-full bg-slate-900/80 text-white flex items-center justify-center text-sm font-bold disabled:opacity-30 cursor-pointer"
                 >
                   ❯

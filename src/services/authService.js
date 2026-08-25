@@ -53,13 +53,10 @@ export function isBusinessAuthorized() {
 }
 
 /**
- * Check if the active session is authorized as Master Admin
+ * Check if the active session is authorized as Master Admin (Scoped strictly to sessionStorage)
  */
 export function isAdminAuthorized() {
-  return (
-    sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true' ||
-    localStorage.getItem(ADMIN_SESSION_KEY) === 'true'
-  );
+  return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true';
 }
 
 /**
@@ -192,7 +189,7 @@ export async function loginResidentWithPin(phone, pin) {
   }
 
   try {
-    // 2-Second Timeout Race to prevent browser connection pool lockup
+    // 2-Second Timeout Race to prevent browser socket hanging
     const rpcPromise = supabase.rpc('verify_resident_pin', {
       p_phone: cleanPhone,
       p_pin_hash: hashedPin,
@@ -205,7 +202,6 @@ export async function loginResidentWithPin(phone, pin) {
     const result = await Promise.race([rpcPromise, timeoutPromise]);
 
     if (result?.timeout || result?.error) {
-      console.warn('Network timeout/busy, activating local merchant session.');
       setLocalUserProfile(localProfile);
       sessionStorage.setItem(BUSINESS_SESSION_KEY, 'authorized');
       return { success: true, profile: localProfile };

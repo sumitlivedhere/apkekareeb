@@ -61,12 +61,10 @@ export function sanitizeImageUrl(url, category = 'property') {
   if (!url || typeof url !== 'string') return getCategoryFallback(category);
   const clean = url.trim();
 
-  // Filter out dead blob URLs
   if (clean.startsWith('blob:')) {
     return getCategoryFallback(category);
   }
 
-  // Prepend domain to bare Unsplash photo IDs
   if (clean.startsWith('photo-')) {
     return `https://images.unsplash.com/${clean}`;
   }
@@ -378,6 +376,18 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
+  // 🗑️ Remove listing locally and notify subscribers (Properly inside class)
+  removeListing(listingId) {
+    const targetStr = String(listingId);
+    Object.keys(this.state).forEach((key) => {
+      if (Array.isArray(this.state[key])) {
+        this.state[key] = this.state[key].filter((item) => String(item?.id) !== targetStr);
+        this.notify(key);
+      }
+    });
+    this.notify('all');
+  }
+
   hydrateBulk(items) {
     if (!Array.isArray(items) || items.length === 0) return;
     const touchedBuckets = new Set();
@@ -539,6 +549,7 @@ class HyperlocalEngineStore {
       time: 'Just now',
       type: 'comment',
       targetId: listingId,
+      recipient_role: 'seller',
     });
 
     saveCommentToDB(strId, newEntry, listingTitle).then((dbRow) => {
@@ -630,6 +641,7 @@ class HyperlocalEngineStore {
       time: 'Just now',
       type: 'interest',
       targetId: listingId,
+      recipient_role: 'seller',
     });
 
     updateInterestCountInDB(listingId, count);
@@ -687,7 +699,7 @@ export async function hydrateFromDB() {
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(25);
+      .limit(30);
 
     const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]);
     if (notifsData) {
@@ -864,63 +876,74 @@ export function useInterestSlice(listingId, defaultCount = 0) {
   return count;
 }
 
-export function useNotificationSlice() {
-  const [filteredNotifs, setFilteredNotifs] = useState(() => getScopedNotifications());
+/**
+ * Role-Scoped Notifications Hook
+ */
+export function useNotificationSlice(explicitScope = null) {
+  const [filteredNotifs, setFilteredNotifs] = useState(() => getScopedNotifications(explicitScope));
 
-  function getScopedNotifications() {
-    const rawNotifs = hyperlocalStore.getState('notifications') || [];
+  function getScopedNotifications(scope) {
+    const rawNotifs = hyperlocalStore.state.notifications || [];
     const profile = getCurrentUserProfile();
-    const isAdmin = isAdminAuthorized();
     const userPhone = profile?.phone ? String(profile.phone).replace(/\D/g, '').slice(-10) : null;
 
-    return rawNotifs.filter((n) => {
-      // 1. Admin mode -> show moderation & merchant reply notifications
-      if (isAdmin) {
-        if (
-          n.recipient_role === 'admin' ||
-          n.tag === 'NEW ENLISTMENT' ||
-          n.tag === 'EDIT PROPOSAL' ||
-          n.tag === 'REPORT' ||
-          n.tag === 'SELLER FEEDBACK REPLY' ||
-          n.tag === 'SELLER VOICE REPLY'
-        ) {
-          return true;
-        }
-      }
+    const PRIVATE_TAGS = [
+      'NEW ENLISTMENT',
+      'EDIT PROPOSAL',
+      'REPORT',
+      'SELLER FEEDBACK REPLY',
+      'SELLER VOICE REPLY',
+      'ADMIN FEEDBACK',
+      'ADMIN VOICE NOTE',
+      'VOICE INQUIRY',
+      'NEW COMMENT',
+      'SELLER REPLIED',
+      'APPROVED',
+      'REJECTED',
+      'INTEREST REGISTERED',
+    ];
 
-      // 2. Merchant / Resident logged in
-      if (userPhone) {
+    if (scope === 'admin') {
+      return rawNotifs.filter(
+        (n) =>
+          n.recipient_role === 'admin' ||
+          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'SELLER FEEDBACK REPLY', 'SELLER VOICE REPLY'].includes(n.tag)
+      );
+    }
+
+    if (scope === 'seller' || (scope !== 'public' && userPhone)) {
+      return rawNotifs.filter((n) => {
         const notifPhone = n.recipient_phone ? String(n.recipient_phone).replace(/\D/g, '').slice(-10) : null;
-        const metaPhone = n.metadata?.sellerPhone || n.metadata?.seller_phone || n.metadata?.phone || n.metadata?.recipient_phone;
+        const metaPhone =
+          n.metadata?.sellerPhone ||
+          n.metadata?.seller_phone ||
+          n.metadata?.phone ||
+          n.metadata?.recipient_phone;
         const cleanMetaPhone = metaPhone ? String(metaPhone).replace(/\D/g, '').slice(-10) : null;
 
-        if (notifPhone === userPhone || cleanMetaPhone === userPhone) {
+        if (userPhone && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
           return true;
         }
-        if (n.recipient_role === 'seller' && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
+        if (userPhone && n.recipient_role === 'seller' && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
           return true;
         }
-      }
+        if (n.recipient_role === 'public' && !PRIVATE_TAGS.includes(n.tag)) {
+          return true;
+        }
+        return false;
+      });
+    }
 
-      // 3. Public general notifications
-      if (
-        n.recipient_role === 'public' &&
-        !['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'ADMIN FEEDBACK', 'ADMIN VOICE NOTE', 'SELLER FEEDBACK REPLY', 'SELLER VOICE REPLY'].includes(n.tag)
-      ) {
-        return true;
-      }
-
-      return false;
-    });
+    return rawNotifs.filter((n) => n.recipient_role === 'public' && !PRIVATE_TAGS.includes(n.tag));
   }
 
   useEffect(() => {
     return hyperlocalStore.subscribe((_, changedKey) => {
       if (!changedKey || changedKey === 'notifications') {
-        setFilteredNotifs(getScopedNotifications());
+        setFilteredNotifs(getScopedNotifications(explicitScope));
       }
     });
-  }, []);
+  }, [explicitScope]);
 
   return filteredNotifs;
 }

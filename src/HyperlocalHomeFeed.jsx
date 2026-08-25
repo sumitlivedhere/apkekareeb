@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import TownHubView from './categories/TownHubView';
 import SearchOverlay from './components/common/SearchOverlay';
+import PostListingModal from './components/common/PostListingModal';
 import { hyperlocalStore } from './store/hyperlocalStore';
-import { useState, useEffect } from 'react';
+import { isBusinessAuthorized, isAdminAuthorized } from './services/authService';
 
 export default function HyperlocalHomeFeed({
   userLocation,
@@ -18,13 +19,19 @@ export default function HyperlocalHomeFeed({
   const displayLocality = userLocation?.display || `${userLocation?.locality || 'Nearby'}, ${currentCity}`;
   const allListings = hyperlocalStore.getAllListings();
   const [localQuery, setLocalQuery] = useState(searchQuery);
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+
+  // Strictly check if current session is an authorized Seller or Master Admin
+  const canPostListing = useMemo(() => {
+    return isBusinessAuthorized() || isAdminAuthorized();
+  }, []);
 
   useEffect(() => {
-  const timer = setTimeout(() => {
-    onSearchChange(localQuery);
-  }, 100);
-  return () => clearTimeout(timer);
-}, [localQuery]);
+    const timer = setTimeout(() => {
+      onSearchChange(localQuery);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [localQuery, onSearchChange]);
 
   return (
     <div className="p-3.5 space-y-4 animate-fade-in text-slate-800 relative">
@@ -42,7 +49,7 @@ export default function HyperlocalHomeFeed({
       {/* 1. AAPKE KAREEB (GPS PINNING RADAR) & SEARCH */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 p-4 rounded-3xl text-white shadow-lg border border-slate-800 space-y-3">
         
-        {/* Locality & Live GPS Refresh */}
+        {/* Locality, Post Here & Live GPS Refresh */}
         <div className="flex items-center justify-between">
           <div className="min-w-0 flex-1 pr-2">
             <div className="flex items-center space-x-1.5">
@@ -61,19 +68,34 @@ export default function HyperlocalHomeFeed({
             </h2>
           </div>
 
-          {/* GPS Pin / Refresh Trigger */}
-          <button
-            type="button"
-            onClick={onRefreshLocation}
-            disabled={isLocating}
-            title="Refresh GPS Location"
-            className="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-amber-300 border border-slate-700 rounded-xl text-xs font-black flex items-center space-x-1.5 transition cursor-pointer shrink-0 disabled:opacity-50 shadow-sm"
-          >
-            <span className={isLocating ? 'animate-spin inline-block' : ''}>
-              🔄
-            </span>
-            <span>{isLocating ? 'Locating...' : 'GPS Pin'}</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            {/* Post Here Button - Only rendered for authorized Sellers and Admin */}
+            {canPostListing && (
+              <button
+                type="button"
+                onClick={() => setIsPostModalOpen(true)}
+                title="Create a New Listing"
+                className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
+              >
+                <span>+</span>
+                <span>Post Here</span>
+              </button>
+            )}
+
+            {/* GPS Pin / Refresh Trigger */}
+            <button
+              type="button"
+              onClick={onRefreshLocation}
+              disabled={isLocating}
+              title="Refresh GPS Location"
+              className="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-amber-300 border border-slate-700 rounded-xl text-xs font-black flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              <span className={isLocating ? 'animate-spin inline-block' : ''}>
+                🔄
+              </span>
+              <span>{isLocating ? 'Locating...' : 'GPS Pin'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Global Search Input */}
@@ -82,14 +104,20 @@ export default function HyperlocalHomeFeed({
             type="text"
             placeholder="Search Plumber, 2 BHK Flat, Bolero, Doctor, Cafe..."
             value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => {
+              setLocalQuery(e.target.value);
+              onSearchChange(e.target.value);
+            }}
             className="w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border border-slate-700 rounded-2xl font-bold text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-amber-400"
           />
           <span className="absolute left-3 top-3.5 text-xs text-slate-400">🔍</span>
           {searchQuery && (
             <button
               type="button"
-              onClick={() => onSearchChange('')}
+              onClick={() => {
+                setLocalQuery('');
+                onSearchChange('');
+              }}
               className="absolute right-3 top-3.5 text-xs text-slate-400 hover:text-white cursor-pointer"
             >
               ✕
@@ -104,8 +132,12 @@ export default function HyperlocalHomeFeed({
           query={searchQuery}
           allListings={allListings}
           selectedCity={currentCity}
-          onClose={() => onSearchChange('')}
+          onClose={() => {
+            setLocalQuery('');
+            onSearchChange('');
+          }}
           onSelectIntent={(category, subCategory) => {
+            setLocalQuery('');
             onSearchChange('');
             if (onSelectIntent) {
               onSelectIntent(category, subCategory);
@@ -163,6 +195,14 @@ export default function HyperlocalHomeFeed({
         selectedCity={currentCity}
         onSelectCategory={onSelectCategory}
       />
+
+      {/* Post Listing Modal - Accessible only to authorized Sellers or Admin */}
+      {isPostModalOpen && canPostListing && (
+        <PostListingModal
+          selectedCity={currentCity}
+          onClose={() => setIsPostModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

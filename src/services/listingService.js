@@ -815,3 +815,27 @@ export function getCategoryFallback(catId) {
   };
   return fallbacks[catId] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
 }
+
+/**
+ * 19. Deletes a listing and its associated threads from Supabase
+ */
+export async function deleteListingFromDB(listingId) {
+  if (!supabase || !listingId) return { success: false };
+
+  try {
+    // 1. Delete associated discussion threads first to prevent foreign key conflicts
+    await supabase.from('listing_threads').delete().eq('listing_id', listingId);
+
+    // 2. Delete associated notifications
+    await supabase.from('notifications').delete().filter('metadata->>targetId', 'eq', String(listingId));
+
+    // 3. Delete the listing itself
+    const { error } = await supabase.from('listings').delete().eq('id', listingId);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err) {
+    console.error('Delete listing error:', err);
+    return { success: false, error: err.message };
+  }
+}

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { hyperlocalStore, useAllListingsSlice } from './store/hyperlocalStore';
 import { TAXONOMY_REGISTRY, getCategoryById } from './data/taxonomyRegistry';
 import VoiceNotePlayer from './components/common/VoiceNotePlayer';
+import { deleteListingFromDB } from './services/listingService';
 import {
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
@@ -130,7 +131,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   }, []);
 
   // 🚪 Perform Login
-  
   const handlePerformLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -233,6 +233,22 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const pendingInquiriesCount = useMemo(() => {
     return userInquiries.filter((q) => !q.sellerReply).length;
   }, [userInquiries]);
+
+  // 🗑️ Delete Listing Handler for Seller
+  const handleDeleteMerchantListing = async (listingId, title) => {
+    if (!window.confirm(`Are you sure you want to permanently delete "${title}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteListingFromDB(listingId);
+      hyperlocalStore.removeListing(listingId);
+      alert('Listing deleted successfully.');
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Failed to delete listing from database.');
+    }
+  };
 
   // 🎙️ 1. Start Voice Recording to Admin
   const handleStartVoiceToAdmin = async (listingId) => {
@@ -1201,13 +1217,24 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
                     <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px]">
                       <span className="text-slate-500 font-semibold truncate max-w-[160px]">📍 {item.location || selectedCity}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEdit(item)}
-                        className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition cursor-pointer active:scale-95"
-                      >
-                        ✏️ Edit Details & Media
-                      </button>
+                      
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(item)}
+                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition cursor-pointer active:scale-95"
+                        >
+                          ✏️ Edit Details & Media
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMerchantListing(item.id, item.title || item.name)}
+                          className="px-3 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold transition cursor-pointer active:scale-95"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
