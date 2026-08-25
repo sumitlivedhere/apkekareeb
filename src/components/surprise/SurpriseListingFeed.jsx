@@ -298,7 +298,7 @@ export default function SurpriseListingFeed({
 
   return (
     <div className="p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-100 flex-1">
-      {/* Header Banner with Popped Sector Indicator */}
+      {/* Top Banner with Active Category Info & Navigation Buttons */}
       <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-yellow-500 p-4 rounded-3xl text-slate-950 shadow-xl flex items-center justify-between">
         <div className="min-w-0 pr-2">
           <div className="flex items-center space-x-1.5">
@@ -335,7 +335,7 @@ export default function SurpriseListingFeed({
         </div>
       </div>
 
-      {/* Intent-Based Quick Discovery Filters */}
+      {/* Discovery Filter Tabs */}
       <div className="flex items-center space-x-1.5 overflow-x-auto py-1 scrollbar-none text-xs font-bold">
         {[
           { id: 'all', label: '🌟 All Finds' },

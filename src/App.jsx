@@ -376,17 +376,21 @@ export default function App() {
 
         {/* Right Action Cluster */}
         <div className="flex items-center space-x-1.5 shrink-0">
-          {currentScreen !== 'home' && currentScreen !== 'provider-dashboard' && currentScreen !== 'admin-dashboard' && (
-            <button
-              type="button"
-              onClick={handleOpenPostModal}
-              className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
-              title="Post in this Category"
-            >
-              <span>+</span>
-              <span>Post Here</span>
-            </button>
-          )}
+          {/* 🚫 Exclude Post Here button on home, dashboards, AND surprise-feed */}
+          {currentScreen !== 'home' &&
+            currentScreen !== 'provider-dashboard' &&
+            currentScreen !== 'admin-dashboard' &&
+            currentScreen !== 'surprise-feed' && (
+              <button
+                type="button"
+                onClick={handleOpenPostModal}
+                className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
+                title="Post in this Category"
+              >
+                <span>+</span>
+                <span>Post Here</span>
+              </button>
+            )}
 
           {/* 🔔 Live Alerts Button */}
           <button
@@ -438,7 +442,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsAdminKeyModalOpen(true)}
-              className="px-2 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
+              className="px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
             >
               👑 Admin
             </button>
