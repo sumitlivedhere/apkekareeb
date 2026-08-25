@@ -27,8 +27,56 @@ import {
   updateInterestCountInDB,
 } from '../services/listingService';
 import { getCategoryById, sanitizeSubCategoryId } from '../data/taxonomyRegistry';
+import { getCurrentUserProfile, isAdminAuthorized } from '../services/authService';
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+// Bidirectional category-to-slice mapping
+export const CATEGORY_SLICE_MAP = {
+  property: 'propertyListings',
+  construction: 'constructionListings',
+  transporters: 'transportFirms',
+  transport: 'transportFirms',
+  vehicles: 'vehiclesListings',
+  kaarigar: 'kaarigarWorkers',
+  market: 'marketProducts',
+  shaadi: 'shaadiVendors',
+  medical: 'medicalListings',
+  fitness: 'fitnessListings',
+  creators: 'creatorsListings',
+  education: 'educationListings',
+  advertising: 'advertisingProviders',
+  community: 'communityDrives',
+  malls: 'mallsStores',
+  restaurants: 'restaurantsList',
+  'white-collar': 'whiteCollarListings',
+  recommerce: 'reCommerceListings',
+  festival: 'festivalOffers',
+};
+
+/**
+ * Sanitizes any raw image URL, fixing relative Unsplash IDs and filtering expired blob URLs
+ */
+export function sanitizeImageUrl(url, category = 'property') {
+  if (!url || typeof url !== 'string') return getCategoryFallback(category);
+  const clean = url.trim();
+
+  // Filter out dead blob URLs
+  if (clean.startsWith('blob:')) {
+    return getCategoryFallback(category);
+  }
+
+  // Prepend domain to bare Unsplash photo IDs
+  if (clean.startsWith('photo-')) {
+    return `https://images.unsplash.com/${clean}`;
+  }
+
+  if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('data:image')) {
+    return clean;
+  }
+
+  return getCategoryFallback(category);
+}
 
 /**
  * Normalizes DB rows, mock data, and custom user listings into a single uniform schema
@@ -48,40 +96,37 @@ export function normalizeDBListing(item) {
     item.cuisine ||
     'all';
   const subCatId = sanitizeSubCategoryId(catId, rawSub);
-  const categoryFallback = getCategoryFallback(catId);
 
-  // 1. Image Resolution
-  let allImages = [];
+  // 1. Image Resolution with Sanitization
+  let rawImages = [];
   if (Array.isArray(item.image_urls) && item.image_urls.length > 0) {
-    allImages = item.image_urls.filter(Boolean);
+    rawImages = item.image_urls;
   } else if (Array.isArray(item.images) && item.images.length > 0) {
-    allImages = item.images.filter(Boolean);
+    rawImages = item.images;
   } else if (typeof item.image_urls === 'string' && item.image_urls.startsWith('[')) {
     try {
-      allImages = JSON.parse(item.image_urls);
+      rawImages = JSON.parse(item.image_urls);
     } catch {}
   }
 
+  let sanitizedImages = rawImages
+    .map((img) => (typeof img === 'string' ? sanitizeImageUrl(img, catId) : sanitizeImageUrl(img?.url, catId)))
+    .filter((img) => img && !img.startsWith('blob:'));
+
   let coverImage =
-    item.image_url ||
-    (allImages.length > 0 ? allImages[0] : null) ||
-    item.image ||
-    item.photo ||
-    item.avatar ||
-    categoryFallback;
+    sanitizeImageUrl(item.image_url, catId) ||
+    (sanitizedImages.length > 0 ? sanitizedImages[0] : null) ||
+    sanitizeImageUrl(item.image, catId) ||
+    getCategoryFallback(catId);
 
-  if (typeof coverImage === 'string' && coverImage.startsWith('data:image') && coverImage.length > 20000) {
-    coverImage = categoryFallback;
-  }
-
-  if (allImages.length === 0 && coverImage) {
-    allImages = [coverImage];
+  if (sanitizedImages.length === 0 && coverImage) {
+    sanitizedImages = [coverImage];
   }
 
   // 2. Video Resolution
   let allVideos = [];
   if (Array.isArray(item.videos) && item.videos.length > 0) {
-    allVideos = item.videos;
+    allVideos = item.videos.filter((v) => v?.url && !String(v.url).startsWith('blob:'));
   } else if (typeof item.videos === 'string' && item.videos.startsWith('[')) {
     try {
       allVideos = JSON.parse(item.videos);
@@ -90,16 +135,12 @@ export function normalizeDBListing(item) {
 
   let allVideoUrls = [];
   if (Array.isArray(item.video_urls) && item.video_urls.length > 0) {
-    allVideoUrls = item.video_urls.filter(Boolean);
+    allVideoUrls = item.video_urls.filter((u) => u && !String(u).startsWith('blob:'));
   } else if (allVideos.length > 0) {
     allVideoUrls = allVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean);
-  } else if (typeof item.video_urls === 'string' && item.video_urls.startsWith('[')) {
-    try {
-      allVideoUrls = JSON.parse(item.video_urls);
-    } catch {}
   }
 
-  // 3. Price & Rates
+  // 3. Price & Operational Metadata
   const priceVal =
     item.price ||
     item.rates ||
@@ -113,10 +154,7 @@ export function normalizeDBListing(item) {
 
   const nameVal = item.title || item.name || 'Untitled Listing';
   const rawLocation = item.location_name || item.location || 'Alwar';
-
-  const resolvedCity =
-    item.city ||
-    (rawLocation.toLowerCase().includes('jaipur') ? 'Jaipur' : 'Alwar');
+  const resolvedCity = item.city || (rawLocation.toLowerCase().includes('jaipur') ? 'Jaipur' : 'Alwar');
 
   const personOrBiz =
     item.seller_name ||
@@ -130,13 +168,19 @@ export function normalizeDBListing(item) {
     'Verified Member';
 
   const targetBucket =
+    CATEGORY_SLICE_MAP[catId] ||
     item.bucket_key ||
     item.bucketKey ||
     categoryConfig.bucketKey ||
     'listings';
 
+  // 4. Verification & Approval State
+  const isActive = item.is_active !== undefined ? Boolean(item.is_active) : true;
+  const hasPendingApproval = Boolean(item.has_pending_approval);
+  const pendingChanges = item.pending_changes || null;
+
   return {
-    id: String(item.id || Date.now() + Math.random()),
+    id: String(item.id || `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
     title: nameVal,
     name: nameVal,
     category: catId,
@@ -175,11 +219,11 @@ export function normalizeDBListing(item) {
     mapUrl:
       item.mapUrl ||
       (item.lat && item.lng
-        ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
+        ? `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`
         : null),
     image: coverImage,
-    images: allImages.length > 0 ? allImages : [coverImage],
-    image_urls: allImages.length > 0 ? allImages : [coverImage],
+    images: sanitizedImages,
+    image_urls: sanitizedImages,
     videos: allVideos,
     video_urls: allVideoUrls,
     photo: coverImage,
@@ -193,14 +237,22 @@ export function normalizeDBListing(item) {
     ),
     rating: item.rating || 5.0,
     verified: item.verified !== undefined ? item.verified : true,
-    badge: item.badge || '🟢 Verified Listing',
+    badge: item.badge || (hasPendingApproval ? '⏳ Pending Approval' : '🟢 Verified Listing'),
     experience: item.experience || '5+ Years Exp',
-    timing: item.timing || '',
+    timing: item.timing || item.activeHours || '09:00 AM - 09:00 PM',
+    activeHours: item.timing || item.activeHours || '09:00 AM - 09:00 PM',
+    capacity: item.capacity || item.stockCount || 'Ready Stock',
+    stockCount: item.capacity || item.stockCount || 'Ready Stock',
     qualifications: item.qualifications || '',
     regNumber: item.regNumber || '',
-    capacity: item.capacity || '',
+    is_active: isActive,
+    has_pending_approval: hasPendingApproval,
+    pending_changes: pendingChanges,
+    admin_feedback: item.admin_feedback || null,
+    seller_feedback_reply: item.seller_feedback_reply || null,
     isAvailableNow: true,
     isNew: Boolean(item.isNew),
+    created_at: item.created_at || new Date().toISOString(),
   };
 }
 
@@ -270,16 +322,22 @@ class HyperlocalEngineStore {
     this.listeners = new Set();
   }
 
+  // 🛡️ Public Feed: ONLY returns approved active items
   getState(key) {
+    if (key === 'notifications') {
+      return this.state.notifications || [];
+    }
     const list = this.state[key] || [];
     const seen = new Set();
     return list.filter((item) => {
       if (!item || !item.id || seen.has(String(item.id))) return false;
+      if (item.is_active === false) return false;
       seen.add(String(item.id));
       return true;
     });
   }
 
+  // 👑 Master Feed: Returns all items for Admin & Merchant Hub
   getAllListings() {
     const buckets = Object.values(this.state).filter(Array.isArray);
     const seenIds = new Set();
@@ -299,52 +357,25 @@ class HyperlocalEngineStore {
 
   insertListing(rawBucketOrCategory, item) {
     const tempId = item.id || `custom-${Date.now()}`;
-    const norm = normalizeDBListing({ ...item, id: tempId, isNew: true });
+    const norm = normalizeDBListing({ ...item, id: tempId });
     if (!norm) return;
 
-    const catConfig = getCategoryById(norm.category);
-    const targetBucket =
-      catConfig && catConfig.bucketKey && this.state[catConfig.bucketKey]
-        ? catConfig.bucketKey
-        : rawBucketOrCategory && this.state[rawBucketOrCategory]
-        ? rawBucketOrCategory
-        : norm.bucketKey && this.state[norm.bucketKey]
-        ? norm.bucketKey
-        : 'listings';
+    const catId = (norm.category || rawBucketOrCategory || 'property').toLowerCase();
+    const targetSlice = CATEGORY_SLICE_MAP[catId] || (this.state[rawBucketOrCategory] ? rawBucketOrCategory : 'listings');
 
-    const list = this.state[targetBucket] || [];
-    this.state[targetBucket] = [norm, ...list];
+    const currentList = this.state[targetSlice] || [];
+    const existingIdx = currentList.findIndex((e) => String(e.id) === String(norm.id));
 
-    this.addNotification({
-      tag: 'LISTING LIVE',
-      title: `"${norm.title}" Published!`,
-      message: `Your listing is live in ${norm.location}.`,
-      time: 'Just now',
-      type: 'listing',
-      targetId: norm.id,
-    });
+    if (existingIdx !== -1) {
+      currentList[existingIdx] = { ...currentList[existingIdx], ...norm };
+      this.state[targetSlice] = [...currentList];
+    } else {
+      this.state[targetSlice] = [norm, ...currentList];
+    }
 
-    this.notify(targetBucket);
-    this.notify(norm.category);
+    this.notify(targetSlice);
+    this.notify(catId);
     this.notify('all');
-
-    createListingInDB(norm)
-      .then(({ data: dbRow, error }) => {
-        if (!error && dbRow && dbRow.id) {
-          const currentList = this.state[targetBucket] || [];
-          const itemIdx = currentList.findIndex((e) => String(e.id) === String(tempId));
-          if (itemIdx !== -1) {
-            currentList[itemIdx] = {
-              ...currentList[itemIdx],
-              id: String(dbRow.id),
-              isNew: false,
-            };
-            this.state[targetBucket] = [...currentList];
-            this.notify(targetBucket);
-          }
-        }
-      })
-      .catch((err) => console.warn('Supabase insert notice:', err));
   }
 
   hydrateBulk(items) {
@@ -355,13 +386,10 @@ class HyperlocalEngineStore {
       const normalized = normalizeDBListing(row);
       if (!normalized) return;
 
-      const catConfig = getCategoryById(normalized.category);
-      const bucket =
-        catConfig && catConfig.bucketKey && this.state[catConfig.bucketKey]
-          ? catConfig.bucketKey
-          : row.bucket_key || normalized.bucketKey || 'listings';
+      const catId = normalized.category || 'property';
+      const targetSlice = CATEGORY_SLICE_MAP[catId] || normalized.bucketKey || 'listings';
 
-      const list = this.state[bucket] || [];
+      const list = this.state[targetSlice] || [];
       const idx = list.findIndex(
         (existing) =>
           String(existing.id) === String(normalized.id) ||
@@ -375,8 +403,9 @@ class HyperlocalEngineStore {
       } else {
         list.unshift(normalized);
       }
-      this.state[bucket] = [...list];
-      touchedBuckets.add(bucket);
+      this.state[targetSlice] = [...list];
+      touchedBuckets.add(targetSlice);
+      touchedBuckets.add(catId);
 
       if (normalized.interestCount !== undefined) {
         this.state.interests[String(normalized.id)] = normalized.interestCount;
@@ -394,7 +423,6 @@ class HyperlocalEngineStore {
 
     threadsRows.forEach((row) => {
       const createdAtTime = new Date(row.created_at).getTime();
-
       if (now - createdAtTime > FIVE_DAYS_MS) return;
 
       const listingId = String(row.listing_id);
@@ -433,21 +461,34 @@ class HyperlocalEngineStore {
 
     this.state.threads = { ...this.state.threads, ...grouped };
     Object.keys(grouped).forEach((lid) => this.notify(`thread:${lid}`));
+    this.notify('threads');
   }
 
   addNotification(notif) {
     const newEntry = {
-      id: notif.id || Date.now() + Math.random(),
+      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       tag: notif.tag || 'ALERT',
       title: notif.title || 'New Notification',
       message: notif.message || '',
       time: notif.time || 'Just now',
       read: false,
+      is_read: false,
       type: notif.type || 'general',
-      targetId: notif.targetId || null,
-      subCategory: notif.subCategory || null,
+      targetId: notif.targetId || notif.metadata?.targetId || null,
+      recipient_role: notif.recipient_role || 'public',
+      recipient_phone: notif.recipient_phone || null,
+      metadata: notif.metadata || {},
+      created_at: notif.created_at || new Date().toISOString(),
     };
     this.state.notifications = [newEntry, ...(this.state.notifications || [])];
+    this.notify('notifications');
+  }
+
+  removeNotificationsForTarget(listingId) {
+    const targetStr = String(listingId);
+    this.state.notifications = (this.state.notifications || []).filter(
+      (n) => String(n.targetId) !== targetStr && String(n.metadata?.targetId) !== targetStr
+    );
     this.notify('notifications');
   }
 
@@ -455,6 +496,7 @@ class HyperlocalEngineStore {
     this.state.notifications = (this.state.notifications || []).map((n) => ({
       ...n,
       read: true,
+      is_read: true,
     }));
     this.notify('notifications');
   }
@@ -488,6 +530,7 @@ class HyperlocalEngineStore {
 
     this.state.threads[strId] = [newEntry, ...(this.state.threads[strId] || [])];
     this.notify(`thread:${strId}`);
+    this.notify('threads');
 
     this.addNotification({
       tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
@@ -506,39 +549,65 @@ class HyperlocalEngineStore {
           list[idx].id = dbRow.id;
           this.state.threads[strId] = [...list];
           this.notify(`thread:${strId}`);
+          this.notify('threads');
         }
       }
     });
   }
 
   addSellerReply(listingId, commentId, replyObj, listingTitle = '') {
-    const strId = String(listingId);
-    const hasAudio = Boolean(replyObj?.audioUrl);
+    if (!this.state.threads[listingId]) {
+      this.state.threads[listingId] = [];
+    }
 
-    const formattedReply = {
-      text: replyObj.text || (hasAudio ? '🎤 Voice Note Reply' : ''),
-      type: replyObj.type || (hasAudio ? 'audio' : 'text'),
-      audioUrl: replyObj.audioUrl || null,
-      duration: replyObj.duration || '0:15',
-      sellerName: replyObj.sellerName || 'Verified Member',
-      timestamp: 'Just now',
+    const currentComments = this.state.threads[listingId];
+    const matchIndex = currentComments.findIndex((comm) => String(comm.id) === String(commentId));
+
+    if (matchIndex >= 0) {
+      currentComments[matchIndex] = {
+        ...currentComments[matchIndex],
+        sellerReply: replyObj,
+      };
+    } else {
+      currentComments.push({
+        id: commentId,
+        listingId,
+        userName: 'Local Buyer',
+        userArea: 'Alwar',
+        text: 'Customer question',
+        timestamp: '15m ago',
+        isPublic: true,
+        sellerReply: replyObj,
+      });
+    }
+
+    this.state.threads = {
+      ...this.state.threads,
+      [listingId]: [...currentComments],
     };
 
-    this.state.threads[strId] = (this.state.threads[strId] || []).map((c) =>
-      c.id === commentId ? { ...c, sellerReply: formattedReply } : c
+    this.notify(`thread:${listingId}`);
+    this.notify('threads');
+    this.notify('all');
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      String(commentId).trim()
     );
-    this.notify(`thread:${strId}`);
 
-    this.addNotification({
-      tag: 'SELLER REPLIED',
-      title: `Reply on "${listingTitle || 'Listing'}"`,
-      message: `Seller replied with a ${formattedReply.type === 'audio' ? 'voice note' : 'message'}.`,
-      time: 'Just now',
-      type: 'reply',
-      targetId: listingId,
-    });
-
-    saveReplyToDB(commentId, replyObj);
+    if (supabase && isUuid) {
+      supabase
+        .from('listing_threads')
+        .update({
+          seller_reply: typeof replyObj === 'string' ? replyObj : replyObj.text,
+          seller_audio_url: replyObj.audioUrl || null,
+          seller_audio_duration: replyObj.duration || null,
+          seller_replied_at: new Date().toISOString(),
+        })
+        .eq('id', commentId)
+        .then(({ error }) => {
+          if (error) console.error('Supabase seller reply sync error:', error);
+        });
+    }
   }
 
   getInterestCount(listingId, defaultCount = 0) {
@@ -579,78 +648,72 @@ class HyperlocalEngineStore {
 
 export const hyperlocalStore = new HyperlocalEngineStore();
 
+let isHydrating = false;
+let lastHydrateTimestamp = 0;
+const HYDRATE_COOLDOWN_MS = 6000;
+
 /**
- * ⚡ Ultra-fast Light Hydration
+ * Hydrate Store from Supabase with Connection Throttling & Fast Timeouts
  */
 export async function hydrateFromDB() {
   if (!supabase) return;
+  const now = Date.now();
+  if (isHydrating || now - lastHydrateTimestamp < HYDRATE_COOLDOWN_MS) {
+    return;
+  }
+
+  isHydrating = true;
+  lastHydrateTimestamp = now;
+
   try {
-    const { data: listingsData, error: listingsError } = await supabase
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Hydration Timeout')), 3000)
+    );
+
+    // 1. Fetch Listings
+    const listingsFetch = supabase
       .from('listings')
-      .select(`
-        id,
-        title,
-        description,
-        category,
-        sub_category,
-        bucket_key,
-        price,
-        seller_name,
-        phone,
-        whatsapp,
-        location_name,
-        lat,
-        lng,
-        image_url,
-        image_urls,
-        video_urls,
-        videos,
-        interest_count,
-        is_active,
-        created_at
-      `)
-      .eq('is_active', true)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(60);
 
-    if (!listingsError && listingsData && listingsData.length > 0) {
+    const { data: listingsData } = await Promise.race([listingsFetch, timeoutPromise]);
+    if (listingsData && listingsData.length > 0) {
       hyperlocalStore.hydrateBulk(listingsData);
     }
 
-    const fiveDaysAgo = new Date(Date.now() - FIVE_DAYS_MS).toISOString();
-    const { data: threadsData, error: threadsError } = await supabase
-      .from('listing_threads')
-      .select(`
-        id,
-        listing_id,
-        user_name,
-        user_area,
-        comment_text,
-        audio_url,
-        audio_duration,
-        seller_reply,
-        seller_audio_url,
-        seller_audio_duration,
-        is_public,
-        created_at
-      `)
-      .gte('created_at', fiveDaysAgo)
+    // 2. Fetch Notifications
+    const notifsFetch = supabase
+      .from('notifications')
+      .select('*')
       .order('created_at', { ascending: false })
-      .limit(80);
+      .limit(25);
 
-    if (!threadsError && threadsData && threadsData.length > 0) {
-      hyperlocalStore.hydrateThreads(threadsData);
+    const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]);
+    if (notifsData) {
+      hyperlocalStore.state.notifications = notifsData.map((n) => ({
+        id: n.id,
+        tag: n.tag,
+        title: n.title,
+        message: n.message,
+        read: n.is_read,
+        recipient_role: n.recipient_role,
+        recipient_phone: n.recipient_phone,
+        targetId: n.metadata?.targetId || null,
+        metadata: n.metadata || {},
+        created_at: n.created_at,
+      }));
+      hyperlocalStore.notify('notifications');
     }
   } catch (err) {
-    console.error('Fast hydration error:', err);
+    console.warn('Fast hydration notice, continuing with local store:', err.message);
+  } finally {
+    isHydrating = false;
   }
 }
 
 let realtimeChannel = null;
 
-/**
- * ⚡ Non-blocking Realtime Subscription
- */
 export function initRealtimeSubscriptions() {
   if (realtimeChannel || !supabase) return;
 
@@ -661,7 +724,7 @@ export function initRealtimeSubscriptions() {
       .channel('hyperlocal-realtime-sync')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'listings' },
+        { event: '*', schema: 'public', table: 'listings' },
         (payload) => {
           if (payload.new) {
             hyperlocalStore.hydrateBulk([payload.new]);
@@ -706,6 +769,7 @@ export function initRealtimeSubscriptions() {
                 ...currentThreads,
               ];
               hyperlocalStore.notify(`thread:${strId}`);
+              hyperlocalStore.notify('threads');
             }
           } else if (payload.eventType === 'UPDATE') {
             const strId = String(row.listing_id);
@@ -726,6 +790,7 @@ export function initRealtimeSubscriptions() {
                 : c
             );
             hyperlocalStore.notify(`thread:${strId}`);
+            hyperlocalStore.notify('threads');
           }
         }
       )
@@ -739,12 +804,11 @@ export function initRealtimeSubscriptions() {
   }
 }
 
-// React Hooks
 export function useStoreSlice(bucketKey) {
   const [data, setData] = useState(() => hyperlocalStore.getState(bucketKey));
 
   useEffect(() => {
-    return hyperlocalStore.subscribe((newState, changedKey) => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
       if (!changedKey || changedKey === bucketKey || changedKey === 'all') {
         setData([...hyperlocalStore.getState(bucketKey)]);
       }
@@ -775,7 +839,7 @@ export function useThreadSlice(listingId, defaultComments = []) {
 
   useEffect(() => {
     return hyperlocalStore.subscribe((_, changedKey) => {
-      if (!changedKey || changedKey === `thread:${listingId}`) {
+      if (!changedKey || changedKey === `thread:${listingId}` || changedKey === 'threads') {
         setComments([...hyperlocalStore.getThreadComments(listingId, defaultComments)]);
       }
     });
@@ -801,15 +865,62 @@ export function useInterestSlice(listingId, defaultCount = 0) {
 }
 
 export function useNotificationSlice() {
-  const [notifs, setNotifs] = useState(() => hyperlocalStore.getState('notifications'));
+  const [filteredNotifs, setFilteredNotifs] = useState(() => getScopedNotifications());
+
+  function getScopedNotifications() {
+    const rawNotifs = hyperlocalStore.getState('notifications') || [];
+    const profile = getCurrentUserProfile();
+    const isAdmin = isAdminAuthorized();
+    const userPhone = profile?.phone ? String(profile.phone).replace(/\D/g, '').slice(-10) : null;
+
+    return rawNotifs.filter((n) => {
+      // 1. Admin mode -> show moderation & merchant reply notifications
+      if (isAdmin) {
+        if (
+          n.recipient_role === 'admin' ||
+          n.tag === 'NEW ENLISTMENT' ||
+          n.tag === 'EDIT PROPOSAL' ||
+          n.tag === 'REPORT' ||
+          n.tag === 'SELLER FEEDBACK REPLY' ||
+          n.tag === 'SELLER VOICE REPLY'
+        ) {
+          return true;
+        }
+      }
+
+      // 2. Merchant / Resident logged in
+      if (userPhone) {
+        const notifPhone = n.recipient_phone ? String(n.recipient_phone).replace(/\D/g, '').slice(-10) : null;
+        const metaPhone = n.metadata?.sellerPhone || n.metadata?.seller_phone || n.metadata?.phone || n.metadata?.recipient_phone;
+        const cleanMetaPhone = metaPhone ? String(metaPhone).replace(/\D/g, '').slice(-10) : null;
+
+        if (notifPhone === userPhone || cleanMetaPhone === userPhone) {
+          return true;
+        }
+        if (n.recipient_role === 'seller' && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
+          return true;
+        }
+      }
+
+      // 3. Public general notifications
+      if (
+        n.recipient_role === 'public' &&
+        !['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'ADMIN FEEDBACK', 'ADMIN VOICE NOTE', 'SELLER FEEDBACK REPLY', 'SELLER VOICE REPLY'].includes(n.tag)
+      ) {
+        return true;
+      }
+
+      return false;
+    });
+  }
 
   useEffect(() => {
     return hyperlocalStore.subscribe((_, changedKey) => {
       if (!changedKey || changedKey === 'notifications') {
-        setNotifs([...hyperlocalStore.getState('notifications')]);
+        setFilteredNotifs(getScopedNotifications());
       }
     });
   }, []);
 
-  return notifs;
+  return filteredNotifs;
 }

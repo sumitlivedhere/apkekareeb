@@ -19,32 +19,33 @@ export default function ListingDetailModal({
 }) {
   if (!item) return null;
 
-  // 🛡️ User Authentication & Community Moderation State
+  // 🛡️ User Authentication & Moderation State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  // 📷 Photo Carousel & Lightbox State
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const carouselRef = useRef(null);
 
-  // 🎬 Video & Media Tab State
+  // 🎬 Walkthrough Video State
   const rawVideos = item.videos || item.video_urls || [];
   const videos = rawVideos.map((v) =>
-    typeof v === 'string' ? { url: v, duration: '0:30' } : v
+    typeof v === 'string' ? { url: v, duration: '0:30', name: 'Walkthrough Video' } : v
   );
   const [activeMediaTab, setActiveMediaTab] = useState('photos');
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
 
-  // 💬 Q&A Text & Audio State
+  // 💬 Q&A & Voice Inquiries State
   const [userQuery, setUserQuery] = useState('');
   const [userName, setUserName] = useState(() => currentUser?.full_name || '');
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [sellerReplyText, setSellerReplyText] = useState('');
   const [isSellerMode, setIsSellerMode] = useState(false);
 
-  // 🎙️ Buyer Audio Recording State
+  // 🎙️ Buyer Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
@@ -53,13 +54,16 @@ export default function ListingDetailModal({
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
-  // Gallery resolution
-  const gallery =
+  // Gallery Resolution
+  const gallery = (
     item.images && item.images.length > 0
       ? item.images
+      : item.image_urls && item.image_urls.length > 0
+      ? item.image_urls
       : item.image
       ? [item.image]
-      : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700'];
+      : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700']
+  ).map((img) => (typeof img === 'string' ? img : img.url || img.preview));
 
   const totalImages = gallery.length;
 
@@ -121,11 +125,11 @@ export default function ListingDetailModal({
         setRecordSeconds((p) => p + 1);
       }, 1000);
     } catch (err) {
-      alert('Microphone access denied. Please allow microphone permissions.');
+      alert('Microphone access denied. Please allow microphone permissions in browser settings.');
     }
   };
 
-  // 🎙️ 2. Stop Recording & Send Voice Note Directly to Seller
+  // 🎙️ 2. Stop Recording & Send Voice Note
   const handleStopAndSendVoice = () => {
     const mediaRecorder = mediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -169,7 +173,9 @@ export default function ListingDetailModal({
       } catch (err) {
         console.error('Audio upload failed:', err);
       } finally {
-        mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+        if (mediaRecorder.stream) {
+          mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+        }
         setIsRecording(false);
         setRecordSeconds(0);
         setIsUploadingVoice(false);
@@ -182,7 +188,9 @@ export default function ListingDetailModal({
   const handleCancelVoiceRecording = () => {
     if (mediaRecorderRef.current) {
       clearInterval(timerRef.current);
-      mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
       mediaRecorderRef.current = null;
       setIsRecording(false);
       setRecordSeconds(0);
@@ -192,13 +200,13 @@ export default function ListingDetailModal({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
         mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
       }
     };
   }, []);
 
-  // 💬 User submits text query
+  // 💬 Submit Text Query
   const handlePostQuery = (e) => {
     e.preventDefault();
     if (!userQuery.trim()) return;
@@ -231,7 +239,7 @@ export default function ListingDetailModal({
     setUserQuery('');
   };
 
-  // 👑 Seller publishes reply
+  // 👑 Seller Reply
   const handlePostSellerReply = (commentId) => {
     if (!sellerReplyText.trim()) return;
 
@@ -268,7 +276,7 @@ export default function ListingDetailModal({
   const mapUrl =
     item.mapUrl ||
     (item.lat && item.lng
-      ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
+      ? `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((item.location || '') + ' ' + selectedCity)}`);
 
   const getAvatarColor = (name = 'U') => {
@@ -456,7 +464,7 @@ export default function ListingDetailModal({
                   </span>
                   {videos[activeVideoIdx]?.duration && (
                     <span className="bg-slate-950/90 text-cyan-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border border-cyan-400/30">
-                      ⏱️ {videos[activeVideoIdx].duration}
+                      ⏱️ {videos[activeVideoIdx].duration}s
                     </span>
                   )}
                 </div>
@@ -471,7 +479,7 @@ export default function ListingDetailModal({
               </div>
 
               {videos.length > 1 && (
-                <div className="flex items-center space-x-2 overflow-x-auto py-1 no-scrollbar">
+                <div className="flex items-center space-x-2 overflow-x-auto py-1 scrollbar-none">
                   {videos.map((vid, idx) => (
                     <button
                       key={idx}
@@ -492,7 +500,7 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Listing Info */}
+          {/* Listing Info & Badges */}
           <div className="px-4 space-y-3.5">
             <div className="space-y-1">
               <div className="flex items-start justify-between">
@@ -500,12 +508,29 @@ export default function ListingDetailModal({
                   {item.title || item.name}
                 </h1>
                 <span className="text-[10px] font-black text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg shrink-0 ml-2">
-                  {String(item.subCategory || 'VERIFIED').toUpperCase()}
+                  {String(item.subCategory || item.category || 'VERIFIED').toUpperCase()}
                 </span>
               </div>
             </div>
 
-            {/* Interest Counter Action Bar */}
+            {/* Operational Badges: Hours & Ready Stock */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
+                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Operational Hours</span>
+                <span className="text-[10.5px] font-black text-slate-200">
+                  ⏰ {item.timing || item.activeHours || '09:00 AM - 09:00 PM'}
+                </span>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
+                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Stock Status</span>
+                <span className="text-[10.5px] font-black text-cyan-300">
+                  📦 {item.capacity || item.stockCount || 'Ready Stock'}
+                </span>
+              </div>
+            </div>
+
+            {/* Hyperlocal Interest Score */}
             <div className="flex items-center justify-between p-3 bg-slate-900/90 border border-slate-800 rounded-2xl">
               <div>
                 <div className="text-xs font-black text-white flex items-center space-x-1">
@@ -529,31 +554,30 @@ export default function ListingDetailModal({
 
             {/* Verified Seller Profile & Social Connect */}
             <div className="p-3.5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 rounded-2xl border border-slate-800 space-y-3 shadow-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
-                    {sellerInitial}
+              <div className="flex items-center space-x-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
+                  {sellerInitial}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <h3 className="font-black text-white text-sm truncate">
+                      {sellerDisplayName}
+                    </h3>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold shrink-0">
+                      ✓ Verified
+                    </span>
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center space-x-1.5">
-                      <h3 className="font-black text-white text-sm truncate">
-                        {sellerDisplayName}
-                      </h3>
-                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold shrink-0">
-                        ✓ Verified
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 flex items-center space-x-1.5 mt-0.5 truncate">
-                      <span>📍 {item.location || selectedCity}</span>
-                      <span>•</span>
-                      <span className="text-cyan-300 font-mono font-semibold">
-                        📱 +91 {cleanPhone.slice(-10)}
-                      </span>
-                    </p>
-                  </div>
+                  <p className="text-[10px] text-slate-400 flex items-center space-x-1.5 mt-0.5 truncate">
+                    <span>📍 {item.location || selectedCity}</span>
+                    <span>•</span>
+                    <span className="text-cyan-300 font-mono font-semibold">
+                      📱 +91 {cleanPhone.slice(-10)}
+                    </span>
+                  </p>
                 </div>
               </div>
 
+              {/* 3-Button Social Grid */}
               <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
                 <a
                   href={whatsappUrl}
@@ -585,11 +609,11 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* Description */}
+            {/* 4 Highlights & Description */}
             {item.description && (
               <div className="space-y-1.5 p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800">
                 <h2 className="text-[11px] font-black text-slate-300 uppercase tracking-wider">
-                  About this Service / Offering
+                  Highlights & Specifications (मुख्य विवरण)
                 </h2>
                 <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-line">
                   {item.description}
@@ -597,7 +621,7 @@ export default function ListingDetailModal({
               </div>
             )}
 
-            {/* Location & Navigation */}
+            {/* Location & Google Maps */}
             <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center space-x-1">
@@ -626,7 +650,7 @@ export default function ListingDetailModal({
               </a>
             </div>
 
-            {/* 🌟 5. PUBLIC QUESTIONS & VOICE INQUIRIES WITH DIRECT MIC BUTTON */}
+            {/* Q&A / Voice Inquiries */}
             <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3.5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                 <div>
@@ -664,7 +688,7 @@ export default function ListingDetailModal({
                     const initial = (c.userName || 'U').charAt(0).toUpperCase();
 
                     return (
-                      <div key={c.id || idx} className="p-3 bg-slate-950/80 border border-slate-850 rounded-xl space-y-2">
+                      <div key={c.id || idx} className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
                         <div className="flex items-start space-x-2.5">
                           <div className={`w-7 h-7 rounded-full ${avatarBg} text-white font-black text-xs flex items-center justify-center shrink-0`}>
                             {initial}
@@ -678,7 +702,6 @@ export default function ListingDetailModal({
                               <span className="text-slate-500">• {c.timestamp || 'Recently'}</span>
                             </div>
 
-                            {/* Render Audio Player if inquiry was voice */}
                             {c.type === 'audio' || c.audioUrl ? (
                               <VoiceNotePlayer
                                 audioUrl={c.audioUrl}
@@ -754,7 +777,7 @@ export default function ListingDetailModal({
                 )}
               </div>
 
-              {/* 🌟 Ask Form: Active Audio Recording OR Text Input with Mic */}
+              {/* Inquiry Input Bar */}
               <div className="pt-2 border-t border-slate-800 space-y-2">
                 <input
                   type="text"
@@ -765,7 +788,6 @@ export default function ListingDetailModal({
                 />
 
                 {isRecording ? (
-                  /* Active Recording Banner */
                   <div className="flex items-center justify-between p-2.5 bg-rose-500/20 border border-rose-500/50 rounded-xl animate-pulse">
                     <div className="flex items-center space-x-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
@@ -796,7 +818,6 @@ export default function ListingDetailModal({
                     </div>
                   </div>
                 ) : (
-                  /* Standard Dual Mode Input: Type or Tap Mic */
                   <form onSubmit={handlePostQuery} className="flex items-center space-x-2">
                     <button
                       type="button"
@@ -809,7 +830,7 @@ export default function ListingDetailModal({
 
                     <input
                       type="text"
-                      placeholder="Type or tap 🎙️ mic to speak query..."
+                      placeholder="Type query or tap 🎙️ mic..."
                       value={userQuery}
                       onChange={(e) => setUserQuery(e.target.value)}
                       className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-400 font-medium"
