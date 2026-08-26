@@ -128,7 +128,7 @@ export default function App() {
     searchQuery,
   } = currentNav;
 
-  // 🛡️ Seller / Merchant & Admin Authorization Check
+  // 🛡️ Strict Seller / Merchant & Admin Authorization Check
   const isSeller = Boolean(
     currentUser?.is_merchant === true ||
     currentUser?.verification_tier === 'verified_merchant'
@@ -186,7 +186,7 @@ export default function App() {
     hyperlocalStore.addNotification(notif);
   };
 
-  // 👑 Verified Seller & Admin Posting Handler (Prompts Non-Sellers to Join Business Side)
+  // 👑 Seller & Admin Posting Handler (Routes Non-Sellers to Become a Seller Onboarding)
   const handleOpenPostModal = () => {
     if (isAuthorizedToPost) {
       setIsListingModalOpen(true);
@@ -978,7 +978,7 @@ export default function App() {
         )}
       </Suspense>
 
-      {/* 🏪 Business Side Join Prompt Modal for Normal / Temporary / Permanent Residents */}
+      {/* 🏪 Business Side Onboarding Prompt for Non-Seller Residents */}
       {isBusinessPromptOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-slate-100 font-sans">
           <div className="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
@@ -988,13 +988,13 @@ export default function App() {
 
             <div className="space-y-1.5">
               <h3 className="text-sm font-black text-slate-100 leading-snug">
-                Open for Business side, would you like to Join?
+                Become a Seller to Post Listings & Offers
               </h3>
               <p className="text-xs text-amber-300 font-bold">
-                यह सुविधा व्यापार और विक्रेताओं के लिए उपलब्ध है, क्या आप जुड़ना चाहेंगे?
+                यह सुविधा केवल विक्रेताओं के लिए है — क्या आप विक्रेता बनकर जुड़ना चाहते हैं?
               </p>
               <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
-                Post your shop inventory, services, bridal attire, or commodities across {selectedCity}.
+                Complete the KYC process (Login ➔ Profile ➔ Permanent PIN ➔ Seller Upgrade) to list inventory across {selectedCity}.
               </p>
             </div>
 
@@ -1003,13 +1003,12 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setIsBusinessPromptOpen(false);
-                  setAuthActionTitle('Merchant KYC Verification (विक्रेता खाता)');
-                  setIsAuthModalOpen(true);
+                  navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' });
                 }}
                 className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <span>🏪</span>
-                <span>Yes, Join as Business (हाँ, जुड़ें) ➔</span>
+                <span>Become a Seller / Complete KYC ➔</span>
               </button>
 
               <button
@@ -1059,7 +1058,7 @@ export default function App() {
         />
       )}
 
-      {/* Resident Phone Verification & Merchant KYC Modal */}
+      {/* Resident Staged Onboarding & Seller KYC Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         selectedCity={selectedCity}
@@ -1068,7 +1067,10 @@ export default function App() {
         onSuccess={(profile) => {
           setCurrentUser(profile);
           setIsAuthModalOpen(false);
-          const upgradedSeller = Boolean(profile?.is_merchant || profile?.verification_tier === 'verified_merchant');
+          const upgradedSeller = Boolean(
+            profile?.is_merchant === true ||
+            profile?.verification_tier === 'verified_merchant'
+          );
           if (upgradedSeller) {
             setIsListingModalOpen(true);
           } else if (authActionTitle.includes('Business')) {

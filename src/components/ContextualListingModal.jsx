@@ -24,6 +24,12 @@ export default function ContextualListingModal({
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  // 🛡️ Strict Merchant KYC Check
+  const isSeller = Boolean(
+    currentUser?.is_merchant === true ||
+    currentUser?.verification_tier === 'verified_merchant'
+  );
+
   // 🌟 1. Cascading Category & Subsection State
   const [category, setCategory] = useState(() => {
     if (selectedCategory && selectedCategory !== 'home' && selectedCategory !== 'surprise') {
@@ -244,8 +250,8 @@ export default function ContextualListingModal({
       return;
     }
 
-    // 🛡️ Verified Phone Gate
-    if (!currentUser && phone.length !== 10) {
+    // 🛡️ Verified Phone & KYC Gate
+    if (!currentUser || !isSeller) {
       setIsAuthModalOpen(true);
       return;
     }
@@ -292,8 +298,8 @@ export default function ContextualListingModal({
         doorstep_trial: attachOffer ? Boolean(offerFields.doorstep_trial) : false,
         rates: price.trim() || 'Contact for Price',
         sellerName: sellerName.trim(),
-        phone: phone.trim() || '9876543201',
-        whatsapp: phone.trim() || '9876543201',
+        phone: phone.trim() || currentUser?.phone || '9876543201',
+        whatsapp: phone.trim() || currentUser?.phone || '9876543201',
         location: locationAddress.trim(),
         location_name: locationAddress.trim(),
         city: selectedCity,
@@ -325,6 +331,63 @@ export default function ContextualListingModal({
       setIsSubmitting(false);
     }
   };
+
+  // 🛡️ Direct Access Guard for Non-Sellers
+  if (!isSeller) {
+    return (
+      <>
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-slate-100 font-sans">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-amber-400/20 text-amber-300 text-3xl flex items-center justify-center mx-auto border border-amber-400/40 shadow-inner">
+              🏪
+            </div>
+            
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-black text-slate-100">
+                Seller Account Required (विक्रेता खाता आवश्यक)
+              </h3>
+              <p className="text-xs text-amber-300 font-bold">
+                लिस्टिंग पोस्ट करने के लिए विक्रेता (Merchant KYC) सत्यापन आवश्यक है।
+              </p>
+              <p className="text-[10px] text-slate-400 leading-relaxed pt-1">
+                Complete the staged onboarding process (Phone ➔ Profile ➔ Permanent PIN ➔ Seller Upgrade) to list inventory across {selectedCity}.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer"
+              >
+                Start Seller KYC (विक्रेता बनें) ➔
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-[10px] font-bold rounded-xl transition cursor-pointer"
+              >
+                रद्द करें / Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          selectedCity={selectedCity}
+          actionTitle="Become a Seller & Complete KYC (विक्रेता सत्यापन)"
+          onSuccess={(profile) => {
+            setCurrentUser(profile);
+            setSellerName(profile.full_name || sellerName);
+            setPhone(profile.phone || phone);
+            setIsAuthModalOpen(false);
+          }}
+        />
+      </>
+    );
+  }
 
   if (submissionDone) {
     return (
