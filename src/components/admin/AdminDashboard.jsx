@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAllListingsSlice, hyperlocalStore, hydrateFromDB } from '../../store/hyperlocalStore';
+import UserManagementCRM from './UserManagementCRM';
+
 import {
   approveListingChanges,
   rejectListingChanges,
@@ -25,7 +27,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [keyError, setKeyError] = useState('');
 
   const allListings = useAllListingsSlice();
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending' | 'approved' | 'all'
+  const [activeTab, setActiveTab] = useState('pending'); // 'pending' | 'approved' | 'all' | 'users'
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -52,8 +54,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     timing: '09:00 AM - 09:00 PM',
     description: '',
     descPoints: ['', '', '', ''],
-    images: [], // Holds active image strings or new File objects
-    videos: [], // Holds active video objects or new File objects
+    images: [],
+    videos: [],
   });
 
   const [activeMediaTab, setActiveMediaTab] = useState('photos'); // 'photos' | 'videos'
@@ -189,7 +191,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 👤 Specific Selected Seller's Listings (Categorized)
+  // 👤 Specific Selected Seller's Listings
   const sellerListings = useMemo(() => {
     if (!selectedSeller?.phone) return [];
     const cleanTargetPhone = String(selectedSeller.phone).replace(/\D/g, '').slice(-10);
@@ -313,20 +315,17 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }));
   };
 
-  // 🟢 Approve & Publish Handler (Incorporates Admin Media & Text Corrections)
+  // 🟢 Approve & Publish Handler
   const handleApprove = async (item) => {
     setActionInProgressId(item.id);
     try {
       let finalChanges = item.pending_changes || {};
-
       let finalImages = editFormData.images;
       let finalVideos = editFormData.videos;
 
       if (isAdminEditing) {
-        // Upload any newly added files
         const newImageFiles = finalImages.filter((img) => img?.file).map((img) => img.file);
         const uploadedNewImageUrls = newImageFiles.length > 0 ? await uploadListingImagesToStorage(newImageFiles) : [];
-        
         const existingImageUrls = finalImages.filter((img) => typeof img === 'string');
         finalImages = [...existingImageUrls, ...uploadedNewImageUrls];
 
@@ -402,7 +401,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🔴 Reject Changes Handler with Optional Reason
+  // 🔴 Reject Changes Handler
   const handleReject = async (item) => {
     setActionInProgressId(item.id);
     try {
@@ -440,7 +439,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ 1. Start Admin Voice Recording
+  // 🎙️ Admin Voice Recording Handlers
   const handleStartAdminVoice = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -464,7 +463,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ 2. Stop Recording & Keep in Preview
   const handleStopAdminVoice = () => {
     const mediaRecorder = mediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -505,7 +503,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 📩 Send Issue Note (Text or Voice) to Merchant
   const handleSendFeedbackNote = async (item) => {
     if (!feedbackText.trim() && !recordedVoiceNote) {
       alert('Please enter a feedback message or record a voice note.');
@@ -663,16 +660,16 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
           <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
             <span className="block text-base font-black text-slate-300">{allFilteredListings.length}</span>
-            <span className="text-[8.5px] text-slate-400 font-bold uppercase tracking-wider">Total</span>
+            <span className="text-[8.5px] text-slate-400 font-bold uppercase tracking-wider">Total Listings</span>
           </div>
         </div>
 
-        {/* 3-Way Tab Switcher */}
-        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[10.5px]">
+        {/* 🌟 4-Way Tab Switcher with Resident CRM */}
+        <div className="grid grid-cols-4 gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[9.5px]">
           <button
             type="button"
             onClick={() => setActiveTab('pending')}
-            className={`flex-1 py-2 text-center rounded-xl font-black transition cursor-pointer ${
+            className={`py-2 text-center rounded-xl font-black transition cursor-pointer ${
               activeTab === 'pending'
                 ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-slate-200'
@@ -683,7 +680,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           <button
             type="button"
             onClick={() => setActiveTab('approved')}
-            className={`flex-1 py-2 text-center rounded-xl font-black transition cursor-pointer ${
+            className={`py-2 text-center rounded-xl font-black transition cursor-pointer ${
               activeTab === 'approved'
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-slate-200'
@@ -694,7 +691,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           <button
             type="button"
             onClick={() => setActiveTab('all')}
-            className={`flex-1 py-2 text-center rounded-xl font-black transition cursor-pointer ${
+            className={`py-2 text-center rounded-xl font-black transition cursor-pointer ${
               activeTab === 'all'
                 ? 'bg-gradient-to-r from-slate-700 to-slate-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-slate-200'
@@ -702,256 +699,280 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           >
             All ({allFilteredListings.length})
           </button>
-        </div>
-
-        {/* ⏱️ Dynamic Time Filter Bar */}
-        <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
-              <span>⏱️ Filter Timeline</span>
-            </span>
-
-            <select
-              value={timeFilterType}
-              onChange={(e) => {
-                setTimeFilterType(e.target.value);
-                if (e.target.value === 'hours') setTimeValue(1);
-                if (e.target.value === 'days') setTimeValue(1);
-              }}
-              className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 font-bold text-[10px] focus:outline-hidden"
-            >
-              <option value="all">All Time (हमेशा)</option>
-              <option value="hours">Hours Range (घंटे)</option>
-              <option value="days">Days Range (दिन)</option>
-              <option value="last_week">Last Week (पिछले 7 दिन)</option>
-              <option value="last_month">Last Month (पिछला महीना)</option>
-              <option value="this_year">This Year (इस साल)</option>
-            </select>
-          </div>
-
-          {timeFilterType === 'hours' && (
-            <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 text-[10px]">
-              <span className="text-amber-300 font-bold">Past {timeValue} Hour{timeValue > 1 ? 's' : ''}:</span>
-              <div className="flex items-center space-x-1.5">
-                {[1, 2, 4, 8, 12, 24].map((h) => (
-                  <button
-                    key={h}
-                    type="button"
-                    onClick={() => setTimeValue(h)}
-                    className={`px-2 py-0.5 rounded-lg font-mono font-bold transition cursor-pointer ${
-                      timeValue === h ? 'bg-amber-400 text-slate-950' : 'bg-slate-900 text-slate-400'
-                    }`}
-                  >
-                    {h}h
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {timeFilterType === 'days' && (
-            <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 text-[10px]">
-              <span className="text-cyan-300 font-bold">Past {timeValue} Day{timeValue > 1 ? 's' : ''}:</span>
-              <div className="flex items-center space-x-1.5">
-                {[1, 2, 3, 5, 7].map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setTimeValue(d)}
-                    className={`px-2 py-0.5 rounded-lg font-mono font-bold transition cursor-pointer ${
-                      timeValue === d ? 'bg-cyan-400 text-slate-950' : 'bg-slate-900 text-slate-400'
-                    }`}
-                  >
-                    {d}d
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Search & Sector Filters */}
-        <div className="flex items-center space-x-2">
-          <input
-            type="text"
-            placeholder="Search by title, phone, or merchant..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-amber-400"
-          />
-
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-xl px-2 py-2 text-xs text-amber-300 font-bold focus:outline-hidden"
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`py-2 text-center rounded-xl font-black transition cursor-pointer flex items-center justify-center space-x-0.5 ${
+              activeTab === 'users'
+                ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-md'
+                : 'text-slate-400 hover:text-purple-300'
+            }`}
           >
-            <option value="all">All Sectors</option>
-            {Object.keys(TAXONOMY_REGISTRY).map((catKey) => {
-              const cat = TAXONOMY_REGISTRY[catKey];
-              return <option key={cat.id} value={cat.id}>{cat.name.split('(')[0]}</option>;
-            })}
-          </select>
+            <span>👥</span>
+            <span>Users</span>
+          </button>
         </div>
 
-        {/* 1. Pending Approvals Queue Tab */}
-        {activeTab === 'pending' && (
-          <div className="space-y-3">
-            {pendingApprovals.length === 0 ? (
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center space-y-1.5">
-                <span className="text-2xl block">✅</span>
-                <h4 className="text-xs font-black text-slate-200">No Pending Reviews</h4>
-                <p className="text-[10px] text-slate-400">All submissions in this time window have been approved.</p>
-              </div>
-            ) : (
-              pendingApprovals.map((item) => {
-                const changes = item.pending_changes || {};
-                const isProposal = Boolean(item.pending_changes);
-                const sellerPhone = changes.phone || item.phone;
-                const sellerName = changes.sellerName || item.sellerName;
+        {/* 🌟 USER MANAGEMENT CRM TAB */}
+        {activeTab === 'users' && (
+          <div className="animate-fade-in">
+            <UserManagementCRM selectedCity={selectedCity} />
+          </div>
+        )}
 
-                return (
+        {/* LISTINGS CONTENT & FILTERS (Only shown for listings tabs) */}
+        {activeTab !== 'users' && (
+          <>
+            {/* ⏱️ Dynamic Time Filter Bar */}
+            <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+                  <span>⏱️ Filter Timeline</span>
+                </span>
+
+                <select
+                  value={timeFilterType}
+                  onChange={(e) => {
+                    setTimeFilterType(e.target.value);
+                    if (e.target.value === 'hours') setTimeValue(1);
+                    if (e.target.value === 'days') setTimeValue(1);
+                  }}
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 font-bold text-[10px] focus:outline-hidden"
+                >
+                  <option value="all">All Time (हमेशा)</option>
+                  <option value="hours">Hours Range (घंटे)</option>
+                  <option value="days">Days Range (दिन)</option>
+                  <option value="last_week">Last Week (पिछले 7 दिन)</option>
+                  <option value="last_month">Last Month (पिछला महीना)</option>
+                  <option value="this_year">This Year (इस साल)</option>
+                </select>
+              </div>
+
+              {timeFilterType === 'hours' && (
+                <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 text-[10px]">
+                  <span className="text-amber-300 font-bold">Past {timeValue} Hour{timeValue > 1 ? 's' : ''}:</span>
+                  <div className="flex items-center space-x-1.5">
+                    {[1, 2, 4, 8, 12, 24].map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setTimeValue(h)}
+                        className={`px-2 py-0.5 rounded-lg font-mono font-bold transition cursor-pointer ${
+                          timeValue === h ? 'bg-amber-400 text-slate-950' : 'bg-slate-900 text-slate-400'
+                        }`}
+                      >
+                        {h}h
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {timeFilterType === 'days' && (
+                <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 text-[10px]">
+                  <span className="text-cyan-300 font-bold">Past {timeValue} Day{timeValue > 1 ? 's' : ''}:</span>
+                  <div className="flex items-center space-x-1.5">
+                    {[1, 2, 3, 5, 7].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setTimeValue(d)}
+                        className={`px-2 py-0.5 rounded-lg font-mono font-bold transition cursor-pointer ${
+                          timeValue === d ? 'bg-cyan-400 text-slate-950' : 'bg-slate-900 text-slate-400'
+                        }`}
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Search & Sector Filters */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                placeholder="Search by title, phone, or merchant..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-amber-400"
+              />
+
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-xl px-2 py-2 text-xs text-amber-300 font-bold focus:outline-hidden"
+              >
+                <option value="all">All Sectors</option>
+                {Object.keys(TAXONOMY_REGISTRY).map((catKey) => {
+                  const cat = TAXONOMY_REGISTRY[catKey];
+                  return <option key={cat.id} value={cat.id}>{cat.name.split('(')[0]}</option>;
+                })}
+              </select>
+            </div>
+
+            {/* 1. Pending Approvals Queue Tab */}
+            {activeTab === 'pending' && (
+              <div className="space-y-3">
+                {pendingApprovals.length === 0 ? (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center space-y-1.5">
+                    <span className="text-2xl block">✅</span>
+                    <h4 className="text-xs font-black text-slate-200">No Pending Reviews</h4>
+                    <p className="text-[10px] text-slate-400">All submissions in this time window have been approved.</p>
+                  </div>
+                ) : (
+                  pendingApprovals.map((item) => {
+                    const changes = item.pending_changes || {};
+                    const isProposal = Boolean(item.pending_changes);
+                    const sellerPhone = changes.phone || item.phone;
+                    const sellerName = changes.sellerName || item.sellerName;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-slate-900 border border-amber-500/40 rounded-2xl p-3.5 space-y-3 shadow-md relative overflow-hidden"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider inline-block">
+                              {isProposal ? '✏️ PROPOSED EDIT' : '🆕 NEW ENLISTMENT'}
+                            </span>
+                            <h4 className="text-xs font-black text-slate-100 mt-1 truncate">
+                              {changes.title || item.title}
+                            </h4>
+
+                            {/* 👤 1-Tap Merchant Dossier Trigger */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSeller({ phone: sellerPhone, name: sellerName });
+                                setSellerPortfolioTab('all');
+                              }}
+                              className="mt-0.5 text-[10px] text-amber-300 hover:text-amber-200 font-bold flex items-center space-x-1 cursor-pointer group"
+                            >
+                              <span className="group-hover:underline">👤 {sellerName}</span>
+                              <span>•</span>
+                              <span className="font-mono">📞 {sellerPhone}</span>
+                              <span className="text-[8px] bg-amber-400/20 px-1 py-0.2 rounded text-amber-300 font-bold">
+                                View All ({allListings.filter(l => String(l.phone || l.pending_changes?.phone).slice(-10) === String(sellerPhone).slice(-10)).length}) ➔
+                              </span>
+                            </button>
+                          </div>
+
+                          <span className="text-[9px] text-slate-400 font-semibold bg-slate-800 px-2 py-0.5 rounded-md shrink-0">
+                            {changes.category || item.category}
+                          </span>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px]">
+                          <div>
+                            <span className="text-slate-400 block text-[8.5px]">Price & Stock</span>
+                            <span className="text-emerald-400 font-black">{changes.price || item.price}</span>
+                            <span className="text-slate-400 text-[8.5px]"> • {changes.capacity || item.capacity || 'Ready Stock'}</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInspector(item)}
+                            className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md cursor-pointer active:scale-95 transition flex items-center space-x-1"
+                          >
+                            <span>🔍</span>
+                            <span>Inspect & Review</span>
+                          </button>
+                        </div>
+
+                        {/* Action Controls */}
+                        <div className="flex items-center space-x-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleApprove(item)}
+                            disabled={actionInProgressId === item.id}
+                            className="flex-1 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+                          >
+                            {actionInProgressId === item.id ? 'Publishing... ⏳' : '✓ Quick Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleReject(item)}
+                            disabled={actionInProgressId === item.id}
+                            className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10.5px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
+                          >
+                            ✕ Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* 2. Approved & Live Listings Tab */}
+            {activeTab === 'approved' && (
+              <div className="space-y-2.5">
+                {approvedListings.map((item) => (
                   <div
                     key={item.id}
-                    className="bg-slate-900 border border-amber-500/40 rounded-2xl p-3.5 space-y-3 shadow-md relative overflow-hidden"
+                    className="p-3 bg-slate-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="min-w-0 flex-1 pr-2">
-                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider inline-block">
-                          {isProposal ? '✏️ PROPOSED EDIT' : '🆕 NEW ENLISTMENT'}
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[8px] font-black text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded-md border border-emerald-500/30">
+                          LIVE
                         </span>
-                        <h4 className="text-xs font-black text-slate-100 mt-1 truncate">
-                          {changes.title || item.title}
-                        </h4>
-
-                        {/* 👤 1-Tap Merchant Dossier Trigger */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedSeller({ phone: sellerPhone, name: sellerName });
-                            setSellerPortfolioTab('all');
-                          }}
-                          className="mt-0.5 text-[10px] text-amber-300 hover:text-amber-200 font-bold flex items-center space-x-1 cursor-pointer group"
-                        >
-                          <span className="group-hover:underline">👤 {sellerName}</span>
-                          <span>•</span>
-                          <span className="font-mono">📞 {sellerPhone}</span>
-                          <span className="text-[8px] bg-amber-400/20 px-1 py-0.2 rounded text-amber-300 font-bold">
-                            View All ({allListings.filter(l => String(l.phone || l.pending_changes?.phone).slice(-10) === String(sellerPhone).slice(-10)).length}) ➔
-                          </span>
-                        </button>
+                        <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
                       </div>
-
-                      <span className="text-[9px] text-slate-400 font-semibold bg-slate-800 px-2 py-0.5 rounded-md shrink-0">
-                        {changes.category || item.category}
-                      </span>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px]">
-                      <div>
-                        <span className="text-slate-400 block text-[8.5px]">Price & Stock</span>
-                        <span className="text-emerald-400 font-black">{changes.price || item.price}</span>
-                        <span className="text-slate-400 text-[8.5px]"> • {changes.capacity || item.capacity || 'Ready Stock'}</span>
-                      </div>
-
+                      
+                      {/* 👤 1-Tap Merchant Dossier */}
                       <button
                         type="button"
-                        onClick={() => handleOpenInspector(item)}
-                        className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md cursor-pointer active:scale-95 transition flex items-center space-x-1"
+                        onClick={() => {
+                          setSelectedSeller({ phone: item.phone, name: item.sellerName });
+                          setSellerPortfolioTab('all');
+                        }}
+                        className="text-[9.5px] text-amber-300 hover:text-amber-200 mt-0.5 block text-left cursor-pointer"
                       >
-                        <span>🔍</span>
-                        <span>Inspect & Review</span>
+                        👤 {item.sellerName} • 📞 {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
                       </button>
                     </div>
-
-                    {/* Action Controls */}
-                    <div className="flex items-center space-x-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleApprove(item)}
-                        disabled={actionInProgressId === item.id}
-                        className="flex-1 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
-                      >
-                        {actionInProgressId === item.id ? 'Publishing... ⏳' : '✓ Quick Approve'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleReject(item)}
-                        disabled={actionInProgressId === item.id}
-                        className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10.5px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
-                      >
-                        ✕ Reject
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-
-        {/* 2. Approved & Live Listings Tab */}
-        {activeTab === 'approved' && (
-          <div className="space-y-2.5">
-            {approvedListings.map((item) => (
-              <div
-                key={item.id}
-                className="p-3 bg-slate-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between"
-              >
-                <div className="min-w-0 pr-2">
-                  <div className="flex items-center space-x-1.5">
-                    <span className="text-[8px] font-black text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded-md border border-emerald-500/30">
-                      LIVE
+                    <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
+                      {item.category}
                     </span>
-                    <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
                   </div>
-                  
-                  {/* 👤 1-Tap Merchant Dossier */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedSeller({ phone: item.phone, name: item.sellerName });
-                      setSellerPortfolioTab('all');
-                    }}
-                    className="text-[9.5px] text-amber-300 hover:text-amber-200 mt-0.5 block text-left cursor-pointer"
-                  >
-                    👤 {item.sellerName} • 📞 {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
-                  </button>
-                </div>
-                <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
-                  {item.category}
-                </span>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* 3. All Listings Tab */}
-        {activeTab === 'all' && (
-          <div className="space-y-2">
-            {allFilteredListings.map((item) => (
-              <div
-                key={item.id}
-                className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between"
-              >
-                <div className="min-w-0 pr-2">
-                  <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedSeller({ phone: item.phone, name: item.sellerName });
-                      setSellerPortfolioTab('all');
-                    }}
-                    className="text-[9.5px] text-slate-400 hover:text-amber-300 text-left block cursor-pointer"
+            {/* 3. All Listings Tab */}
+            {activeTab === 'all' && (
+              <div className="space-y-2">
+                {allFilteredListings.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between"
                   >
-                    👤 {item.sellerName} • 📞 {item.phone} • <span className="text-amber-400 font-bold">{item.price}</span>
-                  </button>
-                </div>
-                <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
-                  {item.category}
-                </span>
+                    <div className="min-w-0 pr-2">
+                      <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSeller({ phone: item.phone, name: item.sellerName });
+                          setSellerPortfolioTab('all');
+                        }}
+                        className="text-[9.5px] text-slate-400 hover:text-amber-300 text-left block cursor-pointer"
+                      >
+                        👤 {item.sellerName} • 📞 {item.phone} • <span className="text-amber-400 font-bold">{item.price}</span>
+                      </button>
+                    </div>
+                    <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
+                      {item.category}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
       </div>
@@ -1154,7 +1175,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL (WITH ADMIN CORRECTION MODE)       */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL                                   */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -1269,7 +1290,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </button>
                     </div>
 
-                    {/* Photo Thumbnails & Admin Add/Delete Controls */}
+                    {/* Photo Thumbnails */}
                     {activeMediaTab === 'photos' && (
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-[9px]">
@@ -1310,7 +1331,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </div>
                     )}
 
-                    {/* Video Selector Tabs & Admin Add/Delete Controls */}
+                    {/* Video Thumbnails */}
                     {activeMediaTab === 'videos' && (
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-[9px]">
@@ -1371,7 +1392,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     <span className="text-[8.5px] text-slate-400">Merchant will get notified</span>
                   </div>
 
-                  {/* Category & Subcategory Modifier */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Sector *</label>
@@ -1410,7 +1430,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
                   </div>
 
-                  {/* Title */}
                   <div>
                     <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Listing Title *</label>
                     <input
@@ -1421,7 +1440,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     />
                   </div>
 
-                  {/* Price & Stock */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Price Rate *</label>
@@ -1443,7 +1461,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
                   </div>
 
-                  {/* Hours & Location */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Active Hours</label>
@@ -1465,7 +1482,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
                   </div>
 
-                  {/* Highlights Bullet Editor */}
                   <div className="space-y-1.5">
                     <label className="text-[8.5px] font-bold text-slate-400 block">4 Key Highlights</label>
                     {[0, 1, 2, 3].map((idx) => (
@@ -1485,7 +1501,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   </div>
                 </div>
               ) : (
-                /* Structured Details View with 1-Tap Dossier */
                 (() => {
                   const changes = inspectingItem.pending_changes || {};
                   const sellerPhone = changes.phone || inspectingItem.phone;
@@ -1602,7 +1617,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   <span className="text-[8.5px] text-slate-400">Merchant will listen directly</span>
                 </label>
 
-                {/* Voice Note Recording Controls */}
                 {isRecordingVoice ? (
                   <div className="flex items-center justify-between p-2 bg-rose-950/40 border border-rose-600/50 rounded-xl animate-pulse">
                     <span className="text-xs font-black text-rose-300">

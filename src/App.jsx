@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
+
 import {
   useNotificationSlice,
   hyperlocalStore,
@@ -14,6 +15,9 @@ import TownHubView from './categories/TownHubView';
 import NotificationCenter from './components/NotificationCenter';
 import AuthModal from './components/common/AuthModal';
 import AdminKeyModal from './components/common/AdminKeyModal';
+
+// 1. Lazy load for common user registration 
+const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboard'));
 
 // Lazy Loaded Modals & Admin Dashboard
 const ContextualListingModal = lazy(() => import('./components/ContextualListingModal'));
@@ -345,6 +349,15 @@ export default function App() {
 
           <button
             type="button"
+            onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
+            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
+          >
+            <span>👤</span>
+            <span>{currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={goForward}
             disabled={!canGoForward}
             title="Step Forward (Swipe Left)"
@@ -478,6 +491,17 @@ export default function App() {
           {currentScreen === 'provider-dashboard' && (
             <ProviderDashboard onBack={goBack} />
           )}
+
+          {currentScreen === 'user-auth-dashboard' && (
+            <UserAuthDashboard
+            selectedCity={selectedCity}
+            onBack={goBack}
+            onAuthSuccess={(profile) => {
+            setCurrentUser(profile);
+            goBack();
+                }}
+              />
+            )}
 
           {currentScreen === 'town-hub' && (
             <TownHubView
