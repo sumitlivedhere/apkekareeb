@@ -102,6 +102,9 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authActionTitle, setAuthActionTitle] = useState('Verify Phone to Continue');
 
+  // 🏪 Prompt State for Non-Sellers Attempting to Post
+  const [isBusinessPromptOpen, setIsBusinessPromptOpen] = useState(false);
+
   const [isListingModalOpen, setIsListingModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
@@ -125,17 +128,24 @@ export default function App() {
     searchQuery,
   } = currentNav;
 
-  // 🔔 Calculate Unread Alerts exclusively for the active persona
-const roleFilteredAlerts = useRoleFilteredNotifications(
-  currentUser,
-  currentScreen,
-  currentScreen === 'admin-dashboard'
-);
+  // 🛡️ Seller / Merchant & Admin Authorization Check
+  const isSeller = Boolean(
+    currentUser?.is_merchant === true ||
+    currentUser?.verification_tier === 'verified_merchant'
+  );
+  const isAuthorizedToPost = Boolean(isAdminUnlocked || isSeller);
 
-const unreadNotifCount = useMemo(
-  () => roleFilteredAlerts.filter((n) => !n.is_read && !n.read).length,
-  [roleFilteredAlerts]
-);
+  // 🔔 Calculate Unread Alerts exclusively for the active persona
+  const roleFilteredAlerts = useRoleFilteredNotifications(
+    currentUser,
+    currentScreen,
+    currentScreen === 'admin-dashboard'
+  );
+
+  const unreadNotifCount = useMemo(
+    () => roleFilteredAlerts.filter((n) => !n.is_read && !n.read).length,
+    [roleFilteredAlerts]
+  );
 
   const navigateTo = (updates) => {
     const nextState = {
@@ -176,21 +186,21 @@ const unreadNotifCount = useMemo(
     hyperlocalStore.addNotification(notif);
   };
 
-  // 👑 Master Admin Posting Handler
+  // 👑 Seller & Admin Posting Handler with Non-Seller Business Prompt
   const handleOpenPostModal = () => {
-    if (isAdminUnlocked || currentUser) {
+    if (isAuthorizedToPost) {
       setIsListingModalOpen(true);
     } else {
-      setIsAdminKeyModalOpen(true);
+      // Show bilingual Business Join Prompt for normal/temp/permanent residents
+      setIsBusinessPromptOpen(true);
     }
   };
 
   const handleOpenBusinessHub = () => {
-    if (isAdminUnlocked || currentUser) {
+    if (isAdminUnlocked || isSeller) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
     } else {
-      setAuthActionTitle('Verify Phone to Open Business Hub');
-      setIsAuthModalOpen(true);
+      setIsBusinessPromptOpen(true);
     }
   };
 
@@ -205,57 +215,73 @@ const unreadNotifCount = useMemo(
 
   // 🔔 Deep Link Router on Alert Tap
   const handleSelectNotification = (notif) => {
-  setIsNotificationsOpen(false);
+    setIsNotificationsOpen(false);
 
-  // 1. Admin Actions (Review Queue & User CRM)
-  if (
-    notif.tag === 'PENDING_APPROVAL' ||
-    notif.tag === 'EDIT_PROPOSAL' ||
-    notif.tag === 'FLAGGED_REPORT' ||
-    notif.tag === 'NEW_USER_PIN'
-  ) {
-    navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
-    return;
-  }
-
-  // 2. Seller Actions (Comments / Inquiries / Approval)
-  if (
-    (notif.tag === 'USER_COMMENT' ||
-      notif.tag === 'VOICE_INQUIRY' ||
-      notif.tag === 'LISTING_APPROVED' ||
-      notif.tag === 'LISTING_REJECTED' ||
-      notif.tag === 'INTEREST_ALERT') &&
-    notif.targetId
-  ) {
-    navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
-    return;
-  }
-
-  // 3. Resident User Actions (Seller Reply / Deal Update)
-  if (notif.targetId) {
-    const allItems = hyperlocalStore.getAllListings();
-    const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
-    if (matched) {
-      setSelectedDetailItem(matched);
+    // 1. Admin Actions
+    if (
+      notif.tag === 'PENDING_APPROVAL' ||
+      notif.tag === 'EDIT_PROPOSAL' ||
+      notif.tag === 'FLAGGED_REPORT' ||
+      notif.tag === 'NEW_USER_PIN'
+    ) {
+      navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
       return;
     }
-  }
 
-  if (notif.category) {
-    handleOpenFeed(notif.category, notif.subCategory || 'all');
-  }
-};
+    // 2. Seller Actions
+    if (
+      (notif.tag === 'USER_COMMENT' ||
+        notif.tag === 'VOICE_INQUIRY' ||
+        notif.tag === 'LISTING_APPROVED' ||
+        notif.tag === 'LISTING_REJECTED' ||
+        notif.tag === 'INTEREST_ALERT') &&
+      notif.targetId
+    ) {
+      navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
+      return;
+    }
+
+    // 3. Resident User Actions
+    if (notif.targetId) {
+      const allItems = hyperlocalStore.getAllListings();
+      const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
+      if (matched) {
+        setSelectedDetailItem(matched);
+        return;
+      }
+    }
+
+    if (notif.category) {
+      handleOpenFeed(notif.category, notif.subCategory || 'all');
+    }
+  };
 
   // 🌟 Touch Swipe Gesture Handlers
   const handleTouchStart = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen) return;
+    if (
+      isListingModalOpen ||
+      isNotificationsOpen ||
+      selectedDetailItem ||
+      isAuthModalOpen ||
+      isAdminKeyModalOpen ||
+      isBusinessPromptOpen
+    )
+      return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
     touchStartTime.current = Date.now();
   };
 
   const handleTouchEnd = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen) return;
+    if (
+      isListingModalOpen ||
+      isNotificationsOpen ||
+      selectedDetailItem ||
+      isAuthModalOpen ||
+      isAdminKeyModalOpen ||
+      isBusinessPromptOpen
+    )
+      return;
 
     const target = e.target;
     if (target.closest('.overflow-x-auto, input, textarea, select')) return;
@@ -379,7 +405,7 @@ const unreadNotifCount = useMemo(
           <button
             type="button"
             onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
-            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
+            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
             title="Open Resident Profile & Login"
           >
             <span>👤</span>
@@ -419,7 +445,8 @@ const unreadNotifCount = useMemo(
 
         {/* Right Action Cluster */}
         <div className="flex items-center space-x-1.5 shrink-0">
-          {/* 🚫 Exclude Post Here button on home, dashboards, AND surprise-feed */}
+          
+          {/* Post Here Button */}
           {currentScreen !== 'home' &&
             currentScreen !== 'provider-dashboard' &&
             currentScreen !== 'admin-dashboard' &&
@@ -928,7 +955,7 @@ const unreadNotifCount = useMemo(
           type="button"
           onClick={handleOpenPostModal}
           className="w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg active:scale-95 hover:scale-105 transition -mt-5 ring-4 ring-slate-950 cursor-pointer"
-          title="Post Listing / Business"
+          title={isAuthorizedToPost ? 'Post Listing / Business' : 'Open for Business side'}
         >
           +
         </button>
@@ -948,7 +975,7 @@ const unreadNotifCount = useMemo(
 
       {/* 🌟 5. Modals & Drawers */}
       <Suspense fallback={null}>
-        {isListingModalOpen && (
+        {isListingModalOpen && isAuthorizedToPost && (
           <ContextualListingModal
             currentScreen={currentScreen}
             selectedCategory={selectedCategory}
@@ -968,6 +995,63 @@ const unreadNotifCount = useMemo(
         )}
       </Suspense>
 
+      {/* 🏪 Business Side Join Prompt Modal for Normal / Temporary / Permanent Residents */}
+      {isBusinessPromptOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-slate-100 font-sans">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-500 text-slate-950 text-2xl flex items-center justify-center mx-auto shadow-lg">
+              🏪
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-black text-slate-100 leading-snug">
+                Open for Business side, would you like to Join?
+              </h3>
+              <p className="text-xs text-amber-300 font-bold">
+                यह सुविधा व्यापार और विक्रेताओं के लिए उपलब्ध है, क्या आप जुड़ना चाहेंगे?
+              </p>
+              <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
+                Post your shop inventory, properties, rental attire, or local service listings across {selectedCity}.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBusinessPromptOpen(false);
+                  setAuthActionTitle('Merchant KYC Verification (विक्रेता खाता)');
+                  setIsAuthModalOpen(true);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <span>🏪</span>
+                <span>Yes, Join as Business (हाँ, जुड़ें) ➔</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBusinessPromptOpen(false);
+                  setIsAdminKeyModalOpen(true);
+                }}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-bold rounded-xl border border-slate-700 active:scale-95 transition cursor-pointer"
+              >
+                👑 Master Admin Login
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsBusinessPromptOpen(false)}
+                className="w-full py-2 text-slate-400 hover:text-slate-200 text-[10px] font-bold cursor-pointer"
+              >
+                रद्द करें / Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 👑 Admin Key Modal */}
       <AdminKeyModal
         isOpen={isAdminKeyModalOpen}
@@ -981,18 +1065,18 @@ const unreadNotifCount = useMemo(
 
       {/* Role-Filtered Notification Center Drawer */}
       {isNotificationsOpen && (
-      <NotificationCenter
-      notifications={roleFilteredAlerts}
-      currentUser={currentUser}
-      currentScreen={currentScreen}
-      isAdminMode={currentScreen === 'admin-dashboard'}
-      onClose={() => setIsNotificationsOpen(false)}
-      onMarkAllRead={() => hyperlocalStore.markAllNotificationsRead()}
-      onSelectNotification={handleSelectNotification}
-      />
+        <NotificationCenter
+          notifications={roleFilteredAlerts}
+          currentUser={currentUser}
+          currentScreen={currentScreen}
+          isAdminMode={currentScreen === 'admin-dashboard'}
+          onClose={() => setIsNotificationsOpen(false)}
+          onMarkAllRead={() => hyperlocalStore.markAllNotificationsRead()}
+          onSelectNotification={handleSelectNotification}
+        />
       )}
 
-      {/* Resident Phone Verification Modal */}
+      {/* Resident Phone Verification & Merchant KYC Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         selectedCity={selectedCity}
@@ -1001,7 +1085,8 @@ const unreadNotifCount = useMemo(
         onSuccess={(profile) => {
           setCurrentUser(profile);
           setIsAuthModalOpen(false);
-          if (authActionTitle.includes('Post')) {
+          const upgradedSeller = Boolean(profile?.is_merchant || profile?.verification_tier === 'verified_merchant');
+          if (upgradedSeller) {
             setIsListingModalOpen(true);
           } else if (authActionTitle.includes('Business')) {
             navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
