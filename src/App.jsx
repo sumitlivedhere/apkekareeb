@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
+import { Analytics } from '@vercel/analytics/react';
 import {
   useRoleFilteredNotifications,
   hyperlocalStore,
@@ -196,7 +198,7 @@ export default function App() {
   };
 
   const handleOpenBusinessHub = () => {
-    if (isAdminUnlocked || isSeller) {
+    if (isAuthorizedToPost) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
     } else {
       setIsBusinessPromptOpen(true);
@@ -1078,6 +1080,10 @@ export default function App() {
           }
         }}
       />
+
+      {/* 📈 Performance & Web Analytics Metrics */}
+      <SpeedInsights />
+      <Analytics />
     </div>
   );
 }
