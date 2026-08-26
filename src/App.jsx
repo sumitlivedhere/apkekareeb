@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
-
 import {
-  useNotificationSlice,
+  useRoleFilteredNotifications,
   hyperlocalStore,
   hydrateFromDB,
   initRealtimeSubscriptions,
@@ -16,7 +15,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AuthModal from './components/common/AuthModal';
 import AdminKeyModal from './components/common/AdminKeyModal';
 
-// 1. Lazy load for common user registration 
+// 1. Lazy Loaded User Auth & Profile Station
 const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboard'));
 
 // Lazy Loaded Modals & Admin Dashboard
@@ -126,11 +125,17 @@ export default function App() {
     searchQuery,
   } = currentNav;
 
-  const notifications = useNotificationSlice();
-  const unreadNotifCount = useMemo(
-    () => (notifications || []).filter((n) => !n.read && !n.is_read).length,
-    [notifications]
-  );
+  // 🔔 Calculate Unread Alerts exclusively for the active persona
+const roleFilteredAlerts = useRoleFilteredNotifications(
+  currentUser,
+  currentScreen,
+  currentScreen === 'admin-dashboard'
+);
+
+const unreadNotifCount = useMemo(
+  () => roleFilteredAlerts.filter((n) => !n.is_read && !n.read).length,
+  [roleFilteredAlerts]
+);
 
   const navigateTo = (updates) => {
     const nextState = {
@@ -198,25 +203,48 @@ export default function App() {
     }
   };
 
-  // 🔔 Deep link router when tapping an alert
+  // 🔔 Deep Link Router on Alert Tap
   const handleSelectNotification = (notif) => {
-    setIsNotificationsOpen(false);
+  setIsNotificationsOpen(false);
 
-    if (notif.targetId) {
-      const allItems = hyperlocalStore.getAllListings();
-      const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
-      if (matched && matched.category) {
-        handleOpenFeed(matched.category, matched.subCategory || 'all');
-        return;
-      }
-    }
+  // 1. Admin Actions (Review Queue & User CRM)
+  if (
+    notif.tag === 'PENDING_APPROVAL' ||
+    notif.tag === 'EDIT_PROPOSAL' ||
+    notif.tag === 'FLAGGED_REPORT' ||
+    notif.tag === 'NEW_USER_PIN'
+  ) {
+    navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
+    return;
+  }
 
-    if (notif.category) {
-      handleOpenFeed(notif.category, notif.subCategory || 'all');
-    } else if (notif.screen) {
-      navigateTo({ screen: notif.screen });
+  // 2. Seller Actions (Comments / Inquiries / Approval)
+  if (
+    (notif.tag === 'USER_COMMENT' ||
+      notif.tag === 'VOICE_INQUIRY' ||
+      notif.tag === 'LISTING_APPROVED' ||
+      notif.tag === 'LISTING_REJECTED' ||
+      notif.tag === 'INTEREST_ALERT') &&
+    notif.targetId
+  ) {
+    navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
+    return;
+  }
+
+  // 3. Resident User Actions (Seller Reply / Deal Update)
+  if (notif.targetId) {
+    const allItems = hyperlocalStore.getAllListings();
+    const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
+    if (matched) {
+      setSelectedDetailItem(matched);
+      return;
     }
-  };
+  }
+
+  if (notif.category) {
+    handleOpenFeed(notif.category, notif.subCategory || 'all');
+  }
+};
 
   // 🌟 Touch Swipe Gesture Handlers
   const handleTouchStart = (e) => {
@@ -331,7 +359,8 @@ export default function App() {
     >
       {/* 🌟 1. Sticky Header */}
       <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md px-3 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
-        {/* Left: Step History Controller */}
+        
+        {/* Left: Step History Controller & Resident Auth Shortcut */}
         <div className="flex items-center space-x-1.5 bg-slate-900/90 p-1 rounded-2xl border border-slate-800 shadow-inner shrink-0">
           <button
             type="button"
@@ -350,10 +379,11 @@ export default function App() {
           <button
             type="button"
             onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
-            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
+            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
+            title="Open Resident Profile & Login"
           >
             <span>👤</span>
-            <span>{currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}</span>
+            <span className="truncate max-w-[50px]">{currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}</span>
           </button>
 
           <button
@@ -393,7 +423,8 @@ export default function App() {
           {currentScreen !== 'home' &&
             currentScreen !== 'provider-dashboard' &&
             currentScreen !== 'admin-dashboard' &&
-            currentScreen !== 'surprise-feed' && (
+            currentScreen !== 'surprise-feed' &&
+            currentScreen !== 'user-auth-dashboard' && (
               <button
                 type="button"
                 onClick={handleOpenPostModal}
@@ -428,7 +459,7 @@ export default function App() {
             )}
           </button>
 
-          {/* 👑 Admin / User Status Badge */}
+          {/* 👑 Admin Status Badge */}
           {isAdminUnlocked ? (
             <button
               type="button"
@@ -438,18 +469,6 @@ export default function App() {
             >
               <span className="text-[10px]">👑</span>
               <span className="text-[10px] font-black text-amber-300">Admin</span>
-            </button>
-          ) : currentUser ? (
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex items-center space-x-1 bg-slate-900 hover:bg-slate-800 border border-emerald-500/40 rounded-xl px-2 py-1.5 cursor-pointer active:scale-95 transition"
-              title="Tap to logout"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              <span className="text-[10px] font-black text-emerald-300 truncate max-w-[60px]">
-                {currentUser.full_name?.split(' ')[0] || 'User'}
-              </span>
             </button>
           ) : (
             <button
@@ -488,20 +507,20 @@ export default function App() {
             />
           )}
 
+          {currentScreen === 'user-auth-dashboard' && (
+            <UserAuthDashboard
+              selectedCity={selectedCity}
+              onBack={goBack}
+              onAuthSuccess={(profile) => {
+                setCurrentUser(profile);
+                goBack();
+              }}
+            />
+          )}
+
           {currentScreen === 'provider-dashboard' && (
             <ProviderDashboard onBack={goBack} />
           )}
-
-          {currentScreen === 'user-auth-dashboard' && (
-            <UserAuthDashboard
-            selectedCity={selectedCity}
-            onBack={goBack}
-            onAuthSuccess={(profile) => {
-            setCurrentUser(profile);
-            goBack();
-                }}
-              />
-            )}
 
           {currentScreen === 'town-hub' && (
             <TownHubView
@@ -960,13 +979,17 @@ export default function App() {
         }}
       />
 
+      {/* Role-Filtered Notification Center Drawer */}
       {isNotificationsOpen && (
-        <NotificationCenter
-          notifications={notifications}
-          onClose={() => setIsNotificationsOpen(false)}
-          onMarkAllRead={() => hyperlocalStore.markAllNotificationsRead()}
-          onSelectNotification={handleSelectNotification}
-        />
+      <NotificationCenter
+      notifications={roleFilteredAlerts}
+      currentUser={currentUser}
+      currentScreen={currentScreen}
+      isAdminMode={currentScreen === 'admin-dashboard'}
+      onClose={() => setIsNotificationsOpen(false)}
+      onMarkAllRead={() => hyperlocalStore.markAllNotificationsRead()}
+      onSelectNotification={handleSelectNotification}
+      />
       )}
 
       {/* Resident Phone Verification Modal */}

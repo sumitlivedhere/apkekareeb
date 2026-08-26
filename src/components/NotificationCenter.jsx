@@ -1,199 +1,207 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 
 export default function NotificationCenter({
-  isOpen,
   notifications = [],
+  currentUser = null,
+  currentScreen = 'home',
+  isAdminMode = false,
   onClose,
   onMarkAllRead,
   onSelectNotification,
 }) {
-  if (isOpen === false) return null;
+  // 1. Determine Current Active Persona & Clean Phone Number
+  const userPhone = currentUser?.phone
+    ? String(currentUser.phone).replace(/\D/g, '').slice(-10)
+    : null;
 
-  const getTagMeta = (tag = 'ALERT') => {
-    const cleanTag = String(tag).toUpperCase();
+  const isSellerOnBusinessHub =
+    currentScreen === 'provider-dashboard' ||
+    Boolean(currentUser?.is_merchant || currentUser?.verification_tier === 'verified_merchant');
 
-    if (cleanTag.includes('VOICE')) {
-      return {
-        icon: '🎙️',
-        badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-      };
-    }
-    if (cleanTag.includes('REPLIED') || cleanTag.includes('SELLER')) {
-      return {
-        icon: '👑',
-        badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-      };
-    }
-    if (cleanTag.includes('INTEREST')) {
-      return {
-        icon: '⭐',
-        badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-      };
-    }
-    if (cleanTag.includes('LIVE') || cleanTag.includes('PUBLISHED')) {
-      return {
-        icon: '🚀',
-        badge: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
-      };
-    }
-    if (cleanTag.includes('INQUIRY') || cleanTag.includes('COMMENT')) {
-      return {
-        icon: '💬',
-        badge: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
-      };
-    }
+  // Determine active viewing role
+  const activeRole = isAdminMode || currentScreen === 'admin-dashboard'
+    ? 'admin'
+    : isSellerOnBusinessHub
+    ? 'seller'
+    : currentUser
+    ? 'user'
+    : 'public';
 
-    return {
-      icon: '🔔',
-      badge: 'bg-slate-800 text-slate-300 border-slate-700',
-    };
-  };
+  // 2. Filter alerts strictly for the active persona
+  const personaAlerts = useMemo(() => {
+    return notifications.filter((notif) => {
+      const role = notif.recipient_role || notif.role || 'public';
+      const targetPhone = notif.recipient_phone
+        ? String(notif.recipient_phone).replace(/\D/g, '').slice(-10)
+        : null;
 
-  const formatTimestamp = (item) => {
-    if (item.time && typeof item.time === 'string' && item.time !== 'Just now') {
-      return item.time;
-    }
-    if (item.created_at) {
-      try {
-        return new Date(item.created_at).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-      } catch {
-        return 'Just now';
+      // 👑 Admin only sees admin tasks
+      if (activeRole === 'admin') {
+        return role === 'admin';
       }
+
+      // 🏪 Seller only sees notifications sent to their phone
+      if (activeRole === 'seller') {
+        return role === 'seller' && (!targetPhone || targetPhone === userPhone);
+      }
+
+      // 👤 Resident user only sees replies to their phone + public alerts
+      if (activeRole === 'user') {
+        return (role === 'user' && targetPhone === userPhone) || role === 'public';
+      }
+
+      // 📢 Guest / Public
+      return role === 'public';
+    });
+  }, [notifications, activeRole, userPhone]);
+
+  const unreadCount = personaAlerts.filter((n) => !n.is_read && !n.read).length;
+
+  const getTagBadge = (tag) => {
+    switch (tag) {
+      case 'PENDING_APPROVAL':
+      case 'EDIT_PROPOSAL':
+        return { label: '👑 Approval Needed', bg: 'bg-amber-400/20 text-amber-300 border-amber-400/30' };
+      case 'NEW_USER_PIN':
+        return { label: '💬 Send WhatsApp PIN', bg: 'bg-cyan-400/20 text-cyan-300 border-cyan-400/30' };
+      case 'FLAGGED_REPORT':
+        return { label: '🚨 Flagged Report', bg: 'bg-rose-400/20 text-rose-300 border-rose-400/30' };
+      case 'USER_COMMENT':
+      case 'VOICE_INQUIRY':
+        return { label: '💬 Customer Inquiry', bg: 'bg-indigo-400/20 text-indigo-300 border-indigo-400/30' };
+      case 'SELLER_REPLY':
+        return { label: '🏪 Shopkeeper Replied', bg: 'bg-emerald-400/20 text-emerald-300 border-emerald-400/30' };
+      case 'LISTING_APPROVED':
+        return { label: '🟢 Verified Live', bg: 'bg-emerald-400/20 text-emerald-300 border-emerald-400/30' };
+      case 'LISTING_REJECTED':
+      case 'ADMIN_FEEDBACK':
+        return { label: '⚠️ Action Needed', bg: 'bg-rose-400/20 text-rose-300 border-rose-400/30' };
+      case 'INTEREST_ALERT':
+        return { label: '⭐ Buyer Saved Item', bg: 'bg-amber-400/20 text-amber-300 border-amber-400/30' };
+      case 'DEAL_UPDATE':
+      case 'TRENDING_OFFER':
+        return { label: '🏷️ Deal Alert', bg: 'bg-purple-400/20 text-purple-300 border-purple-400/30' };
+      default:
+        return { label: '📢 Town Alert', bg: 'bg-slate-800 text-slate-300 border-slate-700' };
     }
-    return 'Just now';
   };
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-end justify-center animate-fade-in select-none"
-    >
-      <style>{`
-        @keyframes slideUpDrawer {
-          from { transform: translateY(100%); opacity: 0.7; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        .animate-slide-up-drawer {
-          animation: slideUpDrawer 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-      `}</style>
-
-      {/* Bottom Sheet Drawer Container */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-slate-900 border-t border-x border-slate-800 w-full max-w-md rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden text-slate-100 animate-slide-up-drawer pb-6"
-      >
-        {/* Grab Pill */}
-        <div className="pt-2.5 pb-1 flex justify-center cursor-grab active:cursor-grabbing">
-          <div className="w-12 h-1.5 rounded-full bg-slate-700/80"></div>
-        </div>
-
-        {/* Drawer Header */}
-        <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-          <div className="flex items-center space-x-2">
-            <span className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-sm font-black shadow-md">
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 select-none animate-fade-in text-slate-100 font-sans">
+      <div className="bg-[#111b21] border border-[#222e35] rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden pb-4">
+        
+        {/* Modal Top Header with Dynamic Persona Label */}
+        <div className="p-4 border-b border-[#222e35] flex items-center justify-between shrink-0 bg-[#0b141a]">
+          <div className="flex items-center space-x-2.5">
+            <span className="w-9 h-9 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-lg font-black shadow-md">
               🔔
             </span>
             <div>
-              <h2 className="text-sm font-black text-white leading-none">
-                Town Alerts & Activity
-              </h2>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                {notifications.length} updates • Voice & inquiries
+              <div className="flex items-center space-x-1.5">
+                <h3 className="text-sm font-black text-white">Activity & Alerts</h3>
+                {unreadCount > 0 && (
+                  <span className="px-2 py-0.2 rounded-full text-[9px] font-black bg-rose-600 text-white font-mono">
+                    {unreadCount} NEW
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-amber-300 font-bold">
+                {activeRole === 'admin'
+                  ? '👑 Master Admin Mode'
+                  : activeRole === 'seller'
+                  ? `🏪 Business Hub (+91 ${userPhone || ''})`
+                  : activeRole === 'user'
+                  ? `👤 Resident Mode (${currentUser?.full_name || 'User'})`
+                  : '📢 Town Hub Public Feed'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            {notifications.length > 0 && onMarkAllRead && (
+            {unreadCount > 0 && (
               <button
                 type="button"
                 onClick={onMarkAllRead}
-                className="text-[10px] font-bold text-amber-400 hover:text-amber-300 bg-amber-400/10 border border-amber-400/30 px-2 py-1 rounded-lg cursor-pointer active:scale-95 transition"
+                className="text-[10px] text-amber-300 hover:text-amber-200 font-bold underline cursor-pointer"
               >
-                Mark all read
+                Mark read
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs flex items-center justify-center cursor-pointer active:scale-95 transition"
+              className="w-7 h-7 bg-[#202c33] hover:bg-[#2a3942] text-slate-300 rounded-full flex items-center justify-center text-xs font-black cursor-pointer"
             >
               ✕
             </button>
           </div>
         </div>
 
-        {/* Scrollable Alerts List */}
-        <div className="p-3 overflow-y-auto space-y-2 flex-1 max-h-[60vh]">
-          {notifications.length === 0 ? (
-            <div className="text-center py-12 space-y-2">
+        {/* Alerts Stream */}
+        <div className="p-3.5 overflow-y-auto space-y-2.5 flex-1 scrollbar-none">
+          {personaAlerts.length === 0 ? (
+            <div className="py-14 text-center space-y-2 text-slate-500">
               <span className="text-3xl block">🔕</span>
-              <p className="text-xs font-bold text-slate-300">
-                No notifications yet
-              </p>
-              <p className="text-[10px] text-slate-500 max-w-[220px] mx-auto">
-                Buyer voice inquiries, seller responses, and interest triggers will appear here.
+              <p className="text-xs font-bold text-slate-400">No new alerts right now</p>
+              <p className="text-[10px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">
+                {activeRole === 'admin'
+                  ? 'All pending listings and WhatsApp activations are clear.'
+                  : activeRole === 'seller'
+                  ? 'Customer inquiries, saves, and admin approval notes will ring here.'
+                  : 'Replies to your comments and tracked discount updates will ring here.'}
               </p>
             </div>
           ) : (
-            notifications.map((n) => {
-              const meta = getTagMeta(n.tag);
-              const isUnread = !n.read && !n.is_read;
+            personaAlerts.map((notif) => {
+              const badge = getTagBadge(notif.tag);
+              const isUnread = !notif.is_read && !notif.read;
 
               return (
                 <div
-                  key={n.id}
-                  onClick={() => onSelectNotification && onSelectNotification(n)}
-                  className={`p-3 rounded-2xl border transition cursor-pointer flex items-start space-x-3 active:scale-98 ${
+                  key={notif.id}
+                  onClick={() => {
+                    if (onSelectNotification) onSelectNotification(notif);
+                  }}
+                  className={`p-3.5 rounded-2xl border transition cursor-pointer space-y-2 ${
                     isUnread
-                      ? 'bg-slate-950/90 border-amber-400/40 shadow-md ring-1 ring-amber-400/20'
-                      : 'bg-slate-950/40 border-slate-800/80 opacity-75 hover:opacity-100 hover:border-slate-700'
+                      ? 'bg-[#182229] border-amber-400/50 shadow-md hover:border-amber-400'
+                      : 'bg-[#202c33]/70 border-[#2a3942] hover:border-slate-600'
                   }`}
                 >
-                  <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-sm shrink-0 shadow-inner">
-                    {meta.icon}
+                  <div className="flex items-start justify-between">
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border ${badge.bg}`}>
+                      {badge.label}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono">
+                      {new Date(notif.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
 
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded-md border ${meta.badge}`}>
-                        {n.tag || 'ALERT'}
-                      </span>
-                      <span className="text-[9px] text-slate-500 font-mono">
-                        {formatTimestamp(n)}
-                      </span>
-                    </div>
-
-                    <h3 className="text-xs font-bold text-white leading-snug truncate pt-0.5">
-                      {n.title}
-                    </h3>
-
-                    {n.message && (
-                      <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-2">
-                        {n.message}
-                      </p>
-                    )}
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-black text-slate-100 leading-snug">
+                      {notif.title}
+                    </h4>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {notif.message}
+                    </p>
                   </div>
 
-                  {isUnread && (
-                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 mt-1 shadow-sm animate-pulse"></span>
-                  )}
+                  <div className="pt-1 flex items-center justify-between border-t border-[#2a3942]/60 text-[10px]">
+                    <span className="text-slate-400">
+                      {activeRole === 'admin'
+                        ? 'Tap to Inspect in Admin Studio ➔'
+                        : activeRole === 'seller'
+                        ? 'Tap to View in Business Hub ➔'
+                        : 'Tap to View Details ➔'}
+                    </span>
+                    <span className="text-amber-300 font-bold">Open</span>
+                  </div>
                 </div>
               );
             })
           )}
         </div>
 
-        {/* Expiration Note Footer */}
-        <div className="px-4 py-2 border-t border-slate-800/80 bg-slate-950/30 text-center">
-          <p className="text-[9px] text-slate-500">
-            🔒 Inquiries and voice responses auto-expire after 5 days to keep your feed clean.
-          </p>
-        </div>
       </div>
     </div>
   );

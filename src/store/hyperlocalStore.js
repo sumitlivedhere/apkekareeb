@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 import { initialShaadiVendors } from '../data/shaadiData';
 import { initialTransportFirms, initialIndividualTransporters } from '../data/transporterData';
 import { initialKaarigarWorkers } from '../data/kaarigarData';
@@ -252,6 +253,47 @@ export function normalizeDBListing(item) {
     isNew: Boolean(item.isNew),
     created_at: item.created_at || new Date().toISOString(),
   };
+}
+
+/**
+ * Hook to filter notifications based on the active role and phone
+ */
+export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
+  const allNotifications = useNotificationSlice();
+
+  const userPhone = currentUser?.phone
+    ? String(currentUser.phone).replace(/\D/g, '').slice(-10)
+    : null;
+
+  const isSellerOnBusinessHub =
+    currentScreen === 'provider-dashboard' ||
+    Boolean(currentUser?.is_merchant || currentUser?.verification_tier === 'verified_merchant');
+
+  const activeRole = isAdminMode || currentScreen === 'admin-dashboard'
+    ? 'admin'
+    : isSellerOnBusinessHub
+    ? 'seller'
+    : currentUser
+    ? 'user'
+    : 'public';
+
+  return (allNotifications || []).filter((notif) => {
+    const role = notif.recipient_role || notif.role || 'public';
+    const targetPhone = notif.recipient_phone
+      ? String(notif.recipient_phone).replace(/\D/g, '').slice(-10)
+      : null;
+
+    if (activeRole === 'admin') {
+      return role === 'admin';
+    }
+    if (activeRole === 'seller') {
+      return role === 'seller' && (!targetPhone || targetPhone === userPhone);
+    }
+    if (activeRole === 'user') {
+      return (role === 'user' && targetPhone === userPhone) || role === 'public';
+    }
+    return role === 'public';
+  });
 }
 
 class HyperlocalEngineStore {

@@ -1,5 +1,4 @@
 import { supabase } from './supabaseClient';
-import { getCategoryById } from '../data/taxonomyRegistry';
 import { compressMultipleImages } from '../utils/imageCompressor';
 import { hyperlocalStore } from '../store/hyperlocalStore';
 
@@ -12,8 +11,175 @@ export function isValidDatabaseId(id) {
   );
 }
 
+/* ========================================================================= */
+/* 🔔 1. PERSONA-AWARE NOTIFICATION DISPATCH ENGINE                          */
+/* ========================================================================= */
+
 /**
- * 1. Upload Photos directly to Supabase Storage ('listing-images' bucket)
+ * Universal In-App & Supabase Notification Dispatcher
+ * Persists to public.notifications & updates local in-memory store
+ */
+export async function saveNotificationToDB(notif) {
+  const cleanPhone = notif.recipient_phone
+    ? String(notif.recipient_phone).replace(/\D/g, '').slice(-10)
+    : null;
+
+  const targetId = notif.targetId || notif.metadata?.targetId || null;
+  const category = notif.category || notif.metadata?.category || null;
+
+  const notifPayload = {
+    tag: notif.tag || 'TOWN_ALERT',
+    title: notif.title || 'New Notification',
+    message: notif.message || '',
+    recipient_role: notif.recipient_role || 'public', // 'admin' | 'seller' | 'user' | 'public'
+    recipient_phone: cleanPhone,
+    is_read: false,
+    metadata: {
+      targetId: targetId ? String(targetId) : null,
+      category,
+      audioUrl: notif.metadata?.audioUrl || null,
+      duration: notif.metadata?.duration || null,
+      sellerPhone: notif.metadata?.sellerPhone || null,
+      userPhone: notif.metadata?.userPhone || null,
+      ...notif.metadata,
+    },
+    created_at: new Date().toISOString(),
+  };
+
+  // 1. Reactive in-memory push
+  hyperlocalStore.addNotification(notifPayload);
+
+  // 2. Persist to Supabase public.notifications
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .insert([notifPayload])
+        .select()
+        .single();
+
+      if (error) console.warn('Save notification notice:', error.message);
+      return data;
+    } catch (err) {
+      console.warn('Network notice saving notification:', err);
+      return notifPayload;
+    }
+  }
+
+  return notifPayload;
+}
+
+// 👑 ADMIN ALERTS DISPATCHERS
+export async function notifyAdminPendingApproval({ listingId, listingTitle, sellerName, sellerPhone, category, isEdit = false }) {
+  return saveNotificationToDB({
+    tag: isEdit ? 'EDIT_PROPOSAL' : 'PENDING_APPROVAL',
+    title: isEdit ? `Edit Proposal: "${listingTitle}"` : `New Listing: "${listingTitle}"`,
+    message: `${sellerName || 'Merchant'} (+91 ${sellerPhone || ''}) submitted a listing in ${category}. Tap to review.`,
+    targetId: listingId,
+    category,
+    recipient_role: 'admin',
+    recipient_phone: null,
+    metadata: { listingId, sellerPhone, category, isEdit },
+  });
+}
+
+export async function notifyAdminNewUserRegistration({ fullName, phone, activationPin }) {
+  return saveNotificationToDB({
+    tag: 'NEW_USER_PIN',
+    title: `New Resident Join: ${fullName}`,
+    message: `WhatsApp PIN (${activationPin}) pending manual 24-hour dispatch for +91 ${phone}.`,
+    recipient_role: 'admin',
+    recipient_phone: null,
+    metadata: { phone, activationPin },
+  });
+}
+
+export async function notifyAdminReportedListing({ listingId, listingTitle, reporterPhone, reason }) {
+  return saveNotificationToDB({
+    tag: 'FLAGGED_REPORT',
+    title: `Listing Flagged: "${listingTitle || 'Item'}"`,
+    message: `Reported by +91 ${reporterPhone} for: "${reason}". Review required.`,
+    targetId: listingId,
+    recipient_role: 'admin',
+    recipient_phone: null,
+    metadata: { listingId, reporterPhone, reason },
+  });
+}
+
+// 🏪 SELLER / MERCHANT ALERTS DISPATCHERS
+export async function notifySellerComment({ sellerPhone, listingId, listingTitle, commenterName, commentText, audioUrl = null, duration = null }) {
+  const hasAudio = Boolean(audioUrl);
+  return saveNotificationToDB({
+    tag: hasAudio ? 'VOICE_INQUIRY' : 'USER_COMMENT',
+    title: `Inquiry on "${listingTitle}"`,
+    message: `${commenterName} sent a ${hasAudio ? `voice note (${duration || '0:15'})` : `message: "${commentText.slice(0, 70)}..."`}`,
+    targetId: listingId,
+    recipient_role: 'seller',
+    recipient_phone: sellerPhone,
+    metadata: { listingId, audioUrl, duration, commenterName },
+  });
+}
+
+export async function notifySellerListingStatus({ sellerPhone, listingId, listingTitle, isApproved, feedbackText = '', audioUrl = null, duration = null, category = null }) {
+  return saveNotificationToDB({
+    tag: isApproved ? 'LISTING_APPROVED' : 'LISTING_REJECTED',
+    title: isApproved ? `Listing Verified Live: "${listingTitle}"` : `Review Action Needed: "${listingTitle}"`,
+    message: isApproved
+      ? `Your listing is now verified and live across the town feed.`
+      : feedbackText || `Listing could not be approved. Tap to view admin correction notes.`,
+    targetId: listingId,
+    category,
+    recipient_role: 'seller',
+    recipient_phone: sellerPhone,
+    metadata: { listingId, isApproved, audioUrl, duration, category },
+  });
+}
+
+export async function notifySellerInterest({ sellerPhone, listingId, listingTitle, newCount }) {
+  return saveNotificationToDB({
+    tag: 'INTEREST_ALERT',
+    title: `New Interest on "${listingTitle}"`,
+    message: `A resident saved your listing. Total saves: ${newCount} ⭐`,
+    targetId: listingId,
+    recipient_role: 'seller',
+    recipient_phone: sellerPhone,
+    metadata: { listingId, newCount },
+  });
+}
+
+// 👤 RESIDENT / USER ALERTS DISPATCHERS
+export async function notifyUserSellerReply({ userPhone, listingId, listingTitle, sellerName, replyText, audioUrl = null, duration = null }) {
+  const isAudio = Boolean(audioUrl);
+  return saveNotificationToDB({
+    tag: 'SELLER_REPLY',
+    title: `${sellerName || 'Merchant'} replied to your inquiry!`,
+    message: `On "${listingTitle}": ${isAudio ? `🎤 Voice note reply (${duration || '0:15'})` : `"${replyText.slice(0, 80)}..."`}`,
+    targetId: listingId,
+    recipient_role: 'user',
+    recipient_phone: userPhone,
+    metadata: { listingId, audioUrl, duration, sellerName },
+  });
+}
+
+export async function notifyUserDealUpdate({ userPhone, listingId, listingTitle, message, category }) {
+  return saveNotificationToDB({
+    tag: 'DEAL_UPDATE',
+    title: `Price / Stock Update: "${listingTitle}"`,
+    message: message || `An item you saved has updated pricing or availability.`,
+    targetId: listingId,
+    category,
+    recipient_role: 'user',
+    recipient_phone: userPhone,
+    metadata: { listingId, category },
+  });
+}
+
+/* ========================================================================= */
+/* 📸 2. MULTIMEDIA UPLOAD PIPELINE (PHOTOS, VIDEOS, AUDIO)                  */
+/* ========================================================================= */
+
+/**
+ * Upload Photos directly to Supabase Storage ('listing-images' bucket)
  */
 export async function uploadListingImagesToStorage(files = [], options = {}) {
   if (!files || files.length === 0) return [];
@@ -82,7 +248,7 @@ export async function uploadListingImagesToStorage(files = [], options = {}) {
 }
 
 /**
- * 2. Upload Videos directly to Supabase Storage ('listing-images' bucket under /videos/)
+ * Upload Videos directly to Supabase Storage ('listing-images' bucket under /videos/)
  */
 export async function uploadListingVideosToStorage(videoItems = []) {
   if (!videoItems || videoItems.length === 0) return [];
@@ -148,7 +314,7 @@ export async function uploadListingVideosToStorage(videoItems = []) {
 }
 
 /**
- * 3. Upload Voice Note to Supabase Storage ('listing-images' bucket under /voice-notes/)
+ * Upload Voice Note to Supabase Storage ('listing-images' bucket under /voice-notes/)
  */
 export async function uploadVoiceNoteToStorage(audioBlobOrFile) {
   if (!audioBlobOrFile) return null;
@@ -180,8 +346,12 @@ export async function uploadVoiceNoteToStorage(audioBlobOrFile) {
   }
 }
 
+/* ========================================================================= */
+/* 📦 3. LISTING CRUD & PROPOSAL PIPELINE                                    */
+/* ========================================================================= */
+
 /**
- * 4. Submit Seller Edit Proposal (Strips Base64, keeps live item active while storing diff in pending_changes)
+ * Submit Seller Edit Proposal (Keeps live item active while storing diff in pending_changes)
  */
 export async function submitSellerEditProposal(listingId, proposedData) {
   if (!supabase) return { success: true };
@@ -220,6 +390,17 @@ export async function submitSellerEditProposal(listingId, proposedData) {
         .single();
 
       if (error) console.error('Submit proposal error:', error);
+
+      // Alert Admin of Pending Edit Proposal
+      await notifyAdminPendingApproval({
+        listingId,
+        listingTitle: proposedData.title || proposedData.name,
+        sellerName: proposedData.sellerName,
+        sellerPhone: proposedData.phone,
+        category: proposedData.category,
+        isEdit: true,
+      });
+
       return { data, error };
     } else {
       return await createListingInDB(cleanPayload);
@@ -231,7 +412,7 @@ export async function submitSellerEditProposal(listingId, proposedData) {
 }
 
 /**
- * 5. Create New Listing Draft (is_active: false -> HIDDEN from town feed until Admin approves)
+ * Create New Listing Draft (Hidden from feed until approved by Admin)
  */
 export async function createListingInDB(listingData) {
   const rawStock = String(listingData.stockCount || listingData.capacity || '').replace(/\D/g, '');
@@ -273,7 +454,16 @@ export async function createListingInDB(listingData) {
   };
 
   if (!supabase) {
-    return { data: { id: `draft-${Date.now()}`, ...dbPayload }, error: null };
+    const fallbackItem = { id: `draft-${Date.now()}`, ...dbPayload };
+    await notifyAdminPendingApproval({
+      listingId: fallbackItem.id,
+      listingTitle: dbPayload.title,
+      sellerName: dbPayload.seller_name,
+      sellerPhone: dbPayload.phone,
+      category: dbPayload.category,
+      isEdit: false,
+    });
+    return { data: fallbackItem, error: null };
   }
 
   try {
@@ -288,6 +478,16 @@ export async function createListingInDB(listingData) {
       return { data: null, error };
     }
 
+    // Alert Admin of New Listing Draft
+    await notifyAdminPendingApproval({
+      listingId: data.id,
+      listingTitle: data.title,
+      sellerName: data.seller_name,
+      sellerPhone: data.phone,
+      category: data.category,
+      isEdit: false,
+    });
+
     return { data, error: null };
   } catch (err) {
     console.error('Insert listing network catch:', err);
@@ -296,7 +496,7 @@ export async function createListingInDB(listingData) {
 }
 
 /**
- * 6. Admin Approves Changes (Sets is_active: true & Clears Pending Flags & Feedback & Dismisses Admin Notifications)
+ * Admin Approves Changes (Sets is_active: true & notifies seller)
  */
 export async function approveListingChanges(listingId, approvedData) {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
@@ -339,6 +539,15 @@ export async function approveListingChanges(listingId, approvedData) {
 
     await dismissAdminNotificationsForListing(listingId);
 
+    // Notify Merchant of Approval
+    await notifySellerListingStatus({
+      sellerPhone: approvedData.phone || data.phone,
+      listingId,
+      listingTitle: approvedData.title,
+      isApproved: true,
+      category: approvedData.category,
+    });
+
     return { data, error: null };
   } catch (err) {
     console.error('Approve changes error:', err);
@@ -347,23 +556,36 @@ export async function approveListingChanges(listingId, approvedData) {
 }
 
 /**
- * 7. Admin Rejects Changes with Optional Feedback Reason
+ * Admin Rejects Changes with Feedback Reason
  */
-export async function rejectListingChanges(listingId, rejectionReason = '') {
+export async function rejectListingChanges(listingId, rejectionReason = '', sellerPhone = '') {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
   try {
+    const reasonText = rejectionReason || 'Listing was not approved based on guidelines. Please review and resubmit.';
     const { data, error } = await supabase
       .from('listings')
       .update({
         pending_changes: null,
         has_pending_approval: false,
-        admin_feedback: rejectionReason || 'Listing was not approved. Please review guidelines and resubmit.',
+        admin_feedback: reasonText,
       })
-      .eq('id', listingId);
+      .eq('id', listingId)
+      .select()
+      .single();
 
     if (error) throw error;
 
     await dismissAdminNotificationsForListing(listingId);
+
+    // Notify Merchant of Rejection / Action Needed
+    await notifySellerListingStatus({
+      sellerPhone: sellerPhone || data?.phone,
+      listingId,
+      listingTitle: data?.title || 'Listing',
+      isApproved: false,
+      feedbackText: reasonText,
+      category: data?.category,
+    });
 
     return { data, error: null };
   } catch (err) {
@@ -373,7 +595,7 @@ export async function rejectListingChanges(listingId, rejectionReason = '') {
 }
 
 /**
- * 8. Dismiss Admin Pending Review Notifications from Database & Local Store
+ * Dismiss ONLY Admin Pending Review Notifications for a Listing (Preserves Seller Alerts)
  */
 export async function dismissAdminNotificationsForListing(listingId) {
   if (!listingId) return;
@@ -382,18 +604,23 @@ export async function dismissAdminNotificationsForListing(listingId) {
       await supabase
         .from('notifications')
         .delete()
-        .or('recipient_role.eq.admin,tag.eq.NEW ENLISTMENT,tag.eq.EDIT PROPOSAL,tag.eq.SELLER FEEDBACK REPLY,tag.eq.SELLER VOICE REPLY')
+        .eq('recipient_role', 'admin')
         .filter('metadata->>targetId', 'eq', String(listingId));
     }
 
-    hyperlocalStore.removeNotificationsForTarget(listingId);
+    // Filter in-memory store so ONLY admin notifications are dismissed
+    const current = hyperlocalStore.getNotifications() || [];
+    const filtered = current.filter(
+      (n) => !(n.recipient_role === 'admin' && String(n.targetId || n.metadata?.targetId) === String(listingId))
+    );
+    hyperlocalStore.setNotifications(filtered);
   } catch (err) {
     console.warn('Dismiss notification catch:', err);
   }
 }
 
 /**
- * 9. Admin Sends Direct Issue/Feedback Note (Text or Voice Note) to Seller
+ * Admin Sends Direct Feedback Note (Text or Voice) to Seller
  */
 export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedbackPayload) {
   if (!supabase || !listingId) return { success: true };
@@ -418,18 +645,14 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
         .eq('id', listingId);
     }
 
-    await saveNotificationToDB({
-      tag: feedbackAudioUrl ? 'ADMIN VOICE NOTE' : 'ADMIN FEEDBACK',
-      title: 'Action Needed on Your Listing',
-      message: feedbackText,
-      targetId: listingId,
-      recipient_role: 'seller',
-      recipient_phone: sellerPhone,
-      metadata: {
-        audioUrl: feedbackAudioUrl,
-        duration: feedbackDuration,
-        targetId: listingId,
-      },
+    await notifySellerListingStatus({
+      sellerPhone,
+      listingId,
+      listingTitle: 'Your Listing',
+      isApproved: false,
+      feedbackText,
+      audioUrl: feedbackAudioUrl,
+      duration: feedbackDuration,
     });
 
     return { success: true };
@@ -440,7 +663,7 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
 }
 
 /**
- * 10. Seller Replies Back to Admin (Voice Note or Text)
+ * Seller Replies Back to Admin (Text or Voice)
  */
 export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayload) {
   if (!supabase || !listingId) return { success: true };
@@ -448,7 +671,7 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
     const replyText =
       typeof replyPayload === 'string'
         ? replyPayload
-        : replyPayload.text || 'Seller replied to admin note';
+        : replyPayload.text || 'Merchant replied to feedback';
     const replyAudioUrl = replyPayload.audioUrl || null;
     const replyDuration = replyPayload.duration || null;
 
@@ -466,8 +689,8 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
     }
 
     await saveNotificationToDB({
-      tag: replyAudioUrl ? 'SELLER VOICE REPLY' : 'SELLER FEEDBACK REPLY',
-      title: `Merchant Reply (${sellerPhone})`,
+      tag: replyAudioUrl ? 'SELLER_VOICE_REPLY' : 'SELLER_FEEDBACK_REPLY',
+      title: `Merchant Reply (+91 ${sellerPhone})`,
       message: replyText,
       targetId: listingId,
       recipient_role: 'admin',
@@ -487,8 +710,12 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
   }
 }
 
+/* ========================================================================= */
+/* 💬 4. THREADS, COMMENTS, INTEREST & COMMUNITY REPORTS                     */
+/* ========================================================================= */
+
 /**
- * 11. Save Buyer Comment / Voice Note to DB (Scoped to Seller)
+ * Save Buyer Comment / Voice Note to DB & Alert Merchant
  */
 export async function saveCommentToDB(listingId, comment, listingTitle = '', sellerPhone = '') {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return null;
@@ -496,7 +723,7 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
     const hasAudio = Boolean(comment.audioUrl);
     const dbPayload = {
       listing_id: String(listingId),
-      user_name: comment.userName || 'Local Buyer',
+      user_name: comment.userName || 'Local Resident',
       user_area: comment.userArea || 'Nearby',
       comment_text: comment.text || (hasAudio ? '🎤 Voice Note Question' : ''),
       is_public: comment.isPublic !== undefined ? comment.isPublic : true,
@@ -514,15 +741,18 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
 
     if (error) console.warn('Save comment notice:', error.message);
 
-    await saveNotificationToDB({
-      tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
-      title: `Inquiry on "${listingTitle || 'Listing'}"`,
-      message: `${dbPayload.user_name} sent a ${hasAudio ? 'voice note' : 'message'}.`,
-      targetId: listingId,
-      recipient_role: 'seller',
-      recipient_phone: sellerPhone || null,
-      metadata: { targetId: listingId },
-    });
+    // Notify Merchant of Inquiry
+    if (sellerPhone) {
+      await notifySellerComment({
+        sellerPhone,
+        listingId,
+        listingTitle,
+        commenterName: dbPayload.user_name,
+        commentText: dbPayload.comment_text,
+        audioUrl: dbPayload.audio_url,
+        duration: dbPayload.audio_duration,
+      });
+    }
 
     return data;
   } catch (err) {
@@ -532,14 +762,16 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
 }
 
 /**
- * 12. Save Seller Reply to DB (Scoped to Buyer)
+ * Save Seller Reply to DB & Alert Resident
  */
 export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buyerPhone = '') {
   if (!supabase || !commentId || !isValidDatabaseId(commentId)) return null;
   try {
     const isAudio = replyObj?.type === 'audio' || Boolean(replyObj?.audioUrl);
+    const replyText = isAudio ? (replyObj.text || '🎤 Voice Note Reply') : (typeof replyObj === 'string' ? replyObj : replyObj.text);
+    
     const updatePayload = {
-      seller_reply: isAudio ? (replyObj.text || '🎤 Voice Note Reply') : (typeof replyObj === 'string' ? replyObj : replyObj.text),
+      seller_reply: replyText,
       seller_replied_at: new Date().toISOString(),
     };
 
@@ -557,15 +789,18 @@ export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buye
 
     if (error) console.warn('Save reply notice:', error.message);
 
-    await saveNotificationToDB({
-      tag: 'SELLER REPLIED',
-      title: `Reply on "${listingTitle || 'Listing'}"`,
-      message: `Seller replied with a ${isAudio ? 'voice note' : 'message'}.`,
-      targetId: commentId,
-      recipient_role: 'buyer',
-      recipient_phone: buyerPhone || null,
-      metadata: { targetId: commentId },
-    });
+    // Notify Resident of Merchant Answer
+    if (buyerPhone) {
+      await notifyUserSellerReply({
+        userPhone: buyerPhone,
+        listingId: data?.listing_id || commentId,
+        listingTitle: listingTitle || data?.listing_title || 'Listing',
+        sellerName: 'Shopkeeper',
+        replyText,
+        audioUrl: updatePayload.seller_audio_url || null,
+        duration: updatePayload.seller_audio_duration || null,
+      });
+    }
 
     return data;
   } catch (err) {
@@ -575,47 +810,9 @@ export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buye
 }
 
 /**
- * 13. Save In-App Notification with Explicit Role & Phone Scoping
+ * Update Interest Counter & Alert Seller
  */
-export async function saveNotificationToDB(notif) {
-  if (!supabase) return null;
-  try {
-    const { data, error } = await supabase
-      .from('notifications')
-      .insert([
-        {
-          tag: notif.tag || 'INQUIRY',
-          title: notif.title || 'New Message',
-          message: notif.message || '',
-          recipient_role: notif.recipient_role || 'public',
-          recipient_phone: notif.recipient_phone || null,
-          is_read: false,
-          metadata: {
-            targetId: notif.targetId,
-            type: notif.type,
-            category: notif.category,
-            audioUrl: notif.metadata?.audioUrl || null,
-            duration: notif.metadata?.duration || null,
-            sellerPhone: notif.metadata?.sellerPhone || null,
-          },
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) console.warn('Save notification notice:', error.message);
-    return data;
-  } catch (err) {
-    console.warn('Network notice saving notification:', err);
-    return null;
-  }
-}
-
-/**
- * 14. Update Interest Counter
- */
-export async function updateInterestCountInDB(listingId, newCount) {
+export async function updateInterestCountInDB(listingId, newCount, listingTitle = '', sellerPhone = '') {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return;
   try {
     const { error } = await supabase
@@ -624,13 +821,55 @@ export async function updateInterestCountInDB(listingId, newCount) {
       .eq('id', listingId);
 
     if (error) console.warn('Update interest notice:', error.message);
+
+    if (sellerPhone) {
+      await notifySellerInterest({
+        sellerPhone,
+        listingId,
+        listingTitle: listingTitle || 'Listing',
+        newCount,
+      });
+    }
   } catch (err) {
     console.warn('Network notice updating interest:', err);
   }
 }
 
 /**
- * 15. Fetch Live Listings (ONLY Approved Active Listings for Public Town Feed)
+ * Report a Listing & Alert Admin
+ */
+export async function reportListing(listingId, reporterPhone, reason, listingTitle = '') {
+  if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
+  try {
+    const { data, error } = await supabase
+      .from('listing_reports')
+      .insert({
+        listing_id: listingId,
+        reporter_phone: reporterPhone,
+        reason: reason,
+      });
+
+    // Alert Master Admin of Community Report
+    await notifyAdminReportedListing({
+      listingId,
+      listingTitle,
+      reporterPhone,
+      reason,
+    });
+
+    return { data, error };
+  } catch (err) {
+    console.error('Report listing error:', err);
+    return { data: null, error: err };
+  }
+}
+
+/* ========================================================================= */
+/* 🌐 5. FEED FETCHING, PUBLISHING & REMOVAL                                  */
+/* ========================================================================= */
+
+/**
+ * Fetch Live Listings (Active Approved Listings for Public Feed)
  */
 export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
   if (!supabase) return null;
@@ -698,7 +937,7 @@ export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
 }
 
 /**
- * 16. Universal Listing Publisher
+ * Universal Listing Publisher
  */
 export async function publishHyperlocalListing(category, payload) {
   const finalCategory = (category || payload.category || 'property').toLowerCase();
@@ -766,28 +1005,7 @@ export async function publishHyperlocalListing(category, payload) {
 }
 
 /**
- * 17. Report a listing
- */
-export async function reportListing(listingId, reporterPhone, reason) {
-  if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
-  try {
-    const { data, error } = await supabase
-      .from('listing_reports')
-      .insert({
-        listing_id: listingId,
-        reporter_phone: reporterPhone,
-        reason: reason,
-      });
-
-    return { data, error };
-  } catch (err) {
-    console.error('Report listing error:', err);
-    return { data: null, error: err };
-  }
-}
-
-/**
- * 18. Category Fallback Image URLs
+ * Category Fallback Image URLs
  */
 export function getCategoryFallback(catId) {
   const fallbacks = {
@@ -817,19 +1035,14 @@ export function getCategoryFallback(catId) {
 }
 
 /**
- * 19. Deletes a listing and its associated threads from Supabase
+ * Delete Listing & Associated Threads/Notifications from DB
  */
 export async function deleteListingFromDB(listingId) {
   if (!supabase || !listingId) return { success: false };
 
   try {
-    // 1. Delete associated discussion threads first to prevent foreign key conflicts
     await supabase.from('listing_threads').delete().eq('listing_id', listingId);
-
-    // 2. Delete associated notifications
     await supabase.from('notifications').delete().filter('metadata->>targetId', 'eq', String(listingId));
-
-    // 3. Delete the listing itself
     const { error } = await supabase.from('listings').delete().eq('id', listingId);
     if (error) throw error;
 
