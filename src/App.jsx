@@ -186,12 +186,11 @@ export default function App() {
     hyperlocalStore.addNotification(notif);
   };
 
-  // 👑 Seller & Admin Posting Handler with Non-Seller Business Prompt
+  // 👑 Verified Seller & Admin Posting Handler (Prompts Non-Sellers to Join Business Side)
   const handleOpenPostModal = () => {
     if (isAuthorizedToPost) {
       setIsListingModalOpen(true);
     } else {
-      // Show bilingual Business Join Prompt for normal/temp/permanent residents
       setIsBusinessPromptOpen(true);
     }
   };
@@ -258,30 +257,14 @@ export default function App() {
 
   // 🌟 Touch Swipe Gesture Handlers
   const handleTouchStart = (e) => {
-    if (
-      isListingModalOpen ||
-      isNotificationsOpen ||
-      selectedDetailItem ||
-      isAuthModalOpen ||
-      isAdminKeyModalOpen ||
-      isBusinessPromptOpen
-    )
-      return;
+    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
     touchStartTime.current = Date.now();
   };
 
   const handleTouchEnd = (e) => {
-    if (
-      isListingModalOpen ||
-      isNotificationsOpen ||
-      selectedDetailItem ||
-      isAuthModalOpen ||
-      isAdminKeyModalOpen ||
-      isBusinessPromptOpen
-    )
-      return;
+    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
 
     const target = e.target;
     if (target.closest('.overflow-x-auto, input, textarea, select')) return;
@@ -1011,7 +994,7 @@ export default function App() {
                 यह सुविधा व्यापार और विक्रेताओं के लिए उपलब्ध है, क्या आप जुड़ना चाहेंगे?
               </p>
               <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
-                Post your shop inventory, properties, rental attire, or local service listings across {selectedCity}.
+                Post your shop inventory, services, bridal attire, or commodities across {selectedCity}.
               </p>
             </div>
 

@@ -10,6 +10,7 @@ import {
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
   saveNotificationToDB,
+  deleteListingFromDB,
 } from '../../services/listingService';
 import { logoutAdmin, isAdminAuthorized } from '../../services/authService';
 import { TAXONOMY_REGISTRY, getCategoryById } from '../../data/taxonomyRegistry';
@@ -49,6 +50,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     category: 'property',
     subCategory: 'all',
     price: '',
+    original_price: '',
+    deal_type: '',
+    deal_badge: '',
+    deal_details: '',
+    token_amount: '',
+    doorstep_trial: false,
     capacity: '',
     location: '',
     timing: '09:00 AM - 09:00 PM',
@@ -151,12 +158,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         item.is_active === false ||
         Boolean(item.pending_changes);
 
-      const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
+      const changes = item.pending_changes || {};
+      const matchesCat = selectedCategory === 'all' || item.category === selectedCategory || changes.category === selectedCategory;
       const matchesSearch =
         !searchQuery ||
-        item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.sellerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.phone?.includes(searchQuery);
+        (changes.title || item.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (changes.sellerName || item.sellerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (changes.deal_badge || item.deal_badge || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(changes.phone || item.phone || '').includes(searchQuery);
 
       return isPending && matchesCat && matchesSearch && applyTimeFilter(item.created_at);
     });
@@ -171,6 +180,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         !searchQuery ||
         item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.sellerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(item.deal_badge || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.phone?.includes(searchQuery);
 
       return isApproved && matchesCat && matchesSearch && applyTimeFilter(item.created_at);
@@ -185,6 +195,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         !searchQuery ||
         item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.sellerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(item.deal_badge || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.phone?.includes(searchQuery);
 
       return matchesCat && matchesSearch && applyTimeFilter(item.created_at);
@@ -236,7 +247,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const changes = item.pending_changes || {};
     const effectiveTitle = changes.title || item.title || item.name || '';
     const effectivePrice = changes.price || item.price || item.rates || '';
-    const effectiveCap = changes.capacity || item.capacity || item.stockCount || 'Ready Stock';
+    const effectiveOrigPrice = changes.original_price || changes.originalPrice || item.original_price || item.originalPrice || '';
+    const effectiveDealType = changes.deal_type || changes.dealType || item.deal_type || item.dealType || null;
+    const effectiveDealBadge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge || '';
+    const effectiveDealDetails = changes.deal_details || changes.dealDetails || item.deal_details || item.dealDetails || '';
+    const effectiveToken = changes.token_amount || changes.tokenAmount || item.token_amount || item.tokenAmount || '';
+    const effectiveTrial = Boolean(changes.doorstep_trial ?? changes.doorstepTrial ?? item.doorstep_trial ?? item.doorstepTrial ?? false);
+
+    const effectiveCap = changes.capacity || changes.stockCount || item.capacity || item.stockCount || 'Ready Stock';
     const effectiveLocation = changes.location || item.location || selectedCity;
     const effectiveTiming = changes.timing || item.timing || item.activeHours || '09:00 AM - 09:00 PM';
     const effectiveCat = changes.category || item.category || 'property';
@@ -244,7 +262,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const effectiveDesc = changes.description || item.description || '';
 
     const photos = changes.images || changes.image_urls || item.images || (changes.image ? [changes.image] : [item.image]);
-    const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
+    const cleanPhotos = (photos || []).map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
     const videos = changes.videos || changes.video_urls || item.videos || [];
 
     let parsedPoints = ['', '', '', ''];
@@ -258,6 +276,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       category: effectiveCat,
       subCategory: effectiveSubCat,
       price: effectivePrice,
+      original_price: effectiveOrigPrice,
+      deal_type: effectiveDealType,
+      deal_badge: effectiveDealBadge,
+      deal_details: effectiveDealDetails,
+      token_amount: effectiveToken,
+      doorstep_trial: effectiveTrial,
       capacity: effectiveCap,
       location: effectiveLocation,
       timing: effectiveTiming,
@@ -350,6 +374,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           price: editFormData.price.trim(),
           rates: editFormData.price.trim(),
           startingPackage: editFormData.price.trim(),
+          original_price: editFormData.original_price ? editFormData.original_price.trim() : null,
+          deal_type: editFormData.deal_type || null,
+          deal_badge: editFormData.deal_badge ? editFormData.deal_badge.trim() : null,
+          deal_details: editFormData.deal_details ? editFormData.deal_details.trim() : null,
+          token_amount: editFormData.token_amount ? editFormData.token_amount.trim() : null,
+          doorstep_trial: Boolean(editFormData.doorstep_trial),
           capacity: editFormData.capacity.trim(),
           stockCount: editFormData.capacity.trim(),
           location: editFormData.location.trim(),
@@ -361,6 +391,16 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           image_urls: finalImages,
           videos: finalVideos,
           video_urls: finalVideos.map((v) => (typeof v === 'string' ? v : v.url)),
+        };
+      } else {
+        finalChanges = {
+          ...finalChanges,
+          deal_type: finalChanges.deal_type || item.deal_type || null,
+          deal_badge: finalChanges.deal_badge || item.deal_badge || null,
+          deal_details: finalChanges.deal_details || item.deal_details || null,
+          original_price: finalChanges.original_price || item.original_price || null,
+          token_amount: finalChanges.token_amount || item.token_amount || null,
+          doorstep_trial: Boolean(finalChanges.doorstep_trial !== undefined ? finalChanges.doorstep_trial : item.doorstep_trial),
         };
       }
 
@@ -380,11 +420,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       const notifObj = {
         tag: 'APPROVED',
         title: `Listing Approved: "${finalChanges.title || item.title}"`,
-        message: `Listing is verified and live across ${selectedCity}${isAdminEditing ? ' with verified admin media/text corrections.' : '.'}`,
+        message: `Listing is verified and live across ${selectedCity}${finalChanges.deal_badge ? ` with deal "${finalChanges.deal_badge}".` : '.'}`,
         targetId: item.id,
         category: updatedPayload.category,
         recipient_role: 'seller',
         recipient_phone: finalChanges.phone || item.phone,
+        metadata: { dealBadge: finalChanges.deal_badge },
       };
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
@@ -536,6 +577,18 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       alert('Failed to send feedback note.');
     } finally {
       setIsSendingFeedback(false);
+    }
+  };
+
+  // 🗑️ Delete Listing Permanently
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Permanently delete listing "${item.title || item.name}"?`)) return;
+    try {
+      await deleteListingFromDB(item.id);
+      hyperlocalStore.removeListing(item.id);
+      showNotice('Listing deleted.');
+    } catch (err) {
+      console.error('Delete failed:', err);
     }
   };
 
@@ -720,7 +773,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         )}
 
-        {/* LISTINGS CONTENT & FILTERS (Only shown for listings tabs) */}
+        {/* LISTINGS CONTENT & FILTERS */}
         {activeTab !== 'users' && (
           <>
             {/* ⏱️ Dynamic Time Filter Bar */}
@@ -793,7 +846,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             <div className="flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="Search by title, phone, or merchant..."
+                placeholder="Search by title, phone, or offer badge..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-amber-400"
@@ -827,6 +880,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     const isProposal = Boolean(item.pending_changes);
                     const sellerPhone = changes.phone || item.phone;
                     const sellerName = changes.sellerName || item.sellerName;
+                    const activeDealBadge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
+                    const activeDealDetails = changes.deal_details || changes.dealDetails || item.deal_details || item.dealDetails;
+                    const activeOrigPrice = changes.original_price || changes.originalPrice || item.original_price || item.originalPrice;
+                    const activePrice = changes.price || item.price || 'Contact for Price';
+                    const activeToken = changes.token_amount || changes.tokenAmount || item.token_amount || item.tokenAmount;
+                    const hasTrial = changes.doorstep_trial !== undefined ? changes.doorstep_trial : item.doorstep_trial;
 
                     return (
                       <div
@@ -835,9 +894,17 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       >
                         <div className="flex items-start justify-between">
                           <div className="min-w-0 flex-1 pr-2">
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider inline-block">
-                              {isProposal ? '✏️ PROPOSED EDIT' : '🆕 NEW ENLISTMENT'}
-                            </span>
+                            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 uppercase tracking-wider inline-block">
+                                {isProposal ? '✏️ PROPOSED EDIT' : '🆕 NEW ENLISTMENT'}
+                              </span>
+                              {activeDealBadge && (
+                                <span className="text-[8.5px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-sm animate-pulse border border-amber-500/40">
+                                  {activeDealBadge}
+                                </span>
+                              )}
+                            </div>
+
                             <h4 className="text-xs font-black text-slate-100 mt-1 truncate">
                               {changes.title || item.title}
                             </h4>
@@ -865,40 +932,67 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-[10px]">
-                          <div>
-                            <span className="text-slate-400 block text-[8.5px]">Price & Stock</span>
-                            <span className="text-emerald-400 font-black">{changes.price || item.price}</span>
-                            <span className="text-slate-400 text-[8.5px]"> • {changes.capacity || item.capacity || 'Ready Stock'}</span>
+                        {/* Price & Deal Inclusions Row */}
+                        <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5 text-[10px]">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-slate-400 block text-[8.5px]">Price & Stock</span>
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-emerald-400 font-black">{activePrice}</span>
+                                {activeOrigPrice && (
+                                  <span className="text-slate-500 font-mono text-[9.5px] line-through">
+                                    {activeOrigPrice}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-1.5">
+                              {activeToken && (
+                                <span className="bg-amber-950/80 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded text-[8.5px] font-bold">
+                                  🏷️ Token: {activeToken}
+                                </span>
+                              )}
+                              {hasTrial && (
+                                <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[8.5px] font-bold">
+                                  🚚 Trial
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleOpenInspector(item)}
-                            className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md cursor-pointer active:scale-95 transition flex items-center space-x-1"
-                          >
-                            <span>🔍</span>
-                            <span>Inspect & Review</span>
-                          </button>
+                          {activeDealDetails && (
+                            <div className="p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[9.5px] text-amber-200 italic">
+                              🎁 <strong>Offer Inclusions:</strong> "{activeDealDetails}"
+                            </div>
+                          )}
                         </div>
 
                         {/* Action Controls */}
                         <div className="flex items-center space-x-2 pt-1">
                           <button
                             type="button"
+                            onClick={() => handleOpenInspector(item)}
+                            className="flex-1 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1"
+                          >
+                            <span>🔍</span>
+                            <span>Review & Inspect Deal</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleApprove(item)}
                             disabled={actionInProgressId === item.id}
-                            className="flex-1 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
                           >
-                            {actionInProgressId === item.id ? 'Publishing... ⏳' : '✓ Quick Approve'}
+                            {actionInProgressId === item.id ? '...' : '✓ Approve'}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleReject(item)}
                             disabled={actionInProgressId === item.id}
-                            className="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10.5px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            className="px-3 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10.5px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
                           >
-                            ✕ Reject
+                            ✕
                           </button>
                         </div>
                       </div>
@@ -911,36 +1005,51 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             {/* 2. Approved & Live Listings Tab */}
             {activeTab === 'approved' && (
               <div className="space-y-2.5">
-                {approvedListings.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3 bg-slate-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-[8px] font-black text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded-md border border-emerald-500/30">
-                          LIVE
-                        </span>
-                        <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                {approvedListings.map((item) => {
+                  const dealBadge = item.deal_badge || item.dealBadge;
+                  const origPrice = item.original_price || item.originalPrice;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-3 bg-slate-900 border border-emerald-500/30 rounded-2xl flex items-center justify-between"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <span className="text-[8px] font-black text-emerald-400 bg-emerald-950 px-1.5 py-0.2 rounded-md border border-emerald-500/30">
+                            LIVE
+                          </span>
+                          {dealBadge && (
+                            <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-400 text-slate-950">
+                              {dealBadge}
+                            </span>
+                          )}
+                          <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSeller({ phone: item.phone, name: item.sellerName });
+                            setSellerPortfolioTab('all');
+                          }}
+                          className="text-[9.5px] text-amber-300 hover:text-amber-200 mt-0.5 block text-left cursor-pointer"
+                        >
+                          👤 {item.sellerName} • 📞 {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
+                          {origPrice && <span className="text-slate-500 font-mono text-[9px] line-through ml-1">{origPrice}</span>}
+                        </button>
                       </div>
-                      
-                      {/* 👤 1-Tap Merchant Dossier */}
+
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedSeller({ phone: item.phone, name: item.sellerName });
-                          setSellerPortfolioTab('all');
-                        }}
-                        className="text-[9.5px] text-amber-300 hover:text-amber-200 mt-0.5 block text-left cursor-pointer"
+                        onClick={() => handleOpenInspector(item)}
+                        className="px-2.5 py-1 bg-slate-800 text-slate-300 font-bold text-[9px] rounded-lg border border-slate-700 hover:text-white shrink-0"
                       >
-                        👤 {item.sellerName} • 📞 {item.phone} • <span className="text-emerald-400 font-bold">{item.price}</span>
+                        Inspect ➔
                       </button>
                     </div>
-                    <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
-                      {item.category}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -953,7 +1062,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     className="p-3 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between"
                   >
                     <div className="min-w-0 pr-2">
-                      <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                      <div className="flex items-center space-x-1.5">
+                        <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                        {item.deal_badge && (
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-400 text-slate-950">
+                            {item.deal_badge}
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -1086,6 +1202,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 displayedSellerListings.map((item) => {
                   const isPending = item.has_pending_approval || !item.is_active || Boolean(item.pending_changes);
                   const hasFeedback = Boolean(item.admin_feedback) || Boolean(item.seller_feedback_reply);
+                  const dealBadge = item.pending_changes?.deal_badge || item.deal_badge;
 
                   return (
                     <div
@@ -1100,7 +1217,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     >
                       <div className="flex items-start justify-between">
                         <div className="min-w-0 pr-2">
-                          <div className="flex items-center space-x-1.5 mb-1">
+                          <div className="flex items-center space-x-1.5 mb-1 flex-wrap gap-y-1">
                             <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 uppercase">
                               {item.category}
                             </span>
@@ -1109,9 +1226,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                                 ⏳ PENDING
                               </span>
                             )}
-                            {hasFeedback && (
-                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
-                                💬 FEEDBACK
+                            {dealBadge && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
+                                {dealBadge}
                               </span>
                             )}
                           </div>
@@ -1143,27 +1260,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           👤 <strong>Merchant Reply:</strong> "{item.seller_feedback_reply}"
                         </div>
                       )}
-
-                      {isPending && (
-                        <div className="flex items-center space-x-2 pt-1 border-t border-slate-900">
-                          <button
-                            type="button"
-                            onClick={() => handleApprove(item)}
-                            disabled={actionInProgressId === item.id}
-                            className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[9.5px] rounded-lg cursor-pointer"
-                          >
-                            ✓ Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReject(item)}
-                            disabled={actionInProgressId === item.id}
-                            className="px-3 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[9.5px] rounded-lg cursor-pointer"
-                          >
-                            ✕ Reject
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })
@@ -1175,7 +1271,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL                                   */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & OFFER MODERATION MODAL                */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -1219,7 +1315,15 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             {/* Scrollable Inspector Studio */}
             <div className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
               
-              {/* Media Player Box with Fullscreen Trigger */}
+              {/* Diff Banner if Seller Proposed Edits */}
+              {inspectingItem.pending_changes && (
+                <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-2xl text-[10px] text-amber-200 space-y-1">
+                  <span className="font-black text-amber-300 block">⚡ Proposal Diff:</span>
+                  <p>Merchant has submitted revised pricing, promotional offer badges, or catalog media for verification.</p>
+                </div>
+              )}
+
+              {/* Media Player Box */}
               {(() => {
                 const photos = editFormData.images || [];
                 const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
@@ -1227,7 +1331,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
                 return (
                   <div className="space-y-2">
-                    {/* Media Mode Tabs */}
                     <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-[10px] font-bold">
                       <button
                         type="button"
@@ -1249,7 +1352,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </button>
                     </div>
 
-                    {/* Preview Screen */}
                     <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-inner flex items-center justify-center group">
                       {activeMediaTab === 'photos' || videos.length === 0 ? (
                         cleanPhotos.length > 0 ? (
@@ -1286,98 +1388,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         }}
                         className="absolute bottom-2 right-2 px-2 py-1 bg-slate-950/80 backdrop-blur-md rounded-lg text-white text-[9px] font-bold border border-slate-700 cursor-pointer shadow-md"
                       >
-                        🔍 Tap for Fullscreen
+                        🔍 Fullscreen
                       </button>
                     </div>
-
-                    {/* Photo Thumbnails */}
-                    {activeMediaTab === 'photos' && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[9px]">
-                          <span className="text-slate-400 font-bold">Attached Photos</span>
-                          {isAdminEditing && (
-                            <button
-                              type="button"
-                              onClick={() => adminPhotoInputRef.current?.click()}
-                              className="text-amber-300 font-black underline cursor-pointer"
-                            >
-                              + Add Photo
-                            </button>
-                          )}
-                          <input type="file" ref={adminPhotoInputRef} multiple accept="image/*" onChange={handleAdminAddPhoto} className="hidden" />
-                        </div>
-
-                        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-                          {cleanPhotos.map((imgUrl, idx) => (
-                            <div key={idx} className="relative w-12 h-12 rounded-lg overflow-hidden border-2 shrink-0 group">
-                              <img
-                                src={imgUrl}
-                                alt="thumb"
-                                onClick={() => setActivePhotoIdx(idx)}
-                                className={`w-full h-full object-cover cursor-pointer ${activePhotoIdx === idx ? 'border-amber-400' : 'opacity-60'}`}
-                              />
-                              {isAdminEditing && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAdminRemovePhoto(idx)}
-                                  className="absolute top-0.5 right-0.5 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] font-black cursor-pointer shadow"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Video Thumbnails */}
-                    {activeMediaTab === 'videos' && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[9px]">
-                          <span className="text-slate-400 font-bold">Attached Videos</span>
-                          {isAdminEditing && (
-                            <button
-                              type="button"
-                              onClick={() => adminVideoInputRef.current?.click()}
-                              className="text-cyan-300 font-black underline cursor-pointer"
-                            >
-                              + Add Video
-                            </button>
-                          )}
-                          <input type="file" ref={adminVideoInputRef} accept="video/*" onChange={handleAdminAddVideo} className="hidden" />
-                        </div>
-
-                        {videos.length > 0 && (
-                          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-                            {videos.map((vid, idx) => (
-                              <div key={idx} className="relative shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveVideoIdx(idx)}
-                                  className={`py-1.5 px-3 rounded-xl text-[10px] font-black transition cursor-pointer ${
-                                    activeVideoIdx === idx
-                                      ? 'bg-cyan-400 text-slate-950 shadow-md'
-                                      : 'bg-slate-950 text-slate-400 border border-slate-800'
-                                  }`}
-                                >
-                                  🎬 Video {idx + 1}
-                                </button>
-                                {isAdminEditing && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAdminRemoveVideo(idx)}
-                                    className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[8px] font-black cursor-pointer shadow"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               })()}
@@ -1387,7 +1400,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 <div className="space-y-3 bg-slate-950 p-3.5 rounded-2xl border border-amber-400/40 text-[10.5px]">
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
                     <span className="text-[9.5px] font-black text-amber-300 uppercase">
-                      ✏️ Edit Listing Details & Media as Admin
+                      ✏️ Edit Listing Details & Offers
                     </span>
                     <span className="text-[8.5px] text-slate-400">Merchant will get notified</span>
                   </div>
@@ -1440,24 +1453,74 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* 🎁 PROMOTIONAL OFFER FIELDS IN CORRECTION MODE */}
+                  <div className="p-3 bg-slate-900 rounded-xl border border-amber-500/40 space-y-2">
+                    <span className="text-[9.5px] font-black text-amber-300 block">🎁 Promotional Offer Terms (ऑफर संपादन):</span>
+                    
                     <div>
-                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Price Rate *</label>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-0.5">Promotional Badge Tag</label>
                       <input
                         type="text"
-                        value={editFormData.price}
-                        onChange={(e) => setEditFormData({ ...editFormData, price: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-emerald-400 font-bold"
+                        placeholder="e.g. 🍱 6-in-1 Groom Kit @ ₹4,999"
+                        value={editFormData.deal_badge}
+                        onChange={(e) => setEditFormData({ ...editFormData, deal_badge: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-amber-300 font-black text-[10px]"
                       />
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[8.5px] font-bold text-slate-400 block mb-0.5">Offer Price *</label>
+                        <input
+                          type="text"
+                          value={editFormData.price}
+                          onChange={(e) => setEditFormData({ ...editFormData, price: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-emerald-400 font-black text-[10px]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8.5px] font-bold text-slate-400 block mb-0.5">Original Strike Price</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. ₹7,500"
+                          value={editFormData.original_price}
+                          onChange={(e) => setEditFormData({ ...editFormData, original_price: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-400 font-mono text-[10px]"
+                        />
+                      </div>
+                    </div>
+
                     <div>
-                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Stock / Units</label>
-                      <input
-                        type="text"
-                        value={editFormData.capacity}
-                        onChange={(e) => setEditFormData({ ...editFormData, capacity: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-cyan-300 font-bold"
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-0.5">Combo Inclusions & Details</label>
+                      <textarea
+                        rows={2}
+                        placeholder="e.g. Includes Safa, Mojari, Mala & Alterations..."
+                        value={editFormData.deal_details}
+                        onChange={(e) => setEditFormData({ ...editFormData, deal_details: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-slate-100 text-[10px]"
                       />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[8.5px] font-bold text-slate-400 block mb-0.5">Token Amount</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. ₹500"
+                          value={editFormData.token_amount}
+                          onChange={(e) => setEditFormData({ ...editFormData, token_amount: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2 py-1 text-amber-200 text-[10px]"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between p-1.5 bg-slate-950 rounded-xl border border-slate-800 mt-2">
+                        <span className="text-[9px] font-bold text-slate-300">Ghar Par Trial</span>
+                        <input
+                          type="checkbox"
+                          checked={editFormData.doorstep_trial}
+                          onChange={(e) => setEditFormData({ ...editFormData, doorstep_trial: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-amber-400 rounded"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1481,33 +1544,23 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       />
                     </div>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[8.5px] font-bold text-slate-400 block">4 Key Highlights</label>
-                    {[0, 1, 2, 3].map((idx) => (
-                      <input
-                        key={idx}
-                        type="text"
-                        value={editFormData.descPoints[idx]}
-                        onChange={(e) => {
-                          const next = [...editFormData.descPoints];
-                          next[idx] = e.target.value;
-                          setEditFormData({ ...editFormData, descPoints: next });
-                        }}
-                        placeholder={`Point ${idx + 1}...`}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 text-[10px]"
-                      />
-                    ))}
-                  </div>
                 </div>
               ) : (
                 (() => {
                   const changes = inspectingItem.pending_changes || {};
                   const sellerPhone = changes.phone || inspectingItem.phone;
                   const sellerName = changes.sellerName || inspectingItem.sellerName;
+                  const dealBadge = changes.deal_badge || changes.dealBadge || inspectingItem.deal_badge || inspectingItem.dealBadge;
+                  const dealDetails = changes.deal_details || changes.dealDetails || inspectingItem.deal_details || inspectingItem.dealDetails;
+                  const origPrice = changes.original_price || changes.originalPrice || inspectingItem.original_price || inspectingItem.originalPrice;
+                  const currentPrice = changes.price || inspectingItem.price;
+                  const tokenAmt = changes.token_amount || changes.tokenAmount || inspectingItem.token_amount || inspectingItem.tokenAmount;
+                  const hasTrial = changes.doorstep_trial !== undefined ? changes.doorstep_trial : inspectingItem.doorstep_trial;
 
                   return (
                     <div className="space-y-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-[10.5px]">
+                      
+                      {/* Merchant Contact Bar */}
                       <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                         <div>
                           <span className="text-[8.5px] text-slate-400 uppercase block">Merchant Contact</span>
@@ -1542,10 +1595,50 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         </div>
                       </div>
 
+                      {/* 🎁 PROMOTIONAL OFFER & COMBO INSPECTOR SECTION */}
+                      {dealBadge && (
+                        <div className="p-3 rounded-2xl bg-amber-950/50 border border-amber-400/60 space-y-1.5 shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-wider block">
+                              🎁 PROMOTIONAL OFFER & COMBO TERMS
+                            </span>
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-sm animate-pulse">
+                              {dealBadge}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center space-x-2 pt-0.5">
+                            <span className="text-emerald-400 font-black text-xs">{currentPrice}</span>
+                            {origPrice && (
+                              <span className="text-slate-500 font-mono text-[10px] line-through">
+                                {origPrice}
+                              </span>
+                            )}
+                            {tokenAmt && (
+                              <span className="text-amber-300 text-[9px] font-bold bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/30">
+                                🏷️ Token: {tokenAmt}
+                              </span>
+                            )}
+                            {hasTrial && (
+                              <span className="text-emerald-300 text-[9px] font-bold bg-emerald-950 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                🚚 Ghar Par Trial
+                              </span>
+                            )}
+                          </div>
+
+                          {dealDetails && (
+                            <p className="text-[10px] text-amber-200 font-medium italic pt-1 leading-relaxed">
+                              "{dealDetails}"
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Regular Price & Capacity */}
                       <div className="grid grid-cols-2 gap-2 border-b border-slate-900 pb-2">
                         <div>
                           <span className="text-[8.5px] text-slate-500 uppercase block">Price Rate</span>
-                          <span className="text-emerald-400 font-black text-xs">{changes.price || inspectingItem.price}</span>
+                          <span className="text-emerald-400 font-black text-xs">{currentPrice}</span>
                         </div>
                         <div>
                           <span className="text-[8.5px] text-slate-500 uppercase block">Ready Stock</span>
@@ -1560,7 +1653,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         </div>
                         <div>
                           <span className="text-[8.5px] text-slate-500 uppercase block">Location</span>
-                          <span className="text-slate-300 truncate block">📍 {changes.location || inspectingItem.location || 'Alwar'}</span>
+                          <span className="text-slate-300 truncate block">📍 {changes.location || inspectingItem.location || selectedCity}</span>
                         </div>
                       </div>
 

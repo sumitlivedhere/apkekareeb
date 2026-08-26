@@ -4,9 +4,10 @@ import ListingDiscussionThread from './ListingDiscussionThread';
 
 export default function ListingInteractiveCard({
   item,
-  selectedCity,
+  selectedCity = 'Alwar',
   badgeCategory = 'LISTING',
   onNewNotification,
+  onClick,
 }) {
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
@@ -38,13 +39,30 @@ export default function ListingInteractiveCard({
       ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
       : null);
 
+  // Promotional Offer & Combo Metadata Resolution
+  const dealBadge = item.deal_badge || item.dealBadge;
+  const dealDetails = item.deal_details || item.dealDetails;
+  const origPrice = item.original_price || item.originalPrice;
+  const tokenAmt = item.token_amount || item.tokenAmount;
+  const hasTrial = item.doorstep_trial ?? item.doorstepTrial;
+
   const descText = item.description || '';
   const isLongDescription = descText.length > 110;
 
+  // Custom pre-filled WhatsApp message including the promotional deal
+  const whatsAppMessage = dealBadge
+    ? `Namaste ${item.sellerName || ''}! I saw your "${item.title || item.name}" offer "${dealBadge}" on TownHub (${item.location || selectedCity}). ${dealDetails ? `Inclusions: ${dealDetails}. ` : ''}Is this deal available for me?`
+    : `Namaste ${item.sellerName || ''}, I found your listing "${item.title || item.name}" on TownHub (${item.location || selectedCity}). Is this still available?`;
+
   return (
     <article
-      className={`bg-white rounded-2xl overflow-hidden shadow-xs border transition p-3.5 space-y-3 relative ${
-        item.isNew ? 'border-amber-400 ring-2 ring-amber-400/20' : 'border-slate-200 hover:shadow-md'
+      onClick={() => onClick && onClick(item)}
+      className={`bg-white rounded-3xl overflow-hidden shadow-xs border transition p-3.5 space-y-3 relative ${
+        dealBadge
+          ? 'border-amber-400/80 ring-2 ring-amber-400/20 shadow-md'
+          : item.isNew
+          ? 'border-amber-400 ring-2 ring-amber-400/20'
+          : 'border-slate-200 hover:shadow-md'
       }`}
     >
       {/* 🖼️ INTERACTIVE PHOTO CAROUSEL */}
@@ -59,10 +77,37 @@ export default function ListingInteractiveCard({
           }}
         />
 
-        {/* Price Pill */}
-        <span className="absolute bottom-2.5 left-2.5 text-xs font-black px-2.5 py-1 rounded-xl text-white bg-slate-950/85 backdrop-blur-md border border-white/10">
-          {item.price || item.rent || item.rates || 'Contact for Price'}
-        </span>
+        {/* Top Badges: Category & Active Deal Pill */}
+        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1.5 flex-wrap">
+          {totalImages > 1 ? (
+            <div className="px-2 py-0.5 rounded-lg bg-slate-950/80 backdrop-blur-xs text-white text-[9px] font-black flex items-center space-x-1 border border-white/10 shadow-sm">
+              <span>📷</span>
+              <span>{activeImgIndex + 1}/{totalImages}</span>
+            </div>
+          ) : (
+            <span className="text-[9px] font-black px-2 py-0.5 rounded-lg bg-slate-950/80 backdrop-blur-md text-amber-300 uppercase border border-white/10">
+              {String(item.category || badgeCategory).toUpperCase()}
+            </span>
+          )}
+
+          {dealBadge && (
+            <span className="text-[9.5px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 text-slate-950 shadow-md animate-pulse border border-amber-500/40">
+              {dealBadge}
+            </span>
+          )}
+        </div>
+
+        {/* Price & Strike-Through Pricing Banner */}
+        <div className="absolute bottom-2.5 left-2.5 flex items-center space-x-1.5 bg-slate-950/85 backdrop-blur-md border border-white/10 px-2.5 py-1 rounded-xl text-white">
+          <span className="text-xs font-black text-amber-300">
+            {item.price || item.rent || item.rates || 'Contact for Price'}
+          </span>
+          {origPrice && (
+            <span className="text-[10px] text-slate-400 font-mono line-through">
+              {origPrice}
+            </span>
+          )}
+        </div>
 
         {/* Multi-Photo Navigation Arrows */}
         {totalImages > 1 && (
@@ -82,12 +127,7 @@ export default function ListingInteractiveCard({
               ❯
             </button>
 
-            {/* Photo Counter Pill & Dots */}
-            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-slate-950/80 backdrop-blur-xs text-white text-[9px] font-black flex items-center space-x-1 border border-white/10">
-              <span>📷</span>
-              <span>{activeImgIndex + 1}/{totalImages}</span>
-            </div>
-
+            {/* Dots */}
             <div className="absolute bottom-2.5 right-2.5 flex items-center space-x-1 bg-slate-950/60 backdrop-blur-xs px-2 py-1 rounded-full">
               {galleryImages.map((_, idx) => (
                 <div
@@ -111,18 +151,18 @@ export default function ListingInteractiveCard({
           listingTitle={item.title || item.name}
           sellerName={item.sellerName || item.driverName || 'Verified Member'}
           sellerPhone={item.phone || item.whatsapp}
-          interestCount={item.interestCount || 0}
+          interestCount={item.interestCount || item.interest_count || 0}
           onNewNotification={onNewNotification}
         />
       </div>
 
-      {/* 📄 LISTING BODY & EXPANDABLE DESCRIPTION */}
-      <div className="pt-0.5 space-y-1.5">
+      {/* 📄 LISTING BODY & PROMOTIONAL DETAILS */}
+      <div className="pt-0.5 space-y-2">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-black text-slate-900 text-sm">{item.title || item.name}</h3>
             {(item.sellerName || item.driverName) && (
-              <p className="text-[10px] text-blue-700 font-bold">
+              <p className="text-[10px] text-blue-700 font-bold mt-0.5">
                 By: {item.sellerName || item.driverName}
               </p>
             )}
@@ -131,6 +171,35 @@ export default function ListingInteractiveCard({
             {String(item.subCategory || badgeCategory).toUpperCase()}
           </span>
         </div>
+
+        {/* 🎁 Active Promotional Inclusions Capsule */}
+        {dealDetails && (
+          <div className="p-2 rounded-xl bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 border border-amber-300/80 text-[10.5px] text-amber-950 space-y-0.5">
+            <div className="flex items-center space-x-1 font-black text-amber-800 text-[10px] uppercase tracking-wide">
+              <span>🎁</span>
+              <span>Combo / Special Offer Inclusions:</span>
+            </div>
+            <p className="font-medium leading-relaxed italic">
+              {dealDetails}
+            </p>
+          </div>
+        )}
+
+        {/* Special Feature Micro-Pills */}
+        {(tokenAmt || hasTrial) && (
+          <div className="flex items-center space-x-1.5 text-[9.5px] font-bold flex-wrap gap-y-1">
+            {tokenAmt && (
+              <span className="bg-amber-100/80 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md">
+                🏷️ Token Lock: {tokenAmt}
+              </span>
+            )}
+            {hasTrial && (
+              <span className="bg-emerald-100/80 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded-md">
+                🚚 Ghar Par Trial Available
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Expandable Rich Description Section */}
         {descText && (
@@ -171,11 +240,11 @@ export default function ListingInteractiveCard({
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Action Buttons with Deal Context Pre-filled */}
       <ActionButtons
         phone={item.phone || '9876543201'}
         whatsapp={item.whatsapp || item.phone || '919876543210'}
-        message={`Namaste ${item.sellerName || ''}, I found your listing "${item.title || ''}" on TownHub (${item.location || selectedCity}). Is this still available?`}
+        message={whatsAppMessage}
       />
     </article>
   );

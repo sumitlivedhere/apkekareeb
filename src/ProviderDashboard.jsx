@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { hyperlocalStore, useAllListingsSlice } from './store/hyperlocalStore';
 import { TAXONOMY_REGISTRY, getCategoryById } from './data/taxonomyRegistry';
 import VoiceNotePlayer from './components/common/VoiceNotePlayer';
-import { deleteListingFromDB } from './services/listingService';
 import {
+  deleteListingFromDB,
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
   uploadVoiceNoteToStorage,
@@ -22,6 +22,11 @@ import {
   loginResidentWithPin,
   logoutUser,
 } from './services/authService';
+import {
+  getTemplatesForCategory,
+  OFFER_CATEGORIES,
+  HYPERLOCAL_OFFER_TEMPLATES,
+} from './data/offerTemplatesRegistry';
 
 const QUICK_PRESETS = [
   'हाँ, उपलब्ध है (Available)',
@@ -35,6 +40,7 @@ const QUICK_PRESETS = [
 ];
 
 const HOURS_LIST = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+const EMOJI_PRESETS = ['🍱', '🔥', '👑', '🎁', '⚡', '🪔', '🔄', '📱', '📺', '🛏️', '🌾', '🌶️', '🍳', '🎒', '💄', '🛵', '🎨', '🩺', '📚', '🚚', '🛡️', '⏳'];
 
 export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
@@ -50,10 +56,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const sellerPhone = currentUser?.phone || loginPhone;
 
   // Navigation & Filter States
-  const [activeTab, setActiveTab] = useState('inquiries'); // 'inquiries' | 'listings'
+  const [activeTab, setActiveTab] = useState('inquiries'); // 'inquiries' | 'listings' | 'offers'
   const [sortByInterest, setSortByInterest] = useState(false);
   const [selectedListingFilter, setSelectedListingFilter] = useState('all');
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
+  const [actionNotice, setActionNotice] = useState('');
 
   // Form & GPS States
   const [replyInputs, setReplyInputs] = useState({});
@@ -61,6 +68,22 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isSubmittingForm, setIsSubmittingForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+
+  // 🎁 Offer & Combo Studio State
+  const [selectedListingForOffer, setSelectedListingForOffer] = useState(null);
+  const [selectedOfferCategory, setSelectedOfferCategory] = useState('sector'); // 'sector' | 'universal'
+  const [isCustomOfferMode, setIsCustomOfferMode] = useState(false);
+  const [customEmoji, setCustomEmoji] = useState('🍱');
+  const [offerForm, setOfferForm] = useState({
+    deal_type: 'wedding',
+    deal_badge: '',
+    deal_details: '',
+    original_price: '',
+    price: '',
+    token_amount: '',
+    doorstep_trial: false,
+  });
+  const [isSavingOffer, setIsSavingOffer] = useState(false);
 
   // 📩 Seller-to-Admin Direct Response State
   const [sellerAdminReplies, setSellerAdminReplies] = useState({});
@@ -85,6 +108,12 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     originalSubCategory: '',
     priceNumber: '',
     priceUnit: '',
+    originalPriceNumber: '',
+    dealType: '',
+    dealBadge: '',
+    dealDetails: '',
+    tokenAmount: '',
+    doorstepTrial: false,
     stockCount: '',
     location: `${selectedCity} Market`,
     lat: null,
@@ -129,6 +158,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       }
     });
   }, []);
+
+  const showNotice = (msg) => {
+    setActionNotice(msg);
+    setTimeout(() => setActionNotice(''), 3500);
+  };
 
   // 🚪 Perform Login
   const handlePerformLogin = async (e) => {
@@ -180,11 +214,16 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const myListings = useMemo(() => {
     if (!isAuthorized || !sellerPhone) return [];
 
-    const list = (allListings || []).filter((item) => String(item.phone) === String(sellerPhone));
+    const clean = String(sellerPhone).replace(/\D/g, '').slice(-10);
+    const list = (allListings || []).filter((item) => {
+      const p1 = String(item.phone || '').replace(/\D/g, '').slice(-10);
+      const p2 = String(item.pending_changes?.phone || '').replace(/\D/g, '').slice(-10);
+      return p1 === clean || p2 === clean;
+    });
 
     if (sortByInterest) {
       return [...list].sort(
-        (a, b) => (Number(b.interestCount) || 0) - (Number(a.interestCount) || 0)
+        (a, b) => (Number(b.interestCount || b.interest_count) || 0) - (Number(a.interestCount || a.interest_count) || 0)
       );
     }
     return list;
@@ -225,7 +264,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const totalInterests = useMemo(() => {
     const interestMap = hyperlocalStore.state.interests || {};
     return myListings.reduce(
-      (sum, item) => sum + (interestMap[item.id] || Number(item.interestCount) || 0),
+      (sum, item) => sum + (interestMap[item.id] || Number(item.interestCount || item.interest_count) || 0),
       0
     );
   }, [myListings, threadUpdateTick]);
@@ -234,7 +273,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     return userInquiries.filter((q) => !q.sellerReply).length;
   }, [userInquiries]);
 
-  // 🗑️ Delete Listing Handler for Seller
+  // 🗑️ Delete Listing Handler
   const handleDeleteMerchantListing = async (listingId, title) => {
     if (!window.confirm(`Are you sure you want to permanently delete "${title}"?`)) {
       return;
@@ -243,14 +282,121 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     try {
       await deleteListingFromDB(listingId);
       hyperlocalStore.removeListing(listingId);
-      alert('Listing deleted successfully.');
+      showNotice('Listing deleted successfully.');
     } catch (err) {
       console.error('Delete failed:', err);
       alert('Failed to delete listing from database.');
     }
   };
 
-  // 🎙️ 1. Start Voice Recording to Admin
+  // 🎁 1. Open Offer Studio Modal (Context-Aware for this specific listing's category)
+  const handleOpenOfferStudio = (listing) => {
+    const changes = listing.pending_changes || {};
+    const currentCat = listing.category || 'market';
+    const { sectorTemplates, universalTemplates } = getTemplatesForCategory(currentCat);
+    const firstDefaultTpl = sectorTemplates[0] || universalTemplates[0];
+
+    setSelectedListingForOffer(listing);
+    setSelectedOfferCategory('sector');
+    setIsCustomOfferMode(false);
+
+    setOfferForm({
+      deal_type: changes.deal_type || changes.dealType || listing.deal_type || listing.dealType || currentCat,
+      deal_badge: changes.deal_badge || changes.dealBadge || listing.deal_badge || listing.dealBadge || firstDefaultTpl?.badge || '🔥 Special Deal',
+      deal_details: changes.deal_details || changes.dealDetails || listing.deal_details || listing.dealDetails || firstDefaultTpl?.details || '',
+      original_price: changes.original_price || changes.originalPrice || listing.original_price || listing.originalPrice || '',
+      price: changes.price || listing.price || '',
+      token_amount: changes.token_amount || changes.tokenAmount || listing.token_amount || listing.tokenAmount || '',
+      doorstep_trial: Boolean(changes.doorstep_trial ?? changes.doorstepTrial ?? listing.doorstep_trial ?? listing.doorstepTrial ?? false),
+    });
+  };
+
+  // 🎁 2. Apply 1-Tap Template Preset
+  const handleApplyOfferTemplate = (tpl) => {
+    setIsCustomOfferMode(false);
+    setOfferForm((prev) => ({
+      ...prev,
+      deal_type: tpl.category || selectedListingForOffer?.category || 'special',
+      deal_badge: tpl.badge,
+      deal_details: tpl.details,
+      price: tpl.defaultPrice || prev.price,
+      original_price: tpl.defaultOriginalPrice || prev.original_price,
+      token_amount: tpl.tokenAmount || '',
+      doorstep_trial: Boolean(tpl.doorstepTrial),
+    }));
+  };
+
+  // 🎁 3. Save & Submit Offer Proposal to Admin
+  const handleSaveOffer = async (e) => {
+    e.preventDefault();
+    if (!selectedListingForOffer) return;
+
+    setIsSavingOffer(true);
+    try {
+      const existingChanges = selectedListingForOffer.pending_changes || {};
+
+      const updatedProposal = {
+        ...selectedListingForOffer,
+        ...existingChanges,
+        price: offerForm.price.trim() || selectedListingForOffer.price,
+        original_price: offerForm.original_price.trim() || null,
+        deal_type: offerForm.deal_type,
+        deal_badge: offerForm.deal_badge.trim(),
+        deal_details: offerForm.deal_details.trim(),
+        token_amount: offerForm.token_amount.trim() || null,
+        doorstep_trial: Boolean(offerForm.doorstep_trial),
+        has_pending_approval: true,
+      };
+
+      await submitSellerEditProposal(selectedListingForOffer.id, updatedProposal);
+
+      hyperlocalStore.insertListing(selectedListingForOffer.category, {
+        ...selectedListingForOffer,
+        pending_changes: updatedProposal,
+        has_pending_approval: true,
+      });
+
+      showNotice('Offer submitted for admin verification! It will go live once approved.');
+      setSelectedListingForOffer(null);
+    } catch (err) {
+      console.error('Failed to save offer:', err);
+      alert('Failed to submit offer proposal. Please check your internet connection.');
+    } finally {
+      setIsSavingOffer(false);
+    }
+  };
+
+  // 🎁 4. Remove Offer from Listing
+  const handleRemoveOffer = async (listing) => {
+    if (!window.confirm('Remove this promotional deal and restore standard pricing?')) return;
+    try {
+      const existingChanges = listing.pending_changes || {};
+      const updatedProposal = {
+        ...listing,
+        ...existingChanges,
+        deal_type: null,
+        deal_badge: null,
+        deal_details: null,
+        original_price: null,
+        token_amount: null,
+        doorstep_trial: false,
+        has_pending_approval: true,
+      };
+
+      await submitSellerEditProposal(listing.id, updatedProposal);
+      hyperlocalStore.insertListing(listing.category, {
+        ...listing,
+        pending_changes: updatedProposal,
+        has_pending_approval: true,
+      });
+
+      showNotice('Offer removal submitted for admin approval.');
+    } catch (err) {
+      console.error('Failed to remove offer:', err);
+    }
+  };
+
+  // 🎙️ Start Voice Recording to Admin
   const handleStartVoiceToAdmin = async (listingId) => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -274,7 +420,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ 2. Stop and Send Voice Note to Admin
+  // 🎙️ Stop and Send Voice Note to Admin
   const handleStopAndSendVoiceToAdmin = (item) => {
     const mediaRecorder = mediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -301,7 +447,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         };
         hyperlocalStore.insertListing(item.category, updatedItem);
 
-        alert('Voice note reply sent directly to Admin.');
+        showNotice('Voice note reply sent directly to Admin.');
       } catch (err) {
         console.error('Audio reply failed:', err);
       } finally {
@@ -342,7 +488,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       hyperlocalStore.insertListing(item.category, updatedItem);
 
       setSellerAdminReplies((prev) => ({ ...prev, [item.id]: '' }));
-      alert('Reply sent directly to Admin.');
+      showNotice('Reply sent directly to Admin.');
     } catch {
       alert('Failed to send reply to Admin.');
     } finally {
@@ -410,7 +556,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }));
   };
 
-  // 🎥 Video Selection with 0-100% Progress Simulator
+  // 🎥 Video Selection
   const handleVideoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -514,6 +660,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     );
 
     const rawPrice = String(item.price || item.rates || '').replace(/\D/g, '');
+    const rawOrigPrice = String(item.original_price || item.originalPrice || '').replace(/\D/g, '');
     const rawStock = String(item.capacity || item.stockCount || '').replace(/\D/g, '');
 
     let parsedPoints = ['', '', '', ''];
@@ -541,8 +688,14 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       originalSubCategory: item.subCategory || item.sub_category || 'all',
       priceNumber: rawPrice,
       priceUnit: item.priceUnit || '',
+      originalPriceNumber: rawOrigPrice,
+      dealType: item.deal_type || item.dealType || '',
+      dealBadge: item.deal_badge || item.dealBadge || '',
+      dealDetails: item.deal_details || item.dealDetails || '',
+      tokenAmount: item.token_amount || item.tokenAmount || '',
+      doorstepTrial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
       stockCount: rawStock,
-      location: item.location || 'Hope Circus, Alwar',
+      location: item.location || `${selectedCity} Market`,
       lat: item.lat || null,
       lng: item.lng || null,
       descPoints: parsedPoints,
@@ -551,7 +704,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   };
 
-  // Submit Listing (Uploads to Storage First, then sends clean URLs to PostgreSQL)
+  // Submit Listing Form
   const handleSaveListing = async (e) => {
     e.preventDefault();
     setIsSubmittingForm(true);
@@ -569,6 +722,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       const validPoints = formData.descPoints.filter((p) => p && p.trim().length > 0);
       const combinedDescription = validPoints.length > 0 ? validPoints.map((p) => `• ${p.trim()}`).join('\n') : formData.title;
       const formattedPrice = formData.priceNumber ? `₹ ${formData.priceNumber.trim()}${formData.priceUnit ? ' ' + formData.priceUnit : ''}` : 'Contact for Price';
+      const formattedOrigPrice = formData.originalPriceNumber ? `₹ ${formData.originalPriceNumber.trim()}` : null;
       const formattedStock = formData.stockCount ? `${formData.stockCount} Units Available` : 'Ready Stock';
       const formattedActiveHours = `${timePicker.startHour}:00 ${timePicker.startPeriod} - ${timePicker.endHour}:00 ${timePicker.endPeriod}`;
 
@@ -578,6 +732,12 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         category: formData.category,
         subCategory: formData.subCategory,
         price: formattedPrice,
+        original_price: formattedOrigPrice,
+        deal_type: formData.dealType || null,
+        deal_badge: formData.dealBadge || null,
+        deal_details: formData.dealDetails || null,
+        token_amount: formData.tokenAmount || null,
+        doorstep_trial: Boolean(formData.doorstepTrial),
         rates: formattedPrice,
         startingPackage: formattedPrice,
         description: combinedDescription,
@@ -612,9 +772,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           category: formData.category,
           recipient_role: 'admin',
           recipient_phone: null,
+          metadata: { dealBadge: cleanPayload.deal_badge },
         };
         await saveNotificationToDB(notifObj);
         hyperlocalStore.addNotification(notifObj);
+        showNotice('Listing submitted for Admin approval.');
       } else if (editingItem) {
         const { data: dbProposal } = await submitSellerEditProposal(editingItem.id, cleanPayload);
         const updatedItem = {
@@ -635,9 +797,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           category: editingItem.category,
           recipient_role: 'admin',
           recipient_phone: null,
+          metadata: { dealBadge: cleanPayload.deal_badge },
         };
         await saveNotificationToDB(notifObj);
         hyperlocalStore.addNotification(notifObj);
+        showNotice('Edits submitted for Admin approval.');
       }
 
       setEditingItem(null);
@@ -650,90 +814,8 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ Customer Inquiry Voice Note Recording
-  const handleStartRecording = async (commentId) => {
-    try {
-      const stream = await getOptimizedVoiceStream();
-      audioChunksRef.current = [];
-      const mediaRecorder = createOptimizedMediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.start(100);
-      setRecordingId(commentId);
-      setRecordingSeconds(0);
-      timerRef.current = setInterval(() => setRecordingSeconds((prev) => prev + 1), 1000);
-    } catch {
-      alert('Microphone access denied. Please allow mic permissions.');
-    }
-  };
-
-  const handleStopAndSendAudio = (listingId, commentId, listingTitle) => {
-    const mediaRecorder = mediaRecorderRef.current;
-    if (!mediaRecorder) return;
-
-    mediaRecorder.onstop = async () => {
-      clearInterval(timerRef.current);
-      setIsUploadingAudio(true);
-      try {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
-        const publicAudioUrl = await uploadVoiceNoteToStorage(audioBlob);
-        const durationStr = `0:${recordingSeconds < 10 ? '0' : ''}${recordingSeconds}`;
-
-        const replyObj = {
-          type: 'audio',
-          audioUrl: publicAudioUrl,
-          duration: durationStr,
-          text: '🎤 Voice Note Reply',
-          timestamp: 'Just now',
-          sellerName: currentUser?.full_name || 'You (Owner)',
-        };
-
-        hyperlocalStore.addSellerReply(listingId, commentId, replyObj, listingTitle);
-        setThreadUpdateTick((prev) => prev + 1);
-      } catch (err) {
-        console.error('Audio upload error:', err);
-      } finally {
-        if (mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach((t) => t.stop());
-        setRecordingId(null);
-        setRecordingSeconds(0);
-        setIsUploadingAudio(false);
-      }
-    };
-    mediaRecorder.stop();
-  };
-
-  const handleCancelRecording = () => {
-    if (mediaRecorderRef.current) {
-      clearInterval(timerRef.current);
-      if (mediaRecorderRef.current.stream) mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-      mediaRecorderRef.current = null;
-      setRecordingId(null);
-      setRecordingSeconds(0);
-    }
-  };
-
-  const handleSendTextReply = (listingId, commentId, listingTitle, customText = null) => {
-    const text = (customText || replyInputs[commentId] || '').trim();
-    if (!text) return;
-
-    const replyObj = {
-      type: 'text',
-      text,
-      timestamp: 'Just now',
-      sellerName: currentUser?.full_name || 'You (Owner)',
-    };
-
-    hyperlocalStore.addSellerReply(listingId, commentId, replyObj, listingTitle);
-    setReplyInputs((prev) => ({ ...prev, [commentId]: '' }));
-    setThreadUpdateTick((prev) => prev + 1);
-  };
-
   // =========================================================================
-  // 🔒 AUTH GUARD VIEW (Renders when logged out)
+  // 🔒 AUTH GUARD VIEW
   // =========================================================================
   if (!isAuthorized) {
     return (
@@ -745,7 +827,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
             <h2 className="text-sm font-black text-slate-100">Business Hub (सुरक्षित लॉगिन)</h2>
             <p className="text-[10px] text-slate-400">
-              अपनी लिस्टिंग्स व ग्राहक पूछताछ देखने के लिए रजिस्टर्ड मोबाइल नंबर व पिन दर्ज करें।
+              अपनी लिस्टिंग्स व ग्राहक बातचीत देखने के लिए रजिस्टर्ड मोबाइल नंबर व पिन दर्ज करें।
             </p>
           </div>
 
@@ -810,14 +892,14 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   return (
     <main className="p-3.5 space-y-3.5 animate-fade-in text-slate-100 pb-28 select-none bg-slate-950 min-h-screen">
       
-      {/* 1. Header with Logout Button */}
+      {/* 1. Header */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 p-4 rounded-3xl text-white shadow-xl flex items-center justify-between border border-slate-800">
         <div className="flex items-center space-x-2.5">
           <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-md">
             📊
           </div>
           <div>
-            <h1 className="text-sm font-black text-white leading-tight">Business Hub (ग्राहक बातचीत)</h1>
+            <h1 className="text-sm font-black text-white leading-tight">Business Hub (व्यापार केंद्र)</h1>
             <p className="text-[10px] text-amber-300 font-bold">
               👤 {currentUser?.full_name || 'Merchant'} ({sellerPhone})
             </p>
@@ -843,6 +925,12 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         </div>
       </div>
 
+      {actionNotice && (
+        <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/40 rounded-2xl text-emerald-300 text-xs font-bold text-center animate-fade-in shadow-lg">
+          ✓ {actionNotice}
+        </div>
+      )}
+
       {/* 2. Interactive Metrics */}
       <div className="grid grid-cols-3 gap-2">
         <button
@@ -861,16 +949,18 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
         <button
           type="button"
-          onClick={() => { setActiveTab('listings'); setSortByInterest(true); }}
+          onClick={() => { setActiveTab('offers'); }}
           className={`p-3 rounded-2xl border text-center space-y-0.5 shadow-md transition cursor-pointer active:scale-95 ${
-            activeTab === 'listings' && sortByInterest
-              ? 'bg-orange-500/20 border-orange-400 text-orange-300 ring-2 ring-orange-400/30'
+            activeTab === 'offers'
+              ? 'bg-gradient-to-r from-amber-400/20 to-yellow-500/20 border-amber-400 text-amber-300 ring-2 ring-amber-400/30'
               : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
           }`}
         >
-          <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider block">Interested</span>
-          <span className="text-lg font-black text-cyan-400">🔥 {totalInterests}</span>
-          <span className="text-[9px] text-cyan-300 font-bold block">Buyers</span>
+          <span className="text-[10px] text-amber-300 font-black uppercase tracking-wider block">Active Deals</span>
+          <span className="text-lg font-black text-amber-300">
+            {myListings.filter((l) => Boolean(l.deal_badge || l.dealBadge || l.pending_changes?.deal_badge)).length}
+          </span>
+          <span className="text-[9px] text-amber-400 font-bold block">🎁 Combos</span>
         </button>
 
         <button
@@ -889,7 +979,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         </button>
       </div>
 
-      {/* Navigation Tabs */}
+      {/* 3. Segmented Navigation Tabs */}
       <div className="flex bg-slate-900/90 p-1 rounded-2xl border border-slate-800 shadow-inner">
         <button
           type="button"
@@ -913,11 +1003,26 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             activeTab === 'listings' ? 'bg-amber-400 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>📦 My Listings ({myListings.length})</span>
+          <span>📦 My Catalog ({myListings.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab('offers'); }}
+          className={`flex-1 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center space-x-1 ${
+            activeTab === 'offers'
+              ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-md font-black'
+              : 'text-amber-300 hover:text-white'
+          }`}
+        >
+          <span>🎁</span>
+          <span>Offers Studio</span>
         </button>
       </div>
 
-      {/* TAB 1: INQUIRIES */}
+      {/* ========================================================================= */}
+      {/* TAB 1: INQUIRIES                                                          */}
+      {/* ========================================================================= */}
       {activeTab === 'inquiries' && (
         <section className="space-y-3">
           <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none text-[9.5px]">
@@ -1048,7 +1153,9 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         </section>
       )}
 
-      {/* TAB 2: ACTIVE LISTINGS & DIRECT ADMIN VOICE/TEXT CHAT */}
+      {/* ========================================================================= */}
+      {/* TAB 2: ACTIVE LISTINGS & DIRECT ADMIN CHAT                                */}
+      {/* ========================================================================= */}
       {activeTab === 'listings' && (
         <section className="space-y-3.5">
           <div className="p-3.5 bg-gradient-to-r from-amber-500/20 via-amber-400/10 to-transparent border border-amber-400/40 rounded-2xl flex items-center justify-between shadow-lg">
@@ -1077,12 +1184,16 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
               </div>
             ) : (
               myListings.map((item) => {
+                const changes = item.pending_changes || {};
                 const isPending =
                   item.has_pending_approval === true ||
                   item.is_active === false ||
                   Boolean(item.pending_changes);
 
                 const isRecordingAdmin = recordingAdminReplyId === item.id;
+                const activeDealBadge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
+                const activeDealDetails = changes.deal_details || changes.dealDetails || item.deal_details || item.dealDetails;
+                const activeOrigPrice = changes.original_price || changes.originalPrice || item.original_price || item.originalPrice;
 
                 return (
                   <div
@@ -1101,7 +1212,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           className="w-14 h-14 rounded-xl object-cover border border-slate-700 shrink-0"
                         />
                         <div className="min-w-0">
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                             <span className="text-[9px] font-black uppercase text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded-md inline-block">
                               {item.category}
                             </span>
@@ -1110,18 +1221,36 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                                 ⏳ PENDING APPROVAL
                               </span>
                             )}
+                            {activeDealBadge && (
+                              <span className="text-[8.5px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-sm animate-pulse">
+                                {activeDealBadge}
+                              </span>
+                            )}
                           </div>
-                          <h3 className="text-xs font-black text-slate-100 truncate mt-0.5">{item.title || item.name}</h3>
-                          <p className="text-[11px] font-bold text-amber-400">{item.price || 'Rate on Request'}</p>
+                          <h3 className="text-xs font-black text-slate-100 truncate mt-0.5">{changes.title || item.title || item.name}</h3>
+                          <div className="flex items-center space-x-2 mt-0.5">
+                            <p className="text-[11px] font-black text-emerald-400">{changes.price || item.price || 'Rate on Request'}</p>
+                            {activeOrigPrice && (
+                              <span className="text-slate-500 font-mono text-[10px] line-through">
+                                {activeOrigPrice}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
                       <div className="flex flex-col items-end space-y-1 shrink-0">
                         <span className="px-2 py-0.5 rounded-lg bg-slate-950 border border-amber-500/30 text-amber-300 font-black text-[9.5px]">
-                          ⭐ {item.interestCount || 0}
+                          ⭐ {item.interestCount || item.interest_count || 0}
                         </span>
                       </div>
                     </div>
+
+                    {activeDealDetails && (
+                      <div className="p-2 rounded-xl bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200">
+                        🎁 <strong>Active Promotion:</strong> {activeDealDetails}
+                      </div>
+                    )}
 
                     {/* 👑 Admin Feedback Note with Audio Player */}
                     {item.admin_feedback && (
@@ -1151,7 +1280,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           return <p className="text-amber-100">"{item.admin_feedback}"</p>;
                         })()}
 
-                        {/* 🎙️ Direct Audio / Text Reply to Admin */}
+                        {/* Direct Audio / Text Reply to Admin */}
                         <div className="pt-2 border-t border-amber-500/30 space-y-1.5">
                           <span className="text-[9px] font-black text-amber-300 block">
                             Direct Reply to Admin (एडमिन को उत्तर दें):
@@ -1215,24 +1344,33 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px]">
-                      <span className="text-slate-500 font-semibold truncate max-w-[160px]">📍 {item.location || selectedCity}</span>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px] flex-wrap gap-y-1.5">
+                      <span className="text-slate-500 font-semibold truncate max-w-[140px]">📍 {item.location || selectedCity}</span>
                       
                       <div className="flex items-center space-x-1.5">
                         <button
                           type="button"
-                          onClick={() => handleOpenEdit(item)}
-                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-lg font-bold transition cursor-pointer active:scale-95"
+                          onClick={() => handleOpenOfferStudio(item)}
+                          className="px-2.5 py-1 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 rounded-lg font-black text-[9.5px] transition cursor-pointer active:scale-95 flex items-center space-x-1 shadow-sm"
                         >
-                          ✏️ Edit Details & Media
+                          <span>🎁</span>
+                          <span>{activeDealBadge ? 'Edit Offer' : '+ Attach Offer'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(item)}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
+                        >
+                          ✏️ Edit
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handleDeleteMerchantListing(item.id, item.title || item.name)}
-                          className="px-3 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold transition cursor-pointer active:scale-95"
+                          className="px-2.5 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
                         >
-                          🗑️ Delete
+                          🗑️
                         </button>
                       </div>
                     </div>
@@ -1244,7 +1382,364 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         </section>
       )}
 
-      {/* MODAL: EDIT & ENLIST NEW */}
+      {/* ========================================================================= */}
+      {/* TAB 3: OFFERS & COMBOS STUDIO EXPLORER                                    */}
+      {/* ========================================================================= */}
+      {activeTab === 'offers' && (
+        <section className="space-y-3.5">
+          <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 border border-amber-400/40 p-3.5 rounded-3xl space-y-1.5">
+            <div className="flex items-center space-x-2">
+              <span className="text-xl">🎁</span>
+              <h3 className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                Tier 2 & 3 High-Conversion Offer Studio
+              </h3>
+            </div>
+            <p className="text-[10.5px] text-slate-300 leading-relaxed">
+              Attach high-impact promotional deals (Groom Kits, Bridal Sets, BOGO, Scrap Buyback, Sawa Advance Locks) to multiply your store inquiries!
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              Select an item to configure or attach an offer:
+            </h4>
+
+            {myListings.length === 0 ? (
+              <div className="bg-slate-900/60 p-8 rounded-2xl border border-slate-800 text-center text-slate-400">
+                <p className="text-xs font-bold text-slate-300">No active catalog items.</p>
+                <p className="text-[10px]">Post your first listing in the "My Catalog" tab.</p>
+              </div>
+            ) : (
+              myListings.map((item) => {
+                const changes = item.pending_changes || {};
+                const activeDealBadge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleOpenOfferStudio(item)}
+                    className="p-3 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-400/50 rounded-2xl flex items-center justify-between cursor-pointer transition"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 uppercase">
+                          {item.category}
+                        </span>
+                        {activeDealBadge && (
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-400 text-slate-950">
+                            {activeDealBadge}
+                          </span>
+                        )}
+                      </div>
+                      <h5 className="text-xs font-black text-slate-100 mt-1 truncate">
+                        {changes.title || item.title || item.name}
+                      </h5>
+                      <span className="text-emerald-400 font-bold text-[10px]">{changes.price || item.price}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-xl shadow shrink-0"
+                    >
+                      {activeDealBadge ? 'Configure ➔' : '+ Setup Deal'}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 🎁 CONTEXT-AWARE OFFER & COMBO STUDIO MODAL                               */}
+      {/* ========================================================================= */}
+      {selectedListingForOffer && (() => {
+        const { sectorTemplates, universalTemplates } = getTemplatesForCategory(selectedListingForOffer.category);
+        const currentCatName = String(selectedListingForOffer.category || 'This Shop').toUpperCase();
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
+            <div className="bg-slate-900 border border-amber-500/40 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+              
+              {/* Modal Header */}
+              <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="min-w-0 pr-2">
+                  <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
+                    🎁 PROMOTIONAL COMBOS & OFFERS • {currentCatName}
+                  </span>
+                  <h3 className="text-xs font-black text-slate-100 truncate mt-0.5">
+                    {selectedListingForOffer.title || selectedListingForOffer.name}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedListingForOffer(null)}
+                  className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs font-black cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Modal Form */}
+              <form onSubmit={handleSaveOffer} className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
+                
+                {/* Context-Aware Tab Switcher */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[9.5px] font-bold text-slate-400 block">
+                      1. Select Relevant Offer Type (ऑफर प्रकार):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomOfferMode(!isCustomOfferMode);
+                        if (!isCustomOfferMode) {
+                          setOfferForm((p) => ({ ...p, deal_badge: `${customEmoji} Custom Deal` }));
+                        }
+                      }}
+                      className="text-[9.5px] font-bold text-amber-400 underline cursor-pointer"
+                    >
+                      {isCustomOfferMode ? '← Pick Trade Presets' : '✨ Build Custom Tag'}
+                    </button>
+                  </div>
+
+                  {!isCustomOfferMode && (
+                    <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-[10.5px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOfferCategory('sector')}
+                        className={`flex-1 py-1.5 rounded-lg transition cursor-pointer text-center ${
+                          selectedOfferCategory === 'sector'
+                            ? 'bg-amber-400 text-slate-950 font-black shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        🎯 {currentCatName} Deals ({sectorTemplates.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOfferCategory('universal')}
+                        className={`flex-1 py-1.5 rounded-lg transition cursor-pointer text-center ${
+                          selectedOfferCategory === 'universal'
+                            ? 'bg-amber-400 text-slate-950 font-black shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        🛡️ Har Dukaan Flat Deals ({universalTemplates.length})
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Presets Grid */}
+                {!isCustomOfferMode ? (
+                  <div className="space-y-1.5">
+                    <label className="text-[9.5px] font-bold text-slate-400 block">
+                      2. Tap a Preset to Auto-Fill (टैप करके चुनें):
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-0.5 scrollbar-none">
+                      {(selectedOfferCategory === 'sector' ? sectorTemplates : universalTemplates).map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => handleApplyOfferTemplate(tpl)}
+                          className={`p-2 rounded-xl text-left border transition cursor-pointer ${
+                            offerForm.deal_badge === tpl.badge
+                              ? 'bg-amber-400/20 border-amber-400 text-amber-200 shadow-xs'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <span className="text-[10px] font-black block truncate text-slate-200">
+                            {tpl.badge}
+                          </span>
+                          <span className="text-[8.5px] text-slate-400 block truncate">
+                            {tpl.hindiTitle}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 p-2.5 bg-slate-950 rounded-2xl border border-slate-800">
+                    <label className="text-[9.5px] font-bold text-slate-400 block">
+                      Pick Emoji for Custom Badge:
+                    </label>
+                    <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      {EMOJI_PRESETS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setCustomEmoji(emoji);
+                            setOfferForm((p) => ({
+                              ...p,
+                              deal_badge: `${emoji} ${p.deal_badge.replace(/^[^\s]+\s*/, '') || 'Special Deal'}`,
+                            }));
+                          }}
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm transition cursor-pointer ${
+                            customEmoji === emoji
+                              ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-400'
+                              : 'bg-slate-900 border border-slate-800 text-slate-200'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Badge Input */}
+                <div className="space-y-1">
+                  <label className="text-[9.5px] font-bold text-slate-300 block">
+                    Promotional Tag / Badge Name (बैज का नाम) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 5-in-1 Phone Kit or Flat ₹500 OFF"
+                    value={offerForm.deal_badge}
+                    onChange={(e) => setOfferForm({ ...offerForm, deal_badge: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-black text-xs focus:border-amber-400 focus:outline-hidden"
+                  />
+                </div>
+
+                {/* Pricing Rates */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
+                      Special Offer Rate (ऑफर मूल्य) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. ₹4,999"
+                      value={offerForm.price}
+                      onChange={(e) => setOfferForm({ ...offerForm, price: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-emerald-400 font-black text-xs focus:border-amber-400 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
+                      Original Price (काटकर दिखाने के लिए)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. ₹7,500"
+                      value={offerForm.original_price}
+                      onChange={(e) => setOfferForm({ ...offerForm, original_price: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-400 font-mono text-xs focus:border-amber-400 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Inclusions */}
+                <div className="space-y-1">
+                  <label className="text-[9.5px] font-bold text-slate-300 block">
+                    Combo Inclusions & Freebies (कॉम्बो में क्या-क्या मिलेगा?)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Describe exact inclusions and free items..."
+                    value={offerForm.deal_details}
+                    onChange={(e) => setOfferForm({ ...offerForm, deal_details: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-slate-100 text-xs placeholder-slate-500 focus:border-amber-400 focus:outline-hidden leading-relaxed"
+                  />
+                </div>
+
+                {/* Token Advance & Trial */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
+                      Advance Token Lock
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. ₹500"
+                      value={offerForm.token_amount}
+                      onChange={(e) => setOfferForm({ ...offerForm, token_amount: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-amber-200 text-xs focus:border-amber-400 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-2 bg-slate-950 rounded-xl border border-slate-800 mt-3">
+                    <div>
+                      <span className="text-[10px] font-bold block text-slate-200">Ghar Par Trial</span>
+                      <span className="text-[8.5px] text-slate-400 block">घर पर ट्रायल</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={offerForm.doorstep_trial}
+                      onChange={(e) => setOfferForm({ ...offerForm, doorstep_trial: e.target.checked })}
+                      className="w-4 h-4 accent-amber-400 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Live Card Preview */}
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1.5">
+                  <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">
+                    👁️ Customer Feed Card Preview:
+                  </span>
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                    <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 shadow-xs">
+                      {offerForm.deal_badge || '🔥 Special Offer'}
+                    </span>
+                    <span className="text-emerald-400 font-black text-xs">
+                      {offerForm.price || '₹0'}
+                    </span>
+                    {offerForm.original_price && (
+                      <span className="text-slate-500 font-mono text-[10px] line-through">
+                        {offerForm.original_price}
+                      </span>
+                    )}
+                    {offerForm.doorstep_trial && (
+                      <span className="text-[9px] font-bold bg-amber-950/80 text-amber-300 px-2 py-0.5 rounded-md border border-amber-500/30">
+                        🚚 Ghar Par Trial
+                      </span>
+                    )}
+                  </div>
+                  {offerForm.deal_details && (
+                    <p className="text-[10px] text-amber-200/90 italic pt-1">
+                      "{offerForm.deal_details}"
+                    </p>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="pt-2 border-t border-slate-800 flex items-center space-x-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingOffer || !offerForm.deal_badge.trim() || !offerForm.price.trim()}
+                    className="flex-1 py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition disabled:opacity-40"
+                  >
+                    {isSavingOffer ? 'Submitting to Admin... ⏳' : '✓ Submit Offer for Admin Approval'}
+                  </button>
+
+                  {(selectedListingForOffer.deal_badge || selectedListingForOffer.dealBadge) && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveOffer(selectedListingForOffer)}
+                      className="px-3 py-3 bg-slate-800 hover:bg-slate-700 text-rose-300 font-bold text-xs rounded-xl border border-slate-700 cursor-pointer"
+                      title="Remove Offer"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+              </form>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ========================================================================= */}
+      {/* MODAL: EDIT & ENLIST NEW                                                  */}
+      {/* ========================================================================= */}
       {(editingItem || isCreatingNew) && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
           <div className="bg-slate-900 border border-amber-500/40 w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3.5 max-h-[92vh] overflow-y-auto">
@@ -1327,11 +1822,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 />
               </div>
 
-              {/* Price (Digits Only) */}
-              <div>
-                <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Price (रुपये में - केवल अंक) *</label>
-                <div className="flex items-center space-x-1.5">
-                  <div className="relative flex-1">
+              {/* Price & Strike Price */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Price (रुपये में - केवल अंक) *</label>
+                  <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-amber-400 select-none">₹</span>
                     <input
                       type="text"
@@ -1343,13 +1838,21 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-slate-100 font-bold font-mono"
                     />
                   </div>
-                  <input
-                    type="text"
-                    value={formData.priceUnit}
-                    onChange={(e) => setFormData({ ...formData, priceUnit: e.target.value })}
-                    placeholder="e.g. / Kg"
-                    className="w-24 bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-slate-300 text-center text-xs"
-                  />
+                </div>
+
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Original / Strike Price</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500 select-none">₹</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={formData.originalPriceNumber}
+                      onChange={(e) => setFormData({ ...formData, originalPriceNumber: e.target.value.replace(/\D/g, '') })}
+                      placeholder="185000"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-slate-400 font-mono"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1486,7 +1989,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 )}
               </div>
 
-              {/* Videos (with 0-100% Progress Bar) */}
+              {/* Videos */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[9.5px] font-black text-slate-300">🎥 Walkthrough Videos ({formData.videos.length}/2)</label>
@@ -1522,7 +2025,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
 
                     <p className="text-[8.5px] text-slate-400 font-medium">
-                      Optimizing {videoUploadState.fileName} for fast 4G streaming... Please wait.
+                      Optimizing {videoUploadState.fileName} for fast streaming... Please wait.
                     </p>
                   </div>
                 )}
