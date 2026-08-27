@@ -43,7 +43,7 @@ export function createOptimizedMediaRecorder(stream) {
   }
 
   const options = {
-    audioBitsPerSecond: 16000, // 16 kbps voice profile (reduces 10s voice note to ~20KB)
+    audioBitsPerSecond: 16000,
   };
   if (selectedMime) options.mimeType = selectedMime;
 
@@ -57,7 +57,6 @@ export async function compressAudioBlob(audioBlob) {
   try {
     const arrayBuffer = await audioBlob.arrayBuffer();
 
-    // Check if browser supports native CompressionStream
     if ('CompressionStream' in window) {
       const stream = new Response(arrayBuffer).body.pipeThrough(new CompressionStream('gzip'));
       const compressedBuffer = await new Response(stream).arrayBuffer();
@@ -65,7 +64,6 @@ export async function compressAudioBlob(audioBlob) {
       return `gzip_audio:${audioBlob.type || 'audio/webm'}:${base64String}`;
     }
 
-    // Fallback: standard base64 if compression stream is unavailable
     const fallbackBase64 = arrayBufferToBase64(arrayBuffer);
     return `raw_audio:${audioBlob.type || 'audio/webm'}:${fallbackBase64}`;
   } catch (err) {
@@ -81,12 +79,10 @@ export async function compressAudioBlob(audioBlob) {
 export async function decompressAudioUrl(audioPayload) {
   if (!audioPayload) return null;
 
-  // Already a standard playable URL or Blob URL
   if (audioPayload.startsWith('blob:') || audioPayload.startsWith('http')) {
     return audioPayload;
   }
 
-  // Decompress Gzipped Payload
   if (audioPayload.startsWith('gzip_audio:')) {
     try {
       const [, mimeType, base64Data] = audioPayload.split(':');
@@ -103,7 +99,6 @@ export async function decompressAudioUrl(audioPayload) {
     }
   }
 
-  // Raw Audio Payload
   if (audioPayload.startsWith('raw_audio:')) {
     const [, mimeType, base64Data] = audioPayload.split(':');
     const buffer = base64ToArrayBuffer(base64Data);
@@ -111,11 +106,9 @@ export async function decompressAudioUrl(audioPayload) {
     return URL.createObjectURL(blob);
   }
 
-  // Standard data URL (e.g. data:audio/webm;base64,...)
   return audioPayload;
 }
 
-// Helper: ArrayBuffer to Base64 String
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -126,7 +119,6 @@ function arrayBufferToBase64(buffer) {
   return window.btoa(binary);
 }
 
-// Helper: Base64 String to ArrayBuffer
 function base64ToArrayBuffer(base64) {
   const binaryString = window.atob(base64);
   const len = binaryString.length;

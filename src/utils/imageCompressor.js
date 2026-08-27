@@ -45,8 +45,8 @@ function calculateTargetDimensions(width, height, maxWidth, maxHeight) {
 export async function compressListingImage(file, customOptions = {}) {
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
 
-  if (!file || !file.type.startsWith('image/')) {
-    throw new Error('Provided file is not a valid image.');
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    return file;
   }
 
   // 1. Fast path: Decode with hardware acceleration & auto-orientation
@@ -55,8 +55,7 @@ export async function compressListingImage(file, customOptions = {}) {
     bitmap = await createImageBitmap(file, {
       imageOrientation: 'from-image', // Natively respects EXIF orientation
     });
-  } catch (err) {
-    // Fallback for older WebViews / Safari edge-cases
+  } catch {
     bitmap = await fallbackImageElementLoader(file);
   }
 
@@ -68,7 +67,7 @@ export async function compressListingImage(file, customOptions = {}) {
     options.maxHeight
   );
 
-  // 2. OffscreenCanvas or Canvas rendering
+  // 2. OffscreenCanvas or standard Canvas rendering
   let canvas;
   let ctx;
 
@@ -82,17 +81,19 @@ export async function compressListingImage(file, customOptions = {}) {
     ctx = canvas.getContext('2d');
   }
 
-  // Ensure high quality smoothing algorithm
+  if (!ctx) {
+    return file;
+  }
+
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
 
-  // Close bitmap to release GPU memory immediately
   if (typeof bitmap.close === 'function') {
     bitmap.close();
   }
 
-  // 3. Export to WebP Blob (fallback to JPEG if browser doesn't support WebP export)
+  // 3. Export to WebP Blob (fallback to JPEG if needed)
   const blob = await new Promise((resolve) => {
     if (canvas instanceof OffscreenCanvas) {
       canvas
@@ -122,6 +123,8 @@ export async function compressListingImage(file, customOptions = {}) {
     }
   });
 
+  if (!blob) return file;
+
   // 4. Return as a standard File object named with .webp extension
   const originalName = file.name ? file.name.replace(/\.[^/.]+$/, '') : 'photo';
   const extension = blob.type === 'image/webp' ? '.webp' : '.jpg';
@@ -132,6 +135,9 @@ export async function compressListingImage(file, customOptions = {}) {
     lastModified: Date.now(),
   });
 }
+
+// Alias export for universal compatibility
+export const compressImage = compressListingImage;
 
 /**
  * Fallback loader for environments without full createImageBitmap support
@@ -155,12 +161,6 @@ function fallbackImageElementLoader(file) {
 
 /**
  * Batch Multi-Image Compressor with Concurrency Limiter
- * Processes images in parallel batches of 2-3 to prevent memory overflow on mobile devices
- * 
- * @param {Array<File>} files - Array of File objects
- * @param {Object} options - Compression config
- * @param {Function} onProgress - Optional callback: (completedCount, totalCount) => void
- * @returns {Promise<Array<File>>} - Array of compressed File objects
  */
 export async function compressMultipleImages(
   files = [],
@@ -171,11 +171,10 @@ export async function compressMultipleImages(
 
   const fileList = Array.from(files);
   const total = fileList.length;
-  const concurrencyLimit = 3; // Maximum parallel operations
+  const concurrencyLimit = 3;
   const results = new Array(total);
   let completed = 0;
 
-  // Worker runner for parallel queue
   let currentIndex = 0;
   async function worker() {
     while (currentIndex < total) {
@@ -185,7 +184,7 @@ export async function compressMultipleImages(
         results[index] = compressed;
       } catch (error) {
         console.error(`Failed to compress image at index ${index}:`, error);
-        results[index] = fileList[index]; // Fallback to raw file on failure
+        results[index] = fileList[index];
       } finally {
         completed++;
         if (typeof onProgress === 'function') {
@@ -195,7 +194,6 @@ export async function compressMultipleImages(
     }
   }
 
-  // Spawn workers up to concurrencyLimit
   const workers = Array.from(
     { length: Math.min(concurrencyLimit, total) },
     () => worker()
@@ -205,9 +203,8 @@ export async function compressMultipleImages(
   return results;
 }
 
-/**
- * Helper to get a fast instant preview URL (useful for rendering UI previews immediately)
- */
+export const compressImagesBatch = compressMultipleImages;
+
 export function createFastPreviewUrl(file) {
   return URL.createObjectURL(file);
 }

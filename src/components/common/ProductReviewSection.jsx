@@ -1,22 +1,33 @@
 import React, { useState, useRef } from 'react';
 import { getCurrentUserProfile } from '../../services/authService';
-import { useHyperlocalStore, useListingReviews } from '../../store/hyperlocalStore';
+import {
+  hyperlocalStore,
+  useListingReviews,
+  useListingRatingStats,
+} from '../../store/hyperlocalStore';
 import { uploadVoiceNoteToStorage } from '../../services/listingService';
-import { getOptimizedVoiceStream, createOptimizedMediaRecorder } from '../../utils/audioCompressor';
 import { compressImage } from '../../utils/imageCompressor';
 import { compressVideo } from '../../utils/videoCompressor';
+import {
+  getOptimizedVoiceStream,
+  createOptimizedMediaRecorder,
+} from '../../utils/audioCompressor';
 import VoiceNotePlayer from './VoiceNotePlayer';
 
-export default function ProductReviewSection({ listingId, listingTitle = 'Product', sellerName = 'Seller' }) {
+export default function ProductReviewSection({
+  listingId,
+  listingTitle = 'Product',
+  sellerName = 'Seller',
+}) {
   const user = getCurrentUserProfile();
   const reviews = useListingReviews(listingId);
-  const { addListingReview, getListingRatingStats } = useHyperlocalStore();
+  const stats = useListingRatingStats(listingId, 4.8);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [rating, setRating] = useState(5);
   const [hoverRating, setHoverRating] = useState(0);
   const [commentText, setCommentText] = useState('');
-  
+
   // Media attachments
   const [attachedPhotos, setAttachedPhotos] = useState([]);
   const [attachedVideo, setAttachedVideo] = useState(null);
@@ -35,9 +46,7 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
   const filePhotoInputRef = useRef(null);
   const fileVideoInputRef = useRef(null);
 
-  const stats = getListingRatingStats(listingId);
-
-  // Check if current user is permanent (Tier 2 Verified or Merchant)
+  // Permanent verified user check
   const isPermanentUser = Boolean(
     user &&
       (user.verification_tier === 'verified_resident' ||
@@ -45,51 +54,65 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
         user.is_verified === true)
   );
 
-  const hasAlreadyReviewed = reviews.some((r) => r.phone === user?.phone);
-
-  // 📷 Photo Upload Handlers
-  const handlePhotoSelect = async (e) => {
-  const files = Array.from(e.target.files || []);
-  if (files.length === 0) return;
-
-  const compressedPreviews = await Promise.all(
-    files.slice(0, 4).map(async (file) => {
-      // Compresses 12MB raw photo down to ~150KB WebP
-      const compressedBlob = await compressImage(file, {
-        maxWidth: 1280,
-        maxHeight: 1280,
-        quality: 0.78,
-        format: 'image/webp',
-      });
-      return {
-        file: new File([compressedBlob], `${Date.now()}.webp`, { type: 'image/webp' }),
-        previewUrl: URL.createObjectURL(compressedBlob),
-      };
-    })
+  const userPhone = user?.phone
+    ? String(user.phone).replace(/\D/g, '').slice(-10)
+    : null;
+  const hasAlreadyReviewed = reviews.some(
+    (r) => String(r.phone || '').replace(/\D/g, '').slice(-10) === userPhone
   );
 
-  setAttachedPhotos((prev) => [...prev, ...compressedPreviews].slice(0, 4));
-  e.target.value = '';
-};
+  // 📷 Photo Selection with WebP Compression
+  const handlePhotoSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    try {
+      const compressedPreviews = await Promise.all(
+        files.slice(0, 4).map(async (file) => {
+          const compressed = await compressImage(file, {
+            maxWidth: 1280,
+            maxHeight: 1280,
+            quality: 0.78,
+          });
+          return {
+            file: compressed,
+            previewUrl: URL.createObjectURL(compressed),
+          };
+        })
+      );
+
+      setAttachedPhotos((prev) => [...prev, ...compressedPreviews].slice(0, 4));
+    } catch {
+      const rawPreviews = files.slice(0, 4).map((file) => ({
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      setAttachedPhotos((prev) => [...prev, ...rawPreviews].slice(0, 4));
+    }
+    e.target.value = '';
+  };
 
   const handleRemovePhoto = (idx) => {
     setAttachedPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // 🎬 Video Upload Handler (Capped to 30 Seconds)
+  // 🎬 Video Selection & 30-Second Validation
   const handleVideoSelect = async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  // Compress and trim video to max 30s & 720p WebM
-  const compressed = await compressVideo(file, { maxDuration: 30, resolution: '720p' });
-  setAttachedVideo({
-    file: compressed.file,
-    previewUrl: URL.createObjectURL(compressed.file),
-    duration: compressed.duration,
-  });
-  e.target.value = '';
-};
+    try {
+      const compressed = await compressVideo(file, { maxDuration: 30 });
+      setAttachedVideo({
+        file: compressed.file,
+        previewUrl: compressed.url || compressed.previewUrl,
+        duration: compressed.duration,
+      });
+    } catch (err) {
+      alert(err.message || 'Video must be 30 seconds or shorter.');
+    }
+    e.target.value = '';
+  };
 
   // 🎙️ Voice Recording Handlers
   const startVoiceReview = async () => {
@@ -121,7 +144,9 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
 
     mediaRecorder.onstop = () => {
       clearInterval(timerRef.current);
-      const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
+      const audioBlob = new Blob(audioChunksRef.current, {
+        type: mediaRecorder.mimeType || 'audio/webm',
+      });
       const durationStr = `0:${recordSeconds < 10 ? '0' : ''}${recordSeconds}`;
 
       setRecordedVoice({
@@ -161,7 +186,7 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
     }
 
     if (!isPermanentUser) {
-      setErrorMessage('🔒 Only verified permanent users can write reviews. Please enter your 6-digit WhatsApp PIN from your profile.');
+      setErrorMessage('🔒 Verified permanent resident status required. Please verify your 6-digit WhatsApp PIN in Profile.');
       return;
     }
 
@@ -180,7 +205,7 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
 
       const photoUrls = attachedPhotos.map((p) => p.previewUrl);
 
-      const res = await addListingReview(listingId, {
+      const res = await hyperlocalStore.addListingReview(listingId, {
         rating,
         comment: commentText.trim(),
         photos: photoUrls,
@@ -207,13 +232,24 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
   };
 
   return (
-    <section className="space-y-4 pt-4 border-t border-slate-800 text-slate-100 font-sans">
-      
-      {/* Hidden File Inputs */}
-      <input type="file" ref={filePhotoInputRef} onChange={handlePhotoSelect} accept="image/*" multiple className="hidden" />
-      <input type="file" ref={fileVideoInputRef} onChange={handleVideoSelect} accept="video/*" className="hidden" />
+    <section className="space-y-4 pt-4 border-t border-slate-800 text-slate-100 font-sans select-none">
+      <input
+        type="file"
+        ref={filePhotoInputRef}
+        onChange={handlePhotoSelect}
+        accept="image/*"
+        multiple
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={fileVideoInputRef}
+        onChange={handleVideoSelect}
+        accept="video/*"
+        className="hidden"
+      />
 
-      {/* 🌟 1. Ratings & Reviews Overview Header (Amazon / Flipkart Style) */}
+      {/* 🌟 1. Ratings & Reviews Overview Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 space-y-3 shadow-md">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div>
@@ -221,7 +257,9 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
               <span>⭐</span>
               <span>Customer Ratings & Reviews</span>
             </h3>
-            <p className="text-[10px] text-slate-400">Verified buyer feedback in {sellerName}</p>
+            <p className="text-[10px] text-slate-400">
+              Verified resident feedback for {sellerName}
+            </p>
           </div>
 
           {!hasAlreadyReviewed && (
@@ -233,7 +271,9 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                   return;
                 }
                 if (!isPermanentUser) {
-                  alert('🔒 Tier 2 Verified Resident status required. Request your 6-digit WhatsApp PIN from your Profile page.');
+                  alert(
+                    '🔒 Tier 2 Verified Resident status required. Enter your 6-digit WhatsApp PIN on the Profile page.'
+                  );
                   return;
                 }
                 setIsFormOpen(true);
@@ -245,29 +285,44 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
           )}
         </div>
 
-        {/* Rating Score Breakdown Grid */}
+        {/* Breakdown Grid */}
         <div className="grid grid-cols-12 gap-3 items-center pt-1">
           <div className="col-span-4 text-center border-r border-slate-800 pr-2">
-            <span className="text-3xl font-black text-amber-400 block">{stats.averageRating}</span>
+            <span className="text-3xl font-black text-amber-400 block">
+              {stats.averageRating}
+            </span>
             <div className="flex justify-center text-amber-400 text-xs my-0.5">
-              {'★'.repeat(Math.round(stats.averageRating))}
-              {'☆'.repeat(5 - Math.round(stats.averageRating))}
+              {'★'.repeat(Math.min(5, Math.max(1, Math.round(stats.averageRating))))}
+              {'☆'.repeat(Math.max(0, 5 - Math.min(5, Math.max(1, Math.round(stats.averageRating)))))}
             </div>
-            <span className="text-[10px] text-slate-400 block">{stats.totalReviews} Ratings</span>
+            <span className="text-[10px] text-slate-400 block">
+              {stats.totalReviews} {stats.totalReviews === 1 ? 'Rating' : 'Ratings'}
+            </span>
           </div>
 
-          {/* Star Percentage Bars */}
           <div className="col-span-8 space-y-1 text-[9.5px]">
             {[5, 4, 3, 2, 1].map((star) => {
               const count = stats.breakdown[star] || 0;
-              const pct = stats.totalReviews > 0 ? (count / stats.totalReviews) * 100 : star === 5 ? 85 : star === 4 ? 15 : 0;
+              const pct =
+                stats.totalReviews > 0
+                  ? (count / stats.totalReviews) * 100
+                  : star === 5
+                  ? 85
+                  : star === 4
+                  ? 15
+                  : 0;
               return (
                 <div key={star} className="flex items-center space-x-2">
                   <span className="w-5 font-bold text-slate-400">{star} ★</span>
-                  <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-400 rounded-full" style={{ width: `${pct}%` }} />
+                  <div className="h-1.5 flex-1 bg-slate-950 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 rounded-full"
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
-                  <span className="w-6 text-right font-mono text-slate-500">{count}</span>
+                  <span className="w-6 text-right font-mono text-slate-500">
+                    {count}
+                  </span>
                 </div>
               );
             })}
@@ -275,12 +330,25 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
         </div>
       </div>
 
-      {/* 🌟 2. Write Review Modal Dialog */}
+      {/* Success Notification */}
+      {successMessage && (
+        <div className="p-3 bg-emerald-950/80 border border-emerald-500/40 rounded-2xl text-emerald-300 text-xs font-bold text-center">
+          {successMessage}
+        </div>
+      )}
+
+      {/* 🌟 2. Write Review Form Drawer / Modal */}
       {isFormOpen && (
         <div className="p-4 bg-slate-900 border border-amber-400/50 rounded-3xl space-y-3.5 shadow-2xl animate-fade-in">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <h4 className="text-xs font-black text-amber-300 uppercase">Write a Product Review</h4>
-            <button type="button" onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-white text-xs font-bold cursor-pointer">
+            <h4 className="text-xs font-black text-amber-300 uppercase">
+              Write a Product Review
+            </h4>
+            <button
+              type="button"
+              onClick={() => setIsFormOpen(false)}
+              className="text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+            >
               ✕
             </button>
           </div>
@@ -292,9 +360,11 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
           )}
 
           <form onSubmit={handleSubmitReview} className="space-y-3 text-xs">
-            {/* 1 to 5 Star Rating Selector */}
+            {/* Star Rating Selection */}
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">Select Star Rating *</label>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                Select Star Rating *
+              </label>
               <div className="flex items-center space-x-1.5 text-2xl cursor-pointer">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button
@@ -305,20 +375,36 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                     onMouseLeave={() => setHoverRating(0)}
                     className="transition transform active:scale-125 focus:outline-none"
                   >
-                    <span className={(hoverRating || rating) >= star ? 'text-amber-400' : 'text-slate-700'}>
+                    <span
+                      className={
+                        (hoverRating || rating) >= star
+                          ? 'text-amber-400'
+                          : 'text-slate-700'
+                      }
+                    >
                       ★
                     </span>
                   </button>
                 ))}
                 <span className="text-xs font-black text-amber-300 ml-2">
-                  {rating === 5 ? 'Excellent' : rating === 4 ? 'Very Good' : rating === 3 ? 'Average' : rating === 2 ? 'Poor' : 'Terrible'}
+                  {rating === 5
+                    ? 'Excellent'
+                    : rating === 4
+                    ? 'Very Good'
+                    : rating === 3
+                    ? 'Average'
+                    : rating === 2
+                    ? 'Poor'
+                    : 'Terrible'}
                 </span>
               </div>
             </div>
 
-            {/* Written Comment */}
+            {/* Detailed Comment Input */}
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">Detailed Review *</label>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                Detailed Review *
+              </label>
               <textarea
                 rows={3}
                 required
@@ -329,12 +415,13 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
               />
             </div>
 
-            {/* Media Uploads Toolbar */}
+            {/* Multimedia Proof Toolbar */}
             <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 block">Add Multimedia Proof (Photos, 30s Video, Voice Note):</span>
-              
+              <span className="text-[10px] font-bold text-slate-400 block">
+                Add Multimedia Proof (Photos, 30s Video, Voice Note):
+              </span>
+
               <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-                {/* Photo Button */}
                 <button
                   type="button"
                   onClick={() => filePhotoInputRef.current?.click()}
@@ -344,7 +431,6 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                   <span>Photos ({attachedPhotos.length}/4)</span>
                 </button>
 
-                {/* 30s Video Button */}
                 <button
                   type="button"
                   onClick={() => fileVideoInputRef.current?.click()}
@@ -354,7 +440,6 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                   <span>{attachedVideo ? `Video (${attachedVideo.duration}s)` : '30s Video'}</span>
                 </button>
 
-                {/* Voice Note Recorder Button */}
                 {!isRecording ? (
                   <button
                     type="button"
@@ -366,9 +451,23 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                   </button>
                 ) : (
                   <div className="flex items-center space-x-2 bg-rose-500/20 border border-rose-500/40 px-3 py-1 rounded-xl animate-pulse">
-                    <span className="text-rose-300 font-bold text-[10px]">Recording 0:{recordSeconds < 10 ? '0' : ''}{recordSeconds}</span>
-                    <button type="button" onClick={stopVoiceReview} className="px-2 py-0.5 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-lg">Done</button>
-                    <button type="button" onClick={cancelVoiceReview} className="text-slate-400 hover:text-white text-[9px]">Cancel</button>
+                    <span className="text-rose-300 font-bold text-[10px]">
+                      Recording 0:{recordSeconds < 10 ? '0' : ''}{recordSeconds}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={stopVoiceReview}
+                      className="px-2 py-0.5 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-lg"
+                    >
+                      Done
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelVoiceReview}
+                      className="text-slate-400 hover:text-white text-[9px]"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 )}
               </div>
@@ -377,8 +476,15 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
               {attachedPhotos.length > 0 && (
                 <div className="flex items-center space-x-2 pt-1 overflow-x-auto">
                   {attachedPhotos.map((p, idx) => (
-                    <div key={idx} className="relative w-12 h-12 rounded-lg border border-slate-700 overflow-hidden shrink-0">
-                      <img src={p.previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <div
+                      key={idx}
+                      className="relative w-12 h-12 rounded-lg border border-slate-700 overflow-hidden shrink-0"
+                    >
+                      <img
+                        src={p.previewUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
                       <button
                         type="button"
                         onClick={() => handleRemovePhoto(idx)}
@@ -391,10 +497,14 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
                 </div>
               )}
 
-              {/* Voice Player Preview */}
+              {/* Voice Review Preview */}
               {recordedVoice && (
                 <div className="pt-1">
-                  <VoiceNotePlayer audioUrl={recordedVoice.previewUrl} duration={recordedVoice.duration} senderName="Your Voice Review" />
+                  <VoiceNotePlayer
+                    audioUrl={recordedVoice.previewUrl}
+                    duration={recordedVoice.duration}
+                    senderName="Your Voice Review"
+                  />
                 </div>
               )}
             </div>
@@ -410,7 +520,7 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
         </div>
       )}
 
-      {/* 🌟 3. Customer Reviews Feed */}
+      {/* 🌟 3. Verified Customer Reviews Feed */}
       <div className="space-y-3">
         {reviews.length === 0 ? (
           <div className="text-center py-6 bg-slate-900/50 rounded-2xl border border-slate-800 text-xs text-slate-500">
@@ -418,53 +528,81 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
           </div>
         ) : (
           reviews.map((rev) => (
-            <div key={rev.id} className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2 text-xs">
+            <div
+              key={rev.id}
+              className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2 text-xs"
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] flex items-center justify-center">
-                    {rev.userName.charAt(0)}
+                    {(rev.userName || 'U').charAt(0).toUpperCase()}
                   </span>
                   <div>
-                    <span className="font-bold text-slate-100 block leading-tight">{rev.userName}</span>
-                    <span className="text-[9px] text-emerald-400 font-bold">✓ Verified Purchase / Resident</span>
+                    <span className="font-bold text-slate-100 block leading-tight">
+                      {rev.userName}
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-bold">
+                      ✓ Verified Resident
+                    </span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-amber-400 text-xs font-bold">{'★'.repeat(rev.rating)}</span>
+                  <span className="text-amber-400 text-xs font-bold">
+                    {'★'.repeat(Math.min(5, Math.max(1, rev.rating)))}
+                  </span>
                   <span className="text-[9px] text-slate-500 block font-mono">
-                    {new Date(rev.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                    {new Date(rev.createdAt).toLocaleDateString('en-IN', {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
                   </span>
                 </div>
               </div>
 
-              {/* Review Text */}
-              {rev.comment && <p className="text-slate-200 text-[11px] leading-relaxed break-words">{rev.comment}</p>}
+              {rev.comment && (
+                <p className="text-slate-200 text-[11px] leading-relaxed break-words">
+                  {rev.comment}
+                </p>
+              )}
 
-              {/* Photo Attachments */}
+              {/* Photo Gallery Grid */}
               {rev.photos && rev.photos.length > 0 && (
                 <div className="flex items-center space-x-2 pt-1 overflow-x-auto">
                   {rev.photos.map((imgUrl, i) => (
-                    <img key={i} src={imgUrl} alt="Review attachment" className="w-14 h-14 object-cover rounded-xl border border-slate-800" />
+                    <img
+                      key={i}
+                      src={imgUrl}
+                      alt="Review attachment"
+                      className="w-14 h-14 object-cover rounded-xl border border-slate-800"
+                    />
                   ))}
                 </div>
               )}
 
               {/* Video Attachment */}
               {rev.video && (
-                <video src={rev.video} controls playsInline className="max-h-40 rounded-xl border border-slate-800 mt-1" />
+                <video
+                  src={rev.video}
+                  controls
+                  playsInline
+                  className="max-h-40 rounded-xl border border-slate-800 mt-1"
+                />
               )}
 
-              {/* Voice Note Review Player */}
+              {/* Voice Review Player */}
               {rev.audioUrl && (
                 <div className="pt-1">
-                  <VoiceNotePlayer audioUrl={rev.audioUrl} duration={rev.audioDuration} senderName={`${rev.userName}'s Audio Note`} />
+                  <VoiceNotePlayer
+                    audioUrl={rev.audioUrl}
+                    duration={rev.audioDuration}
+                    senderName={`${rev.userName}'s Audio Note`}
+                  />
                 </div>
               )}
             </div>
           ))
         )}
       </div>
-
     </section>
   );
 }

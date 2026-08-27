@@ -17,7 +17,6 @@ export function getVideoMetadataAndPoster(file) {
     const blobUrl = URL.createObjectURL(file);
 
     video.onloadedmetadata = () => {
-      // Seek to 0.5s to avoid black opening frames
       video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
     };
 
@@ -65,18 +64,16 @@ export function getVideoMetadataAndPoster(file) {
 
 /**
  * Optimistic Fast-Path Processor
- * - If file is <= 25MB: Instant pass-through (0-second wait)
- * - If file > 25MB: Compresses to 720p/480p
  */
 export async function processVideoOptimistic(file, onProgress = () => {}) {
   const meta = await getVideoMetadataAndPoster(file);
 
-  // 1. FAST-PATH: File is under 25MB (95% of 30-60s mobile clips)
-  // Zero transcoding delay -> Instant ready
+  // 1. FAST-PATH: File is under 25MB (Instant pass-through)
   if (file.size <= 25 * 1024 * 1024) {
     onProgress(100);
     return {
       file,
+      url: URL.createObjectURL(file),
       previewUrl: URL.createObjectURL(file),
       posterUrl: meta.posterUrl,
       durationStr: meta.durationStr,
@@ -87,7 +84,7 @@ export async function processVideoOptimistic(file, onProgress = () => {}) {
     };
   }
 
-  // 2. Transcoding Path for unusually large 4K/60fps clips (> 25MB)
+  // 2. Transcoding Path for larger clips
   return new Promise(async (resolve, reject) => {
     let videoUrl = null;
     try {
@@ -128,7 +125,7 @@ export async function processVideoOptimistic(file, onProgress = () => {}) {
       const stream = canvas.captureStream(24);
       const recorder = new MediaRecorder(stream, {
         mimeType: mime,
-        videoBitsPerSecond: 1200000, // 1.2 Mbps
+        videoBitsPerSecond: 1200000,
       });
 
       const chunks = [];
@@ -145,6 +142,7 @@ export async function processVideoOptimistic(file, onProgress = () => {}) {
 
         resolve({
           file: compressedFile,
+          url: URL.createObjectURL(compressedBlob),
           previewUrl: URL.createObjectURL(compressedBlob),
           posterUrl: meta.posterUrl,
           durationStr: meta.durationStr,
@@ -155,7 +153,7 @@ export async function processVideoOptimistic(file, onProgress = () => {}) {
         });
       };
 
-      video.playbackRate = 2.5; // Fast-forward render
+      video.playbackRate = 2.5;
       recorder.start();
       video.play();
 
@@ -178,4 +176,24 @@ export async function processVideoOptimistic(file, onProgress = () => {}) {
       reject(err);
     }
   });
+}
+
+/**
+ * Validates and compresses video for product reviews / reels
+ */
+export async function compressVideo(file, options = {}) {
+  const { maxDuration = 30 } = options;
+  const processed = await processVideoOptimistic(file);
+
+  if (processed.durationSec > maxDuration + 1) {
+    throw new Error(`Video duration is ${processed.durationSec}s. Maximum allowed is ${maxDuration} seconds.`);
+  }
+
+  return {
+    file: processed.file,
+    url: processed.url || processed.previewUrl,
+    previewUrl: processed.previewUrl || processed.url,
+    posterUrl: processed.posterUrl,
+    duration: processed.durationSec,
+  };
 }
