@@ -113,12 +113,12 @@ const playBubblePopAudio = () => {
   } catch {}
 };
 
-// 17 Town Categories + 1 Hero Wildcard
-const ALL_TOWN_BUBBLES = [
+// 🎯 Filtered & Renamed Surprise-Only Town Bubbles
+const SURPRISE_TOWN_BUBBLES = [
   {
     id: 'all',
     name: 'Kismat / All Mix',
-    hindiName: 'सब कुछ मिक्स',
+    hindiName: 'किस्मत / सब कुछ मिक्स',
     icon: '🎲',
     theme: 'from-violet-400 via-fuchsia-500 to-pink-500',
     glowColor: 'rgba(217, 70, 239, 0.65)',
@@ -130,24 +130,13 @@ const ALL_TOWN_BUBBLES = [
   {
     id: 'restaurants',
     name: 'Food & Zayka',
-    hindiName: 'खान-पान',
+    hindiName: 'खान-पान व रेस्टोरेंट',
     icon: '🍔',
     theme: 'from-amber-400 via-orange-500 to-red-500',
     glowColor: 'rgba(245, 158, 11, 0.55)',
     borderColor: 'border-amber-400',
     textColor: 'text-amber-300',
     delay: '0.2s',
-  },
-  {
-    id: 'kaarigar',
-    name: 'Kaarigar & Mistri',
-    hindiName: 'कारीगर व मरम्मत',
-    icon: '🛠️',
-    theme: 'from-cyan-400 via-blue-500 to-indigo-600',
-    glowColor: 'rgba(6, 182, 212, 0.55)',
-    borderColor: 'border-cyan-400',
-    textColor: 'text-cyan-300',
-    delay: '0.4s',
   },
   {
     id: 'shaadi',
@@ -158,84 +147,40 @@ const ALL_TOWN_BUBBLES = [
     glowColor: 'rgba(244, 63, 94, 0.55)',
     borderColor: 'border-pink-400',
     textColor: 'text-pink-300',
-    delay: '0.6s',
+    delay: '0.4s',
   },
   {
     id: 'property',
-    name: 'Makaan & Plots',
-    hindiName: 'मकान व जमीन',
+    name: 'Property',
+    hindiName: 'प्रॉपर्टी व ज़मीन',
     icon: '🏠',
     theme: 'from-emerald-400 via-teal-500 to-green-600',
-    glowColor: 'rgba(16, 185, 129, 0.55)',
+    glowColor: 'rgba(160, 185, 129, 0.55)',
     borderColor: 'border-emerald-400',
     textColor: 'text-emerald-300',
-    delay: '0.8s',
+    delay: '0.6s',
   },
   {
     id: 'market',
     name: 'Bazaar & Kirana',
-    hindiName: 'बाजार व किराना',
+    hindiName: 'बाजार व खरीदारी',
     icon: '🛍️',
     theme: 'from-yellow-300 via-amber-500 to-orange-600',
     glowColor: 'rgba(234, 179, 8, 0.55)',
     borderColor: 'border-yellow-400',
     textColor: 'text-yellow-300',
-    delay: '1.0s',
-  },
-  {
-    id: 'medical',
-    name: 'Doctor & Medical',
-    hindiName: 'डॉक्टर व क्लिनिक',
-    icon: '🩺',
-    theme: 'from-red-400 via-rose-500 to-pink-600',
-    glowColor: 'rgba(239, 68, 68, 0.55)',
-    borderColor: 'border-red-400',
-    textColor: 'text-red-300',
-    delay: '1.2s',
-  },
-  {
-    id: 'transporters',
-    name: 'Transporters',
-    hindiName: 'ट्रांसपोर्ट व गाड़ियां',
-    icon: '🚚',
-    theme: 'from-blue-400 via-indigo-500 to-cyan-600',
-    glowColor: 'rgba(59, 130, 246, 0.55)',
-    borderColor: 'border-blue-400',
-    textColor: 'text-blue-300',
-    delay: '1.4s',
-  },
-  {
-    id: 'construction',
-    name: 'Construction',
-    hindiName: 'मकान निर्माण',
-    icon: '🏗️',
-    theme: 'from-orange-400 via-amber-600 to-yellow-600',
-    glowColor: 'rgba(249, 115, 22, 0.55)',
-    borderColor: 'border-orange-400',
-    textColor: 'text-orange-300',
-    delay: '0.3s',
-  },
-  {
-    id: 'education',
-    name: 'Education',
-    hindiName: 'कोचिंग व स्कूल',
-    icon: '📚',
-    theme: 'from-indigo-400 via-purple-500 to-pink-500',
-    glowColor: 'rgba(99, 102, 241, 0.55)',
-    borderColor: 'border-indigo-400',
-    textColor: 'text-indigo-300',
-    delay: '0.5s',
+    delay: '0.8s',
   },
   {
     id: 'recommerce',
-    name: 'Purana Samaan',
-    hindiName: 'पुराना सामान',
+    name: 'Second Hand SAMAAN',
+    hindiName: 'सेकंड हैंड सामान',
     icon: '📦',
     theme: 'from-teal-400 via-emerald-500 to-green-600',
     glowColor: 'rgba(20, 184, 166, 0.55)',
     borderColor: 'border-teal-400',
     textColor: 'text-teal-300',
-    delay: '0.7s',
+    delay: '1.0s',
   },
   {
     id: 'fitness',
@@ -246,79 +191,73 @@ const ALL_TOWN_BUBBLES = [
     glowColor: 'rgba(239, 68, 68, 0.55)',
     borderColor: 'border-red-500',
     textColor: 'text-red-300',
-    delay: '0.9s',
+    delay: '0.3s',
   },
   {
     id: 'malls',
     name: 'Malls & Stores',
-    hindiName: 'शॉपिंग मॉल',
+    hindiName: 'शॉपिंग मॉल व स्टोर्स',
     icon: '🏢',
     theme: 'from-purple-400 via-pink-500 to-rose-500',
     glowColor: 'rgba(168, 85, 247, 0.55)',
     borderColor: 'border-purple-400',
     textColor: 'text-purple-300',
-    delay: '1.1s',
+    delay: '0.5s',
   },
   {
     id: 'creators',
     name: 'Creators',
-    hindiName: 'फोटो व वीडियो',
+    hindiName: 'फोटो व वीडियो स्टूडियो',
     icon: '📸',
     theme: 'from-pink-400 via-fuchsia-500 to-purple-600',
     glowColor: 'rgba(236, 72, 153, 0.55)',
     borderColor: 'border-pink-400',
     textColor: 'text-pink-300',
-    delay: '1.3s',
-  },
-  {
-    id: 'white-collar',
-    name: 'Consultants',
-    hindiName: 'वकील व CA',
-    icon: '💼',
-    theme: 'from-slate-400 via-blue-500 to-indigo-600',
-    glowColor: 'rgba(148, 163, 184, 0.55)',
-    borderColor: 'border-blue-400',
-    textColor: 'text-blue-300',
-    delay: '0.4s',
+    delay: '0.7s',
   },
   {
     id: 'advertising',
     name: 'Prachar',
-    hindiName: 'प्रचार व बैनर',
+    hindiName: 'प्रचार व स्पेशल ऑफर्स',
     icon: '📢',
     theme: 'from-yellow-400 via-amber-500 to-red-500',
     glowColor: 'rgba(234, 179, 8, 0.55)',
     borderColor: 'border-yellow-400',
     textColor: 'text-yellow-300',
-    delay: '0.6s',
+    delay: '0.9s',
   },
   {
     id: 'festival',
     name: 'Festival Offers',
-    hindiName: 'त्योहार ऑफर',
+    hindiName: 'त्योहार स्पेशल डील्स',
     icon: '🪔',
     theme: 'from-amber-400 via-orange-500 to-rose-500',
     glowColor: 'rgba(245, 158, 11, 0.55)',
     borderColor: 'border-amber-400',
     textColor: 'text-amber-300',
-    delay: '0.8s',
+    delay: '1.1s',
   },
   {
     id: 'community',
     name: 'Community',
-    hindiName: 'शहर सेवा',
+    hindiName: 'शहर व कम्युनिटी',
     icon: '🤝',
     theme: 'from-cyan-400 via-teal-500 to-emerald-500',
     glowColor: 'rgba(6, 182, 212, 0.55)',
     borderColor: 'border-cyan-400',
     textColor: 'text-cyan-300',
-    delay: '1.0s',
+    delay: '1.3s',
   },
 ];
 
 export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCity = 'Alwar' }) {
   const [poppedBubbleId, setPoppedBubbleId] = useState(null);
+  // 'en' (English Primary) | 'hi' (Hindi Primary)
+  const [langMode, setLangMode] = useState('en');
+  
   const synthRef = useRef(new AmbientWaterBubbleSynth());
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
   useEffect(() => {
     synthRef.current.start();
@@ -327,6 +266,26 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
     };
   }, []);
 
+  // 🌟 Horizontal Swipe Handler to Toggle English ↔ Hindi View
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.changedTouches[0].clientX;
+    touchStartY.current = e.changedTouches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Detect intentional horizontal swipe (> 45px)
+    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+      if (deltaX < 0) {
+        setLangMode('hi'); // Swipe Left ➔ Hindi
+      } else {
+        setLangMode('en'); // Swipe Right ➔ English
+      }
+    }
+  };
+
   const handleBubbleClick = (bubble) => {
     if (poppedBubbleId) return;
 
@@ -334,14 +293,15 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
     playBubblePopAudio();
     setPoppedBubbleId(bubble.id);
 
-   setTimeout(() => {
-      onSelectCategory(bubble.id, bubble.name);
+    const displayName = langMode === 'hi' ? bubble.hindiName : bubble.name;
+
+    setTimeout(() => {
+      onSelectCategory(bubble.id, displayName);
     }, 420);
   };
 
-  return (
-    <div className="relative w-full h-[calc(100dvh-125px)] max-h-[calc(100dvh-125px)] flex flex-col justify-center items-center select-none text-slate-100 overflow-hidden px-2">
-      
+    return (
+    <div className="relative w-full h-[calc(100dvh-125px)] max-h-[calc(100dvh-125px)] flex flex-col justify-between items-center select-none text-slate-100 overflow-hidden px-2 py-1">
       {/* 🌟 Liquid Wobble & Bubble Keyframes */}
       <style>{`
         @keyframes liquidBobbing {
@@ -372,12 +332,42 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         }
       `}</style>
 
-      {/* 🌟 FLOATING CATEGORY BUBBLES CANVAS */}
-      <div className="relative z-10 w-full h-full overflow-y-auto overscroll-contain scrollbar-none py-2 px-1 flex flex-col items-center">
-        <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto place-items-center my-auto">
-          {ALL_TOWN_BUBBLES.map((bubble) => {
+      {/* 🌟 1. Subtle Language Switcher Pill (Tap or Swipe) */}
+      <div className="z-20 shrink-0 flex items-center space-x-1 bg-slate-900/90 border border-slate-800 rounded-full p-0.5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setLangMode('en')}
+          className={`px-3 py-0.5 rounded-full text-[9px] font-black transition cursor-pointer ${
+            langMode === 'en'
+              ? 'bg-amber-400 text-slate-950 shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          English
+        </button>
+        <button
+          type="button"
+          onClick={() => setLangMode('hi')}
+          className={`px-3 py-0.5 rounded-full text-[9px] font-black transition cursor-pointer ${
+            langMode === 'hi'
+              ? 'bg-amber-400 text-slate-950 shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          हिंदी
+        </button>
+      </div>
+
+      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS */}
+      <div className="relative z-10 w-full flex-1 overflow-y-auto overscroll-contain scrollbar-none py-1 px-1 flex flex-col items-center justify-center">
+        <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto place-items-center my-auto">
+          {SURPRISE_TOWN_BUBBLES.map((bubble) => {
             const isPopped = poppedBubbleId === bubble.id;
             const isAnyPopped = Boolean(poppedBubbleId);
+
+            // Conditional Prominence based on Active Language Mode
+            const primaryText = langMode === 'hi' ? bubble.hindiName : bubble.name;
+            const secondaryText = langMode === 'hi' ? bubble.name : bubble.hindiName;
 
             return (
               <div
@@ -385,7 +375,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                 style={{ animationDelay: bubble.delay }}
                 className={`relative liquid-bubble-float flex items-center justify-center transition-all duration-300 ${
                   bubble.isHero
-                    ? 'col-span-3 w-28 h-28 my-1'
+                    ? 'col-span-3 w-28 h-28 my-0.5'
                     : 'w-20 h-20'
                 } ${isAnyPopped && !isPopped ? 'opacity-15 scale-75 blur-[1px]' : 'opacity-100'}`}
               >
@@ -412,12 +402,14 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                     {bubble.icon}
                   </span>
 
+                  {/* Primary Prominent Label */}
                   <span className={`text-[8.5px] font-black leading-tight mt-0.5 ${bubble.textColor} truncate max-w-[68px]`}>
-                    {bubble.name.split('&')[0]}
+                    {primaryText.split('&')[0].split('/')[0]}
                   </span>
 
+                  {/* Secondary Sub Label */}
                   <span className="text-[7px] font-bold text-slate-400 block truncate max-w-[68px]">
-                    {bubble.hindiName}
+                    {secondaryText.split('&')[0].split('/')[0]}
                   </span>
                 </button>
 
@@ -439,7 +431,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                           '--ty': pos.y,
                           animation: 'particleBurstFly 0.4s cubic-bezier(0.1, 0.8, 0.2, 1) forwards',
                         }}
-                        className={`absolute w-2.5 h-2.5 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-md`}
+                        className={`absolute w-2 h-2 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-md`}
                       />
                     ))}
                   </div>
@@ -450,6 +442,10 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         </div>
       </div>
 
+      {/* 🌟 3. Subtle Swipe Tip */}
+      <div className="text-[8.5px] text-slate-500 font-semibold tracking-wider pb-0.5">
+        Swipe ⟵ ⟶ for Hindi / English
+      </div>
     </div>
   );
 }

@@ -167,25 +167,31 @@ export default function App() {
   ]);
 
   // Mobile Hardware / Browser Back Button Interceptor
+  // Set initial state index on boot
   useEffect(() => {
-    const handlePopState = () => {
-      // 1. If any modal/drawer is open, close it first without navigating back
+    if (!window.history.state || typeof window.history.state.idx !== 'number') {
+      window.history.replaceState({ idx: 0 }, '');
+    }
+    hydrateFromDB();
+    initRealtimeSubscriptions();
+  }, []);
+
+  // Mobile Hardware & Gesture PopState Listener (Supports both Back & Forward)
+  useEffect(() => {
+    const handlePopState = (e) => {
       if (activeModalCloserRef.current) {
         activeModalCloserRef.current();
         return;
       }
-      // 2. Otherwise step back in internal history
-      setHistoryIndex((prev) => Math.max(0, prev - 1));
+      if (e.state && typeof e.state.idx === 'number') {
+        setHistoryIndex(e.state.idx);
+      } else {
+        setHistoryIndex((prev) => Math.max(0, prev - 1));
+      }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  // Initialize DB Hydration & Realtime WebSockets on Boot
-  useEffect(() => {
-    hydrateFromDB();
-    initRealtimeSubscriptions();
   }, []);
 
   const currentNav = history[historyIndex] || INITIAL_NAV_STATE;
@@ -232,20 +238,22 @@ export default function App() {
       return;
     }
 
-    // Push entry into browser history so mobile hardware back button triggers popstate
-    window.history.pushState({ appNav: true }, '');
-
     setHistory((prev) => {
       const branchCut = prev.slice(0, historyIndex + 1);
       const nextHistory = [...branchCut, nextState];
-      // Keep a sliding buffer of max 6 entries (current + 5 previous steps)
-      if (nextHistory.length > 6) {
-        return nextHistory.slice(nextHistory.length - 6);
-      }
-      return nextHistory;
-    });
+      let finalHistory = nextHistory;
+      let nextIdx = historyIndex + 1;
 
-    setHistoryIndex((prev) => Math.min(prev + 1, 5));
+      // Keep sliding buffer of max 6 entries (current + 5 previous steps)
+      if (nextHistory.length > 6) {
+        finalHistory = nextHistory.slice(nextHistory.length - 6);
+        nextIdx = 5;
+      }
+
+      window.history.pushState({ idx: nextIdx }, '');
+      setHistoryIndex(nextIdx);
+      return finalHistory;
+    });
   };
 
   const canGoBack = historyIndex > 0;
@@ -327,6 +335,7 @@ export default function App() {
   };
 
   // 🌟 Touch Swipe Gesture Handlers
+ // 🌟 Universal Touch Swipe Gesture Handlers (Left = Forward, Right = Back)
   const handleTouchStart = (e) => {
     if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
     touchStartX.current = e.changedTouches[0].clientX;
@@ -338,6 +347,7 @@ export default function App() {
     if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
 
     const target = e.target;
+    // Don't trigger page swipe if user is scrolling horizontal chip lists or typing
     if (target.closest('.overflow-x-auto, input, textarea, select')) return;
 
     const touchEndX = e.changedTouches[0].clientX;
@@ -346,10 +356,13 @@ export default function App() {
     const deltaY = touchEndY - touchStartY.current;
     const deltaTime = Date.now() - touchStartTime.current;
 
-    if (deltaTime < 550 && Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+    // Fast horizontal swipe threshold (>50px, angle dominant, <450ms)
+    if (deltaTime < 450 && Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
       if (deltaX > 0) {
+        // Swiped Right -> Step Backward
         if (canGoBack) goBack();
       } else {
+        // Swiped Left -> Step Forward
         if (canGoForward) goForward();
       }
     }
