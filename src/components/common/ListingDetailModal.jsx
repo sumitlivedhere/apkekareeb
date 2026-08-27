@@ -10,6 +10,8 @@ import {
 } from '../../utils/audioCompressor';
 import ReportModal from './ReportModal';
 import AuthModal from './AuthModal';
+import WhatsAppStatusModal from './WhatsAppStatusModal';
+import { shareListingToWhatsApp } from '../../utils/shareHelper';
 
 export default function ListingDetailModal({
   item,
@@ -49,6 +51,7 @@ export default function ListingDetailModal({
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
   // 📷 Photo Carousel & Lightbox State
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -359,7 +362,27 @@ export default function ListingDetailModal({
             {item.subCategory || item.category || 'Listing'}
           </span>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            <button
+              type="button"
+              onClick={() => setIsStatusModalOpen(true)}
+              className="text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg font-black flex items-center space-x-1 cursor-pointer active:scale-95 transition"
+              title="Generate WhatsApp Status Pamphlet"
+            >
+              <span>📲</span>
+              <span>Status Poster</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => shareListingToWhatsApp(item, selectedCity)}
+              className="text-[10px] bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40 px-2 py-1 rounded-lg font-black flex items-center space-x-1 cursor-pointer active:scale-95 transition"
+              title="Share listing on WhatsApp"
+            >
+              <span>🔗</span>
+              <span>Share</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setIsReportModalOpen(true)}
@@ -367,7 +390,6 @@ export default function ListingDetailModal({
               title="Report Spam or Fake Listing"
             >
               <span>🚩</span>
-              <span>Report</span>
             </button>
           </div>
         </header>
@@ -903,13 +925,24 @@ export default function ListingDetailModal({
         </main>
 
         {/* Sticky Bottom Actions Footer */}
+        {/* Sticky Bottom Actions Footer */}
         <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl">
           <ActionButtons
+            item={item}
+            selectedCity={selectedCity}
             phone={item.phone || '9876543201'}
             whatsapp={item.whatsapp || item.phone || '919876543210'}
             message={`Namaste ${sellerDisplayName}, I found your listing "${item.title || ''}" on Aapke Kareeb (${item.location || selectedCity}). Is this available?`}
           />
         </footer>
+
+        {isStatusModalOpen && (
+          <WhatsAppStatusModal
+            item={item}
+            selectedCity={selectedCity}
+            onClose={() => setIsStatusModalOpen(false)}
+          />
+        )}
 
         {/* Full-Screen Lightbox */}
         {isLightboxOpen && (
