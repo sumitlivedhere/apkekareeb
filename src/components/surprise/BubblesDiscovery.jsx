@@ -155,7 +155,7 @@ const SURPRISE_TOWN_BUBBLES = [
     hindiName: 'प्रॉपर्टी व ज़मीन',
     icon: '🏠',
     theme: 'from-emerald-400 via-teal-500 to-green-600',
-    glowColor: 'rgba(160, 185, 129, 0.55)',
+    glowColor: 'rgba(16, 185, 129, 0.55)',
     borderColor: 'border-emerald-400',
     textColor: 'text-emerald-300',
     delay: '0.6s',
@@ -254,10 +254,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
   const [poppedBubbleId, setPoppedBubbleId] = useState(null);
   // 'en' (English Primary) | 'hi' (Hindi Primary)
   const [langMode, setLangMode] = useState('en');
-  
   const synthRef = useRef(new AmbientWaterBubbleSynth());
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
 
   useEffect(() => {
     synthRef.current.start();
@@ -265,26 +262,6 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
       synthRef.current.stop();
     };
   }, []);
-
-  // 🌟 Horizontal Swipe Handler to Toggle English ↔ Hindi View
-  const handleTouchStart = (e) => {
-    touchStartX.current = e.changedTouches[0].clientX;
-    touchStartY.current = e.changedTouches[0].clientY;
-  };
-
-  const handleTouchEnd = (e) => {
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-
-    // Detect intentional horizontal swipe (> 45px)
-    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
-      if (deltaX < 0) {
-        setLangMode('hi'); // Swipe Left ➔ Hindi
-      } else {
-        setLangMode('en'); // Swipe Right ➔ English
-      }
-    }
-  };
 
   const handleBubbleClick = (bubble) => {
     if (poppedBubbleId) return;
@@ -300,7 +277,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
     }, 420);
   };
 
-    return (
+  return (
     <div className="relative w-full h-[calc(100dvh-125px)] max-h-[calc(100dvh-125px)] flex flex-col justify-between items-center select-none text-slate-100 overflow-hidden px-2 py-1">
       {/* 🌟 Liquid Wobble & Bubble Keyframes */}
       <style>{`
@@ -332,12 +309,12 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         }
       `}</style>
 
-      {/* 🌟 1. Subtle Language Switcher Pill (Tap or Swipe) */}
-      <div className="z-20 shrink-0 flex items-center space-x-1 bg-slate-900/90 border border-slate-800 rounded-full p-0.5 shadow-sm">
+      {/* 🌟 1-Tap Language Toggle Switcher */}
+      <div className="z-20 shrink-0 flex items-center bg-slate-900/90 border border-slate-800 rounded-full p-0.5 shadow-sm mt-0.5">
         <button
           type="button"
           onClick={() => setLangMode('en')}
-          className={`px-3 py-0.5 rounded-full text-[9px] font-black transition cursor-pointer ${
+          className={`px-3 py-1 rounded-full text-[10px] font-black transition cursor-pointer ${
             langMode === 'en'
               ? 'bg-amber-400 text-slate-950 shadow-xs'
               : 'text-slate-400 hover:text-slate-200'
@@ -348,7 +325,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         <button
           type="button"
           onClick={() => setLangMode('hi')}
-          className={`px-3 py-0.5 rounded-full text-[9px] font-black transition cursor-pointer ${
+          className={`px-3 py-1 rounded-full text-[10px] font-black transition cursor-pointer ${
             langMode === 'hi'
               ? 'bg-amber-400 text-slate-950 shadow-xs'
               : 'text-slate-400 hover:text-slate-200'
@@ -358,14 +335,13 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         </button>
       </div>
 
-      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS */}
+      {/* 🌟 Floating Category Bubbles Canvas */}
       <div className="relative z-10 w-full flex-1 overflow-y-auto overscroll-contain scrollbar-none py-1 px-1 flex flex-col items-center justify-center">
         <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto place-items-center my-auto">
           {SURPRISE_TOWN_BUBBLES.map((bubble) => {
             const isPopped = poppedBubbleId === bubble.id;
             const isAnyPopped = Boolean(poppedBubbleId);
 
-            // Conditional Prominence based on Active Language Mode
             const primaryText = langMode === 'hi' ? bubble.hindiName : bubble.name;
             const secondaryText = langMode === 'hi' ? bubble.name : bubble.hindiName;
 
@@ -402,12 +378,10 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                     {bubble.icon}
                   </span>
 
-                  {/* Primary Prominent Label */}
                   <span className={`text-[8.5px] font-black leading-tight mt-0.5 ${bubble.textColor} truncate max-w-[68px]`}>
                     {primaryText.split('&')[0].split('/')[0]}
                   </span>
 
-                  {/* Secondary Sub Label */}
                   <span className="text-[7px] font-bold text-slate-400 block truncate max-w-[68px]">
                     {secondaryText.split('&')[0].split('/')[0]}
                   </span>
@@ -440,11 +414,6 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
             );
           })}
         </div>
-      </div>
-
-      {/* 🌟 3. Subtle Swipe Tip */}
-      <div className="text-[8.5px] text-slate-500 font-semibold tracking-wider pb-0.5">
-        Swipe ⟵ ⟶ for Hindi / English
       </div>
     </div>
   );
