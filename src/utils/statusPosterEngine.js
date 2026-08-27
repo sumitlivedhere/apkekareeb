@@ -2,184 +2,254 @@
 
 const THEMES = {
   dhamaka: {
-    bg1: '#180e29',
-    bg2: '#090514',
+    bg1: '#1a0d2e',
+    bg2: '#0b0614',
     accent: '#f59e0b',
-    badgeBg: '#dc2626',
-    badgeText: '🔥 SPECIAL LOCAL OFFER',
+    headerBg: '#dc2626',
+    headerText: '🔥 AAPKE KAREEB • SPECIAL LOCAL DEAL',
     tagColor: '#fbbf24',
   },
   royal: {
-    bg1: '#260b24',
+    bg1: '#2a0928',
     bg2: '#080108',
     accent: '#ec4899',
-    badgeBg: '#7e22ce',
-    badgeText: '👑 EXCLUSIVE TOWN PICK',
+    headerBg: '#7e22ce',
+    headerText: '👑 AAPKE KAREEB • EXCLUSIVE TOWN PICK',
     tagColor: '#f472b6',
   },
   verified: {
     bg1: '#04231e',
     bg2: '#010c0a',
     accent: '#10b981',
-    badgeBg: '#047857',
-    badgeText: '✓ 100% VERIFIED MERCHANT',
+    headerBg: '#047857',
+    headerText: '✓ AAPKE KAREEB • 100% VERIFIED MERCHANT',
     tagColor: '#34d399',
   },
 };
 
-export function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selectedCity = 'Alwar') {
-  return new Promise((resolve) => {
-    const theme = THEMES[themeKey] || THEMES.dhamaka;
-    const canvas = document.createElement('canvas');
-    canvas.width = 1080;
-    canvas.height = 1920;
-    const ctx = canvas.getContext('2d');
+/**
+ * 🖼️ CORS-Safe Image Loader for HTML5 Canvas
+ */
+async function loadCanvasImage(url) {
+  if (!url) return null;
 
-    // 1. Background
-    const bg = ctx.createLinearGradient(0, 0, 0, 1920);
-    bg.addColorStop(0, theme.bg1);
-    bg.addColorStop(0.5, theme.bg2);
-    bg.addColorStop(1, '#000000');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 1080, 1920);
-
-    // 2. Ambient Aura
-    ctx.save();
-    const aura = ctx.createRadialGradient(540, 320, 50, 540, 320, 700);
-    aura.addColorStop(0, `${theme.accent}33`);
-    aura.addColorStop(1, 'transparent');
-    ctx.fillStyle = aura;
-    ctx.beginPath();
-    ctx.arc(540, 320, 700, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // 3. Top Banner
-    ctx.fillStyle = theme.badgeBg;
-    drawRoundedRect(ctx, 120, 80, 840, 68, 20, true);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 30px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(theme.badgeText, 540, 126);
-
-    // 4. Branding
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 46px sans-serif';
-    ctx.fillText('AAPKE KAREEB • आपके करीब', 540, 205);
-
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '700 28px sans-serif';
-    ctx.fillText(`📍 ${selectedCity} का अपना डिजिटल बाज़ार`, 540, 252);
-
-    // 5. Image Loading & Rendering
-    const rawImg =
-      (Array.isArray(item?.images) && item?.images[0]) ||
-      (Array.isArray(item?.image_urls) && item?.image_urls[0]) ||
-      item?.image ||
-      item?.photo ||
-      'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
-
-    const imgSrc = typeof rawImg === 'string' ? rawImg : rawImg?.url || '';
-
-    const renderCardContent = () => {
-      // Category Tag
-      const cat = String(item?.subCategory || item?.category || 'DEAL').toUpperCase();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      drawRoundedRect(ctx, 100, 1140, 880, 56, 16, true);
-      ctx.fillStyle = theme.tagColor;
-      ctx.font = '900 24px sans-serif';
-      ctx.fillText(`⚡ ${cat}`, 540, 1177);
-
-      // Title
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 52px sans-serif';
-      const lines = wrapText(ctx, item?.title || item?.name || 'Special Listing', 860);
-      let textY = 1265;
-      lines.slice(0, 2).forEach((line) => {
-        ctx.fillText(line, 540, textY);
-        textY += 66;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (res.ok) {
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = objectUrl;
       });
-
-      // Price Tag
-      const priceStr = String(item?.price || item?.deal_price || item?.rent || item?.rates || 'Best Rate');
-      ctx.fillStyle = theme.accent;
-      drawRoundedRect(ctx, 220, textY + 20, 640, 105, 30, true);
-      ctx.fillStyle = '#020617';
-      ctx.font = '900 54px sans-serif';
-      ctx.fillText(priceStr, 540, textY + 92);
-
-      // Contact & Location Card
-      const seller = item?.sellerName || item?.provider_name || item?.driverName || 'Verified Merchant';
-      const phone = String(item?.phone || item?.contact || '9876543210').replace(/\D/g, '').slice(-10);
-
-      const boxY = 1530;
-      ctx.fillStyle = '#0f172a';
-      drawRoundedRect(ctx, 90, boxY, 900, 210, 32, true, true, `${theme.accent}66`);
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = '800 30px sans-serif';
-      ctx.fillText(`👤 ${seller} • डायरेक्ट डील`, 540, boxY + 62);
-
-      ctx.fillStyle = '#10b981';
-      ctx.font = '900 48px sans-serif';
-      ctx.fillText(`📞 WhatsApp / Call: +91 ${phone}`, 540, boxY + 135);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '700 24px sans-serif';
-      ctx.fillText(`📍 ${item?.location || selectedCity} • 0% कमिशन`, 540, boxY + 182);
-
-      // Footer Direct App Link Watermark
-      const cleanUrl = `${window.location.origin}/?id=${encodeURIComponent(item?.id || '')}`;
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = '900 26px sans-serif';
-      ctx.fillText(`🔗 1-Tap Direct Link: ${cleanUrl}`, 540, 1835);
-
-      canvas.toBlob((blob) => {
-        resolve({ blob, dataUrl: canvas.toDataURL('image/png') });
-      }, 'image/png');
-    };
-
-    const drawFallbackImage = () => {
-      ctx.fillStyle = '#1e293b';
-      drawRoundedRect(ctx, 100, 300, 880, 800, 36, true);
-      ctx.fillStyle = theme.accent;
-      ctx.font = '900 120px sans-serif';
-      ctx.fillText('🛍️', 540, 720);
-      renderCardContent();
-    };
-
-    if (!imgSrc) {
-      drawFallbackImage();
-      return;
+      return { img, objectUrl };
     }
+  } catch {}
 
+  return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-
-    img.onload = () => {
-      try {
-        ctx.save();
-        drawRoundedRect(ctx, 100, 300, 880, 800, 36, false);
-        ctx.clip();
-        ctx.drawImage(img, 100, 300, 880, 800);
-        ctx.restore();
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 6;
-        drawRoundedRect(ctx, 100, 300, 880, 800, 36, false, true);
-
-        renderCardContent();
-      } catch {
-        drawFallbackImage();
-      }
-    };
-
+    img.onload = () => resolve({ img, objectUrl: null });
     img.onerror = () => {
-      drawFallbackImage();
+      const fallback = new Image();
+      fallback.onload = () => resolve({ img: fallback, objectUrl: null });
+      fallback.onerror = () => resolve(null);
+      fallback.src = url;
     };
-
-    img.src = imgSrc;
+    img.src = url;
   });
+}
+
+/**
+ * 🎨 Multi-Theme 9:16 High-Resolution Poster Generator
+ */
+export async function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selectedCity = 'Alwar') {
+  const theme = THEMES[themeKey] || THEMES.dhamaka;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1920;
+  const ctx = canvas.getContext('2d');
+
+  // 1. Dark Gradient Background
+  const bg = ctx.createLinearGradient(0, 0, 0, 1920);
+  bg.addColorStop(0, theme.bg1);
+  bg.addColorStop(0.55, theme.bg2);
+  bg.addColorStop(1, '#000000');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1080, 1920);
+
+  // 2. Ambient Color Glow
+  ctx.save();
+  const aura = ctx.createRadialGradient(540, 300, 30, 540, 300, 650);
+  aura.addColorStop(0, `${theme.accent}25`);
+  aura.addColorStop(1, 'transparent');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(540, 300, 650, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 3. One Single Unified Top Header Badge
+  ctx.fillStyle = theme.headerBg;
+  drawRoundedRect(ctx, 90, 80, 900, 105, 26, true);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 34px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(theme.headerText, 540, 134);
+
+  ctx.fillStyle = '#fef08a';
+  ctx.font = '700 22px sans-serif';
+  ctx.fillText(`📍 ${selectedCity} • लोकल डिजिटल बाज़ार • 0% कमिशन`, 540, 166);
+
+  // 4. Product Photo Box (Aspect Ratio Cover)
+  const rawImg =
+    (Array.isArray(item?.images) && item?.images[0]) ||
+    (Array.isArray(item?.image_urls) && item?.image_urls[0]) ||
+    item?.image ||
+    item?.photo ||
+    'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
+
+  const imgSrc = typeof rawImg === 'string' ? rawImg : rawImg?.url || '';
+  const loaded = await loadCanvasImage(imgSrc);
+
+  const imgBoxX = 90;
+  const imgBoxY = 215;
+  const imgBoxW = 900;
+  const imgBoxH = 780;
+
+  if (loaded?.img) {
+    drawImageCover(ctx, loaded.img, imgBoxX, imgBoxY, imgBoxW, imgBoxH, 32);
+    if (loaded.objectUrl) URL.revokeObjectURL(loaded.objectUrl);
+  } else {
+    ctx.fillStyle = '#1e293b';
+    drawRoundedRect(ctx, imgBoxX, imgBoxY, imgBoxW, imgBoxH, 32, true);
+    ctx.fillStyle = theme.accent;
+    ctx.font = '900 110px sans-serif';
+    ctx.fillText('🛍️', 540, imgBoxY + 430);
+  }
+
+  // 5. Sequential Flow Below Image (No Text Overlapping)
+  let curY = 1030;
+
+  // Category Tag Pill
+  const cat = String(item?.subCategory || item?.category || 'LOCAL DEAL').toUpperCase();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  drawRoundedRect(ctx, 120, curY, 840, 52, 16, true);
+  ctx.fillStyle = theme.tagColor;
+  ctx.font = '900 23px sans-serif';
+  ctx.fillText(`⚡ ${cat}`, 540, curY + 35);
+  curY += 75;
+
+  // Title (Max 2 lines, clean wrapped)
+  const rawTitle = item?.title || item?.name || 'Special Listing';
+  const titleLines = wrapText(ctx, rawTitle, 860, '900 44px sans-serif').slice(0, 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 44px sans-serif';
+  titleLines.forEach((line) => {
+    ctx.fillText(line, 540, curY + 40);
+    curY += 56;
+  });
+
+  curY += 15;
+
+  // Auto-Scaling Dynamic Price Tag
+  const priceStr = String(item?.price || item?.deal_price || item?.rent || item?.rates || 'Best Rate');
+  const priceFontSize = getFittingFontSize(ctx, priceStr, 46, 24, 780);
+  ctx.font = `900 ${priceFontSize}px sans-serif`;
+  const textWidth = ctx.measureText(priceStr).width;
+  const pricePillW = Math.min(860, Math.max(460, textWidth + 80));
+  const pricePillX = (1080 - pricePillW) / 2;
+  const pricePillH = 86;
+
+  ctx.fillStyle = theme.accent;
+  drawRoundedRect(ctx, pricePillX, curY, pricePillW, pricePillH, 26, true);
+  ctx.fillStyle = '#020617';
+  ctx.fillText(priceStr, 540, curY + 58);
+
+  curY += pricePillH + 25;
+
+  // Clean Seller Name
+  let cleanSeller = (item?.sellerName || item?.provider_name || item?.driverName || '').trim();
+  if (!cleanSeller || cleanSeller === rawTitle) {
+    cleanSeller = rawTitle.includes('(') ? rawTitle.split('(')[0].trim() : 'Verified Merchant';
+  }
+  if (cleanSeller.length > 30) cleanSeller = cleanSeller.slice(0, 28) + '...';
+
+  const phone = String(item?.phone || item?.contact || '9876543210').replace(/\D/g, '').slice(-10);
+
+  // Contact Box
+  const boxH = 190;
+  ctx.fillStyle = '#0f172a';
+  drawRoundedRect(ctx, 90, curY, 900, boxH, 28, true, true, `${theme.accent}55`);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '800 28px sans-serif';
+  ctx.fillText(`👤 ${cleanSeller} • डायरेक्ट डील`, 540, curY + 52);
+
+  ctx.fillStyle = '#10b981';
+  ctx.font = '900 44px sans-serif';
+  ctx.fillText(`📞 WhatsApp / Call: +91 ${phone}`, 540, curY + 115);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '700 22px sans-serif';
+  ctx.fillText(`📍 ${item?.location || selectedCity} • 0% कमिशन`, 540, curY + 158);
+
+  // 6. Direct 1-Tap Link Footer Watermark
+  const domain = window.location.origin.includes('localhost')
+    ? 'https://apkekareeb.vercel.app'
+    : window.location.origin;
+  const cleanUrl = `${domain}/?id=${encodeURIComponent(item?.id || '')}`;
+
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '900 24px sans-serif';
+  ctx.fillText(`🔗 Direct Link: ${cleanUrl}`, 540, 1845);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      resolve({ blob, dataUrl: canvas.toDataURL('image/png') });
+    }, 'image/png');
+  });
+}
+
+/**
+ * Backward-compatible blob generator
+ */
+export async function generateStatusPosterBlob(item, selectedCity = 'Alwar') {
+  const result = await generateDynamicStatusPoster(item, 'dhamaka', selectedCity);
+  return { blob: result.blob, dataUrl: result.dataUrl };
+}
+
+// 🛠️ Canvas Helpers
+
+function drawImageCover(ctx, img, x, y, w, h, radius = 28) {
+  ctx.save();
+  drawRoundedRect(ctx, x, y, w, h, radius, false);
+  ctx.clip();
+
+  const imgRatio = img.naturalWidth / (img.naturalHeight || 1);
+  const targetRatio = w / h;
+  let sWidth, sHeight, sx, sy;
+
+  if (imgRatio > targetRatio) {
+    sHeight = img.naturalHeight;
+    sWidth = img.naturalHeight * targetRatio;
+    sx = (img.naturalWidth - sWidth) / 2;
+    sy = 0;
+  } else {
+    sWidth = img.naturalWidth;
+    sHeight = img.naturalWidth / targetRatio;
+    sx = 0;
+    sy = (img.naturalHeight - sHeight) / 2;
+  }
+
+  ctx.drawImage(img, sx, sy, sWidth, sHeight, x, y, w, h);
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = 4;
+  drawRoundedRect(ctx, x, y, w, h, radius, false, true);
 }
 
 function drawRoundedRect(ctx, x, y, width, height, radius = 16, fill = false, stroke = false, strokeColor = '#334155') {
@@ -197,12 +267,23 @@ function drawRoundedRect(ctx, x, y, width, height, radius = 16, fill = false, st
   if (fill) ctx.fill();
   if (stroke) {
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 3;
     ctx.stroke();
   }
 }
 
-function wrapText(ctx, text, maxWidth) {
+function getFittingFontSize(ctx, text, maxFontSize, minFontSize, maxWidth, fontWeight = '900') {
+  let size = maxFontSize;
+  ctx.font = `${fontWeight} ${size}px sans-serif`;
+  while (ctx.measureText(text).width > maxWidth && size > minFontSize) {
+    size -= 2;
+    ctx.font = `${fontWeight} ${size}px sans-serif`;
+  }
+  return size;
+}
+
+function wrapText(ctx, text, maxWidth, fontStyle = '900 44px sans-serif') {
+  ctx.font = fontStyle;
   const words = String(text || '').split(' ');
   const lines = [];
   let currentLine = words[0] || '';

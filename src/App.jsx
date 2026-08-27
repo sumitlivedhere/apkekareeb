@@ -111,6 +111,7 @@ export default function App() {
   const [isListingModalOpen, setIsListingModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
+  const [deepLinkedItem, setDeepLinkedItem] = useState(null);
 
   // Swipe Gesture Tracking Refs
   const touchStartX = useRef(0);
@@ -142,7 +143,12 @@ export default function App() {
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
   useEffect(() => {
-    if (selectedDetailItem) {
+    if (deepLinkedItem) {
+      activeModalCloserRef.current = () => {
+        setDeepLinkedItem(null);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      };
+    } else if (selectedDetailItem) {
       activeModalCloserRef.current = () => setSelectedDetailItem(null);
     } else if (isListingModalOpen) {
       activeModalCloserRef.current = () => setIsListingModalOpen(false);
@@ -158,6 +164,7 @@ export default function App() {
       activeModalCloserRef.current = null;
     }
   }, [
+    deepLinkedItem,
     selectedDetailItem,
     isListingModalOpen,
     isNotificationsOpen,
@@ -166,8 +173,7 @@ export default function App() {
     isBusinessPromptOpen,
   ]);
 
-  // Mobile Hardware / Browser Back Button Interceptor
-  // Set initial state index on boot
+  // Set initial state index and hydrate store on boot
   useEffect(() => {
     if (!window.history.state || typeof window.history.state.idx !== 'number') {
       window.history.replaceState({ idx: 0 }, '');
@@ -176,8 +182,25 @@ export default function App() {
     initRealtimeSubscriptions();
   }, []);
 
-  // Mobile Hardware & Gesture PopState Listener (Supports both Back & Forward)
- // Mobile Hardware & Gesture PopState Listener (Supports both Back & Forward)
+  // 🔗 1-Tap WhatsApp Link Resolver: Opens listing directly when URL has ?id=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get('id') || params.get('listing');
+    if (targetId) {
+      const checkAndOpen = () => {
+        const allItems = hyperlocalStore.getAllListings() || [];
+        const matched = allItems.find((item) => String(item.id) === String(targetId));
+        if (matched) {
+          setDeepLinkedItem(matched);
+        }
+      };
+      checkAndOpen();
+      const timer = setTimeout(checkAndOpen, 500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Mobile Hardware & Gesture PopState Listener
   useEffect(() => {
     const handlePopState = (e) => {
       // 1. If any modal is active or was closed via history pop, ignore top-level route change
@@ -250,7 +273,7 @@ export default function App() {
       let finalHistory = nextHistory;
       let nextIdx = historyIndex + 1;
 
-      // Keep sliding buffer of max 6 entries (current + 5 previous steps)
+      // Keep sliding buffer of max 6 entries
       if (nextHistory.length > 6) {
         finalHistory = nextHistory.slice(nextHistory.length - 6);
         nextIdx = 5;
@@ -304,7 +327,6 @@ export default function App() {
   const handleSelectNotification = (notif) => {
     setIsNotificationsOpen(false);
 
-    // 1. Admin Actions
     if (
       notif.tag === 'PENDING_APPROVAL' ||
       notif.tag === 'EDIT_PROPOSAL' ||
@@ -315,7 +337,6 @@ export default function App() {
       return;
     }
 
-    // 2. Seller Actions
     if (
       (notif.tag === 'USER_COMMENT' ||
         notif.tag === 'VOICE_INQUIRY' ||
@@ -328,7 +349,6 @@ export default function App() {
       return;
     }
 
-    // 3. Resident User Actions
     if (notif.targetId) {
       const allItems = hyperlocalStore.getAllListings();
       const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
@@ -345,13 +365,13 @@ export default function App() {
   };
 
   // 🌟 Touch Swipe Gesture Handlers
- // 🌟 Universal Touch Swipe Gesture Handlers (Left = Forward, Right = Back)
   const handleTouchStart = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
       isListingModalOpen ||
       isNotificationsOpen ||
       selectedDetailItem ||
+      deepLinkedItem ||
       isAuthModalOpen ||
       isAdminKeyModalOpen ||
       isBusinessPromptOpen
@@ -367,13 +387,13 @@ export default function App() {
       isListingModalOpen ||
       isNotificationsOpen ||
       selectedDetailItem ||
+      deepLinkedItem ||
       isAuthModalOpen ||
       isAdminKeyModalOpen ||
       isBusinessPromptOpen
     ) return;
 
     const target = e.target;
-    // Don't trigger page swipe if user is scrolling horizontal chip lists or typing
     if (target.closest('.overflow-x-auto, input, textarea, select')) return;
 
     const touchEndX = e.changedTouches[0].clientX;
@@ -382,13 +402,10 @@ export default function App() {
     const deltaY = touchEndY - touchStartY.current;
     const deltaTime = Date.now() - touchStartTime.current;
 
-    // Fast horizontal swipe threshold (>50px, angle dominant, <450ms)
     if (deltaTime < 450 && Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
       if (deltaX > 0) {
-        // Swiped Right -> Step Backward
         if (canGoBack) goBack();
       } else {
-        // Swiped Left -> Step Forward
         if (canGoForward) goForward();
       }
     }
@@ -494,7 +511,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Center: Brand Header (5 Quick Taps unlocks Secret Admin Modal) */}
+        {/* Center: Brand Header */}
         <div
           onClick={() => {
             handleSecretAdminTap();
@@ -1022,6 +1039,19 @@ export default function App() {
 
       {/* 🌟 4. Modals & Drawers */}
       <Suspense fallback={null}>
+        {/* 🔗 1-Tap Deep-Linked Item (Direct WhatsApp Link Opener) */}
+        {deepLinkedItem && (
+          <ListingDetailModal
+            item={deepLinkedItem}
+            selectedCity={selectedCity}
+            onClose={() => {
+              setDeepLinkedItem(null);
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }}
+            onNewNotification={handleNewNotification}
+          />
+        )}
+
         {isListingModalOpen && isAuthorizedToPost && (
           <ContextualListingModal
             currentScreen={currentScreen}
