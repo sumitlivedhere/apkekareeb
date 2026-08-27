@@ -17,10 +17,10 @@ export default function SurpriseFeed({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none pb-20">
-      {/* Back Button (Only shows when browsing the popped feed) */}
+    <div className="w-full h-[calc(100dvh-115px)] flex flex-col font-sans select-none overflow-hidden bg-slate-950 text-slate-100">
+      {/* Back Button (Only visible after a bubble has been popped) */}
       {activeMode === 'feed' && (
-        <div className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
+        <div className="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-md shrink-0">
           <button
             type="button"
             onClick={() => setActiveMode('bubbles')}
@@ -35,8 +35,8 @@ export default function SurpriseFeed({
         </div>
       )}
 
-      {/* Pure Floating Bubbles */}
-      <div className="flex-1 flex flex-col justify-center">
+      {/* Screen-Contained Canvas */}
+      <div className="flex-1 w-full overflow-hidden flex flex-col justify-center">
         {activeMode === 'bubbles' && (
           <BubblesDiscovery
             selectedCity={selectedCity}
@@ -45,13 +45,15 @@ export default function SurpriseFeed({
         )}
 
         {activeMode === 'feed' && (
-          <SurpriseListingFeed
-            selectedCity={selectedCity}
-            filterCategory={selectedBubbleCat}
-            searchQuery={searchQuery}
-            onNewNotification={onNewNotification}
-            onBackToBubbles={() => setActiveMode('bubbles')}
-          />
+          <div className="flex-1 overflow-y-auto pb-20">
+            <SurpriseListingFeed
+              selectedCity={selectedCity}
+              filterCategory={selectedBubbleCat}
+              searchQuery={searchQuery}
+              onNewNotification={onNewNotification}
+              onBackToBubbles={() => setActiveMode('bubbles')}
+            />
+          </div>
         )}
       </div>
     </div>

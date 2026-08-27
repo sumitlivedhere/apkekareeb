@@ -118,10 +118,10 @@ const WHITE_RISING_BUBBLES = [
   { id: 1, left: '5%', size: 'w-2 h-2', duration: '4.2s', delay: '0s', sway: '12px' },
   { id: 2, left: '14%', size: 'w-3.5 h-3.5', duration: '5.6s', delay: '1.2s', sway: '-16px' },
   { id: 3, left: '22%', size: 'w-2 h-2', duration: '4.8s', delay: '0.4s', sway: '10px' },
-  { id: 4, left: '32%', size: 'w-4 h-4', duration: '6.2s', delay: '2.1s', sway: '-18px' },
+  { id: 4, left: '32%', size: 'w-3 h-3', duration: '6.2s', delay: '2.1s', sway: '-18px' },
   { id: 5, left: '42%', size: 'w-2.5 h-2.5', duration: '4.5s', delay: '0.9s', sway: '14px' },
   { id: 6, left: '52%', size: 'w-3 h-3', duration: '5.2s', delay: '1.6s', sway: '-12px' },
-  { id: 7, left: '62%', size: 'w-4 h-4', duration: '6.0s', delay: '0.2s', sway: '16px' },
+  { id: 7, left: '62%', size: 'w-3 h-3', duration: '6.0s', delay: '0.2s', sway: '16px' },
   { id: 8, left: '72%', size: 'w-2 h-2', duration: '4.1s', delay: '1.8s', sway: '-10px' },
   { id: 9, left: '82%', size: 'w-3.5 h-3.5', duration: '5.4s', delay: '1.1s', sway: '14px' },
   { id: 10, left: '92%', size: 'w-2 h-2', duration: '4.9s', delay: '2.5s', sway: '-14px' },
@@ -135,7 +135,7 @@ const WHITE_RISING_BUBBLES = [
   { id: 18, left: '96%', size: 'w-2.5 h-2.5', duration: '6.1s', delay: '0.5s', sway: '-16px' },
 ];
 
-// 17 Town Categories + 1 Hero Wildcard (18 Bubbles Total)
+// 17 Town Categories + 1 Hero Wildcard
 const ALL_TOWN_BUBBLES = [
   {
     id: 'all',
@@ -362,58 +362,53 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
   };
 
   return (
-    <div className="relative w-full flex-1 flex flex-col justify-center items-center p-3 select-none text-slate-100 overflow-hidden min-h-[calc(100vh-100px)]">
+    <div className="relative w-full h-[calc(100dvh-125px)] max-h-[calc(100dvh-125px)] flex flex-col justify-center items-center select-none text-slate-100 overflow-hidden px-2">
       
-      {/* 🌟 Rising Background White Micro-Bubbles & Liquid Wobble Keyframes */}
+      {/* 🌟 Rising Background White Micro-Bubbles Keyframes */}
       <style>{`
-        @keyframes riseFloatUp {
+        @keyframes riseFloatUpStrict {
           0% {
-            transform: translateY(105vh) translateX(0px) scale(0.6);
+            transform: translateY(100%) translateX(0px) scale(0.6);
             opacity: 0;
           }
           15% {
             opacity: 0.8;
           }
           50% {
-            transform: translateY(50vh) translateX(var(--sway, 12px)) scale(1.1);
-            opacity: 0.9;
+            transform: translateY(45%) translateX(var(--sway, 10px)) scale(1.05);
+            opacity: 0.85;
           }
           85% {
-            opacity: 0.75;
-          }
-          95% {
-            transform: translateY(4vh) translateX(0px) scale(1.35);
-            opacity: 0.9;
-            filter: blur(0px);
+            opacity: 0.7;
           }
           100% {
-            transform: translateY(-5vh) translateX(0px) scale(2);
+            transform: translateY(-10%) translateX(0px) scale(1.4);
             opacity: 0;
-            filter: blur(4px);
+            filter: blur(2px);
           }
         }
         @keyframes liquidBobbing {
           0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-8px) rotate(1.5deg); }
+          50% { transform: translateY(-5px) rotate(1deg); }
         }
         @keyframes shimmerGaze {
           0%, 100% { opacity: 0.45; transform: scale(1); }
-          50% { opacity: 0.9; transform: scale(1.04); }
+          50% { opacity: 0.9; transform: scale(1.03); }
         }
         @keyframes bubbleBurstPop {
           0% { transform: scale(1); opacity: 1; }
-          45% { transform: scale(1.4); opacity: 0.9; filter: brightness(2); }
-          100% { transform: scale(2.2); opacity: 0; filter: blur(8px); }
+          45% { transform: scale(1.3); opacity: 0.9; filter: brightness(1.8); }
+          100% { transform: scale(2); opacity: 0; filter: blur(6px); }
         }
         @keyframes particleBurstFly {
           0% { transform: translate(0, 0) scale(1); opacity: 1; }
           100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
         }
         .white-rising-bubble-particle {
-          animation: riseFloatUp var(--dur, 5s) ease-in-out infinite;
+          animation: riseFloatUpStrict var(--dur, 5s) ease-in-out infinite;
         }
         .liquid-bubble-float {
-          animation: liquidBobbing 4.5s ease-in-out infinite;
+          animation: liquidBobbing 4s ease-in-out infinite;
         }
         .bubble-glow-halo {
           animation: shimmerGaze 3s ease-in-out infinite;
@@ -423,28 +418,28 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         }
       `}</style>
 
-      {/* 🌟 1. BACKGROUND RISING TRANSLUCENT WHITE MICRO-BUBBLES */}
+      {/* 🌟 1. BACKGROUND RISING TRANSLUCENT WHITE MICRO-BUBBLES (Contained) */}
       <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
         {WHITE_RISING_BUBBLES.map((b) => (
           <div
             key={b.id}
             style={{
               left: b.left,
-              bottom: '-30px',
+              bottom: '0px',
               '--dur': b.duration,
               '--sway': b.sway,
               animationDelay: b.delay,
             }}
-            className={`absolute ${b.size} rounded-full bg-white/60 border border-white/90 shadow-[0_0_12px_rgba(255,255,255,0.9)] backdrop-blur-[0.5px] white-rising-bubble-particle`}
+            className={`absolute ${b.size} rounded-full bg-white/60 border border-white/90 shadow-[0_0_10px_rgba(255,255,255,0.8)] backdrop-blur-[0.5px] white-rising-bubble-particle`}
           >
             <span className="absolute top-0.5 left-0.5 w-1 h-0.5 rounded-full bg-white opacity-90 rotate-[-30deg]"></span>
           </div>
         ))}
       </div>
 
-      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS */}
-      <div className="relative z-10 w-full flex-1 my-auto py-4 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-none px-1 flex flex-col justify-center">
-        <div className="grid grid-cols-3 gap-3.5 max-w-sm mx-auto place-items-center">
+      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS (Strict Scroll Container) */}
+      <div className="relative z-10 w-full h-full overflow-y-auto overscroll-contain scrollbar-none py-2 px-1 flex flex-col items-center">
+        <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto place-items-center my-auto">
           {ALL_TOWN_BUBBLES.map((bubble) => {
             const isPopped = poppedBubbleId === bubble.id;
             const isAnyPopped = Boolean(poppedBubbleId);
@@ -453,15 +448,17 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
               <div
                 key={bubble.id}
                 style={{ animationDelay: bubble.delay }}
-                className={`relative w-24 h-24 liquid-bubble-float flex items-center justify-center transition-all duration-300 ${
-                  bubble.isHero ? 'scale-105 col-span-3 w-32 h-32 my-1' : ''
+                className={`relative liquid-bubble-float flex items-center justify-center transition-all duration-300 ${
+                  bubble.isHero
+                    ? 'col-span-3 w-28 h-28 my-1'
+                    : 'w-20 h-20'
                 } ${isAnyPopped && !isPopped ? 'opacity-15 scale-75 blur-[1px]' : 'opacity-100'}`}
               >
                 {/* Glowing Halos */}
                 <div
                   className={`absolute inset-0 rounded-full bubble-glow-halo pointer-events-none ${isPopped ? 'hidden' : ''}`}
                   style={{
-                    boxShadow: `0 0 25px 4px ${bubble.glowColor}, inset 0 0 16px 2px ${bubble.glowColor}`,
+                    boxShadow: `0 0 18px 3px ${bubble.glowColor}, inset 0 0 12px 2px ${bubble.glowColor}`,
                   }}
                 />
 
@@ -470,21 +467,21 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                   type="button"
                   onClick={() => handleBubbleClick(bubble)}
                   disabled={isAnyPopped}
-                  className={`relative z-10 w-full h-full rounded-full border-2 ${bubble.borderColor} bg-gradient-to-b from-slate-900/85 via-slate-950/90 to-slate-900/85 backdrop-blur-md p-2 flex flex-col items-center justify-center text-center shadow-2xl active:scale-90 transition cursor-pointer group ${
+                  className={`relative z-10 w-full h-full rounded-full border-2 ${bubble.borderColor} bg-gradient-to-b from-slate-900/90 via-slate-950/95 to-slate-900/90 backdrop-blur-md p-1.5 flex flex-col items-center justify-center text-center shadow-xl active:scale-90 transition cursor-pointer group ${
                     isPopped ? 'bubble-pop-active pointer-events-none' : 'hover:scale-105'
                   }`}
                 >
-                  <span className="absolute top-1.5 left-2.5 w-5 h-2.5 rounded-full bg-white/30 blur-[0.5px] rotate-[-25deg] pointer-events-none"></span>
+                  <span className="absolute top-1 left-2 w-4 h-2 rounded-full bg-white/35 blur-[0.5px] rotate-[-25deg] pointer-events-none"></span>
 
-                  <span className={`${bubble.isHero ? 'text-3xl' : 'text-2xl'} block group-hover:scale-125 transition duration-300`}>
+                  <span className={`${bubble.isHero ? 'text-2xl' : 'text-xl'} block group-hover:scale-115 transition duration-300`}>
                     {bubble.icon}
                   </span>
 
-                  <span className={`text-[9px] font-black leading-tight mt-0.5 ${bubble.textColor} truncate max-w-[78px]`}>
+                  <span className={`text-[8.5px] font-black leading-tight mt-0.5 ${bubble.textColor} truncate max-w-[68px]`}>
                     {bubble.name.split('&')[0]}
                   </span>
 
-                  <span className="text-[7.5px] font-bold text-slate-400 block truncate max-w-[78px]">
+                  <span className="text-[7px] font-bold text-slate-400 block truncate max-w-[68px]">
                     {bubble.hindiName}
                   </span>
                 </button>
@@ -493,12 +490,12 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                 {isPopped && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
                     {[
-                      { x: '-35px', y: '-35px' },
-                      { x: '35px', y: '-35px' },
-                      { x: '-45px', y: '20px' },
-                      { x: '45px', y: '20px' },
-                      { x: '0px', y: '-50px' },
-                      { x: '0px', y: '50px' },
+                      { x: '-28px', y: '-28px' },
+                      { x: '28px', y: '-28px' },
+                      { x: '-36px', y: '16px' },
+                      { x: '36px', y: '16px' },
+                      { x: '0px', y: '-40px' },
+                      { x: '0px', y: '40px' },
                     ].map((pos, idx) => (
                       <span
                         key={idx}
@@ -507,7 +504,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                           '--ty': pos.y,
                           animation: 'particleBurstFly 0.4s cubic-bezier(0.1, 0.8, 0.2, 1) forwards',
                         }}
-                        className={`absolute w-2.5 h-2.5 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-lg`}
+                        className={`absolute w-2 h-2 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-md`}
                       />
                     ))}
                   </div>
