@@ -644,10 +644,10 @@ export default function ListingDetailModal({
                 <button
                   type="button"
                   onClick={() => setIsShareModalOpen(true)}
-                  className="py-2.5 px-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm cursor-pointer"
+                  className="py-2.5 px-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm cursor-pointer"
                 >
-                  <span>🚀</span>
-                  <span className="truncate">Poster</span>
+                  <span>🔗</span>
+                  <span className="truncate">Share</span>
                 </button>
               </div>
             </div>
@@ -901,7 +901,7 @@ export default function ListingDetailModal({
             className="py-3 px-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 text-white font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             <span>🔗</span>
-            <span>Share / Status</span>
+            <span>Share Listing</span>
           </button>
         </footer>
 

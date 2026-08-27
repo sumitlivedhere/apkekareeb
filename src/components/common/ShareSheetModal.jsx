@@ -1,37 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { generateDynamicStatusPoster } from '../../utils/statusPosterEngine';
+import { buildShareCopy } from '../../utils/shareHelper';
 
 export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose }) {
   const [copied, setCopied] = useState(false);
-  const [posterTheme, setPosterTheme] = useState('dhamaka');
-  const [posterUrl, setPosterUrl] = useState(null);
+  const [shareTheme, setShareTheme] = useState('dhamaka');
+  const [shareCardUrl, setShareCardUrl] = useState(null);
+  const [shareCardBlob, setShareCardBlob] = useState(null);
   const [isGenerating, setIsGenerating] = useState(true);
 
   const title = item?.title || item?.name || 'Local Offer';
-  const price = item?.price || item?.deal_price || item?.rent || 'Best Price';
-  const seller = item?.sellerName || item?.provider_name || 'Verified Merchant';
-  const cleanPhone = String(item?.phone || item?.contact || '').replace(/\D/g, '').slice(-10);
   const shareUrl = `${window.location.origin}/?id=${encodeURIComponent(item?.id || '')}`;
+  const shareText = buildShareCopy(item, selectedCity);
 
-  // Generate 4K WhatsApp Story Graphic
+  // Generate Image Share Card
   useEffect(() => {
     let mounted = true;
     setIsGenerating(true);
-    generateDynamicStatusPoster(item, posterTheme, selectedCity).then(({ dataUrl }) => {
+    generateDynamicStatusPoster(item, shareTheme, selectedCity).then(({ blob, dataUrl }) => {
       if (mounted) {
-        setPosterUrl(dataUrl);
+        setShareCardBlob(blob);
+        setShareCardUrl(dataUrl);
         setIsGenerating(false);
       }
     });
     return () => {
       mounted = false;
     };
-  }, [item, posterTheme, selectedCity]);
+  }, [item, shareTheme, selectedCity]);
 
-  // 1. WhatsApp Chat / Group Share
-  const handleWhatsAppShare = () => {
-    const msg = `*${title}*\n💰 *दाम / Price:* ${price}\n📍 *लोकेशन:* ${item?.location || selectedCity}\n👤 *दुकानदार:* ${seller}\n${cleanPhone ? `📞 *संपर्क:* +91 ${cleanPhone}\n` : ''}\n⚡ *Aapke Kareeb पर पूरा विवरण देखें व सीधे बात करें:*\n${shareUrl}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  // 1. WhatsApp Share: Sends Photo Card + Details + Clickable Link
+  const handleWhatsAppShare = async () => {
+    // If mobile Web Share API supports file sharing (sends Image + Caption + Clickable Link)
+    if (
+      shareCardBlob &&
+      navigator.canShare &&
+      navigator.canShare({ files: [new File([shareCardBlob], 'share.png', { type: 'image/png' })] })
+    ) {
+      try {
+        const file = new File([shareCardBlob], `${title.slice(0, 15).replace(/\s+/g, '_')}.png`, {
+          type: 'image/png',
+        });
+        await navigator.share({
+          files: [file],
+          title: title,
+          text: shareText,
+        });
+        onClose();
+        return;
+      } catch {
+        // Fallback to direct WhatsApp link if cancelled/unsupported
+      }
+    }
+
+    // Direct WhatsApp web intent
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+    onClose();
   };
 
   // 2. Copy Direct Link
@@ -41,12 +65,12 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
     setTimeout(() => setCopied(false), 2200);
   };
 
-  // 3. Download Poster
-  const handleDownloadPoster = () => {
-    if (!posterUrl) return;
+  // 3. Download Image Card
+  const handleDownloadCard = () => {
+    if (!shareCardUrl) return;
     const a = document.createElement('a');
-    a.href = posterUrl;
-    a.download = `${title.slice(0, 18).replace(/\s+/g, '_')}_poster.png`;
+    a.href = shareCardUrl;
+    a.download = `${title.slice(0, 18).replace(/\s+/g, '_')}_share.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -55,7 +79,7 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in text-slate-100 font-sans select-none"
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in text-slate-100 font-sans select-none"
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -64,10 +88,10 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
           <div className="flex items-center space-x-2">
-            <span className="text-lg">🚀</span>
+            <span className="text-lg">🔗</span>
             <div>
-              <h3 className="text-xs font-black text-white">Share & Status Poster</h3>
-              <p className="text-[10px] text-slate-400">Promote to local groups and friends</p>
+              <h3 className="text-xs font-black text-white">Share Listing</h3>
+              <p className="text-[10px] text-slate-400">Share with product photo, details & direct 1-tap link</p>
             </div>
           </div>
           <button
@@ -79,9 +103,9 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
           </button>
         </div>
 
-        {/* 1-Tap Sharing Actions */}
+        {/* 1-Tap Share Actions */}
         <div className="space-y-2">
-          {/* Direct WhatsApp Share */}
+          {/* Direct WhatsApp Share (Photo + Details + Link) */}
           <button
             type="button"
             onClick={handleWhatsAppShare}
@@ -93,7 +117,7 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
               </span>
               <div className="text-left">
                 <div className="text-xs font-black text-emerald-300">Share on WhatsApp</div>
-                <div className="text-[9.5px] text-slate-400">Send to Friends or Colony Groups</div>
+                <div className="text-[9.5px] text-slate-400">Sends photo, details & direct 1-tap link</div>
               </div>
             </div>
             <span className="text-xs font-black text-emerald-400">➔</span>
@@ -111,7 +135,7 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
               </span>
               <div className="text-left">
                 <div className="text-xs font-black text-slate-200">
-                  {copied ? 'Link Copied to Clipboard!' : 'Copy Direct Link'}
+                  {copied ? 'Direct Link Copied!' : 'Copy Direct Link'}
                 </div>
                 <div className="text-[9.5px] text-slate-500 font-mono truncate max-w-[180px]">
                   {shareUrl}
@@ -124,11 +148,11 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
           </button>
         </div>
 
-        {/* 4K WhatsApp Story Poster Section */}
+        {/* Share Image Card Preview */}
         <div className="pt-2 border-t border-slate-800 space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider">
-              WhatsApp Story Poster:
+              Share Style / Card Design:
             </span>
             <div className="flex space-x-1">
               {[
@@ -139,9 +163,9 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setPosterTheme(t.id)}
+                  onClick={() => setShareTheme(t.id)}
                   className={`px-2 py-0.5 rounded-lg text-[9.5px] font-black transition cursor-pointer ${
-                    posterTheme === t.id
+                    shareTheme === t.id
                       ? 'bg-amber-400 text-slate-950 shadow-sm'
                       : 'bg-slate-800 text-slate-400'
                   }`}
@@ -152,25 +176,26 @@ export default function ShareSheetModal({ item, selectedCity = 'Alwar', onClose 
             </div>
           </div>
 
-          <div className="relative w-full h-44 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-inner flex items-center justify-center">
+          {/* Live Card Preview */}
+          <div className="relative w-full h-48 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-inner flex items-center justify-center">
             {isGenerating ? (
               <div className="text-center space-y-1">
                 <span className="text-xl animate-spin block">🪄</span>
-                <span className="text-[10px] text-amber-300 font-bold">Generating 4K Story...</span>
+                <span className="text-[10px] text-amber-300 font-bold">Creating Share Image...</span>
               </div>
             ) : (
-              <img src={posterUrl} alt="Poster Preview" className="w-full h-full object-contain" />
+              <img src={shareCardUrl} alt="Share Card Preview" className="w-full h-full object-contain" />
             )}
           </div>
 
           <button
             type="button"
-            onClick={handleDownloadPoster}
+            onClick={handleDownloadCard}
             disabled={isGenerating}
-            className="w-full py-2.5 px-4 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 text-white font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
+            className="w-full py-2.5 px-4 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 text-white font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
           >
             <span>📥</span>
-            <span>Download Poster for WhatsApp Status</span>
+            <span>Download Image for WhatsApp Status / Story</span>
           </button>
         </div>
       </div>
