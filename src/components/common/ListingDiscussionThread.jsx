@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useThreadSlice, useInterestSlice, hyperlocalStore } from '../../store/hyperlocalStore';
 import VoiceNotePlayer from './VoiceNotePlayer';
 import { uploadVoiceNoteToStorage } from '../../services/listingService';
+import { getCurrentUserProfile } from '../../services/authService';
 import {
   getOptimizedVoiceStream,
   createOptimizedMediaRecorder,
@@ -17,11 +18,31 @@ export default function ListingDiscussionThread({
   onNewNotification,
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [newComment, setNewComment] = useState('');
-  const [userName, setUserName] = useState('');
+  const [userName, setUserName] = useState(currentUser?.full_name || '');
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [isSellerMode, setIsSellerMode] = useState(false);
+
+  // Sync active user profile on modal open
+  useEffect(() => {
+    if (isOpen) {
+      const user = getCurrentUserProfile();
+      setCurrentUser(user);
+      if (user?.full_name && !userName) {
+        setUserName(user.full_name);
+      }
+    }
+  }, [isOpen]);
+
+  // Tier 2 & Tier 3 Permissions Verification
+  const isTier2Verified = Boolean(
+    currentUser &&
+      (currentUser.verification_tier === 'verified_resident' ||
+        currentUser.verification_tier === 'verified_merchant' ||
+        currentUser.is_merchant === true)
+  );
 
   // 🎙️ Buyer Audio Recording & Server Upload State
   const [isRecording, setIsRecording] = useState(false);
@@ -49,6 +70,15 @@ export default function ListingDiscussionThread({
 
   // 🎙️ 1. Buyer: Start Recording Pure Voice Note (16kHz Mono Opus)
   const startBuyerVoiceRecording = async () => {
+    if (!currentUser) {
+      alert('⚠️ Login Required: Please sign in with your phone and 4-digit MPIN first.');
+      return;
+    }
+    if (!isTier2Verified) {
+      alert('🔒 Tier 2 Verification Required: Only Verified Residents can send voice notes. Please request your 6-digit WhatsApp PIN from your Profile page.');
+      return;
+    }
+
     try {
       const stream = await getOptimizedVoiceStream();
       buyerAudioChunksRef.current = [];
@@ -67,7 +97,7 @@ export default function ListingDiscussionThread({
       buyerTimerRef.current = setInterval(() => {
         setRecordSeconds((p) => p + 1);
       }, 1000);
-    } catch (err) {
+    } catch {
       alert('Microphone permission denied. Please allow microphone access in your browser settings.');
     }
   };
@@ -86,10 +116,10 @@ export default function ListingDiscussionThread({
           type: mediaRecorder.mimeType || 'audio/webm',
         });
 
-        // Upload voice note to Supabase Storage with 5-day cache header
+        // Upload voice note to Supabase Storage
         const publicAudioUrl = await uploadVoiceNoteToStorage(audioBlob);
         const durationStr = `0:${recordSeconds < 10 ? '0' : ''}${recordSeconds}`;
-        const sender = userName.trim() || 'Town User';
+        const sender = currentUser?.full_name || userName.trim() || 'Town User';
 
         hyperlocalStore.addThreadComment(
           listingId,
@@ -157,7 +187,7 @@ export default function ListingDiscussionThread({
       sellerTimerRef.current = setInterval(() => {
         setSellerRecordSeconds((p) => p + 1);
       }, 1000);
-    } catch (err) {
+    } catch {
       alert('Microphone permission denied.');
     }
   };
@@ -176,7 +206,6 @@ export default function ListingDiscussionThread({
           type: mediaRecorder.mimeType || 'audio/webm',
         });
 
-        // Upload to Supabase Storage with 5-day cache header
         const publicAudioUrl = await uploadVoiceNoteToStorage(audioBlob);
         const durationStr = `0:${sellerRecordSeconds < 10 ? '0' : ''}${sellerRecordSeconds}`;
 
@@ -234,12 +263,23 @@ export default function ListingDiscussionThread({
     hyperlocalStore.incrementInterest(listingId, interestCount, listingTitle, sellerName);
   };
 
+  // 📝 5. Buyer Text Query Gate Check
   const handleInitiateSend = (e) => {
     if (e) e.preventDefault();
     if (!newComment.trim()) return;
 
+    if (!currentUser) {
+      alert('⚠️ Login Required: Please log in with your phone and 4-digit MPIN.');
+      return;
+    }
+
+    if (!isTier2Verified) {
+      alert('🔒 Tier 2 Verification Required: Only Verified Residents can post questions or comments. Enter your 6-digit WhatsApp PIN on your Profile page.');
+      return;
+    }
+
     setPendingConfirmQuery({
-      senderName: userName.trim() || 'Town User',
+      senderName: currentUser?.full_name || userName.trim() || 'Town User',
       queryText: newComment.trim(),
     });
   };
@@ -305,7 +345,7 @@ export default function ListingDiscussionThread({
     <>
       {/* 🌟 1. CARD CORNER BADGES */}
       {variant === 'corner' && (
-        <div className="absolute top-2.5 right-2.5 flex items-center space-x-1.5 z-10">
+        <div className="absolute top-2.5 right-2.5 flex items-center space-x-1.5 z-10 font-sans">
           <button
             type="button"
             onClick={handleIncrementInterest}
@@ -336,9 +376,9 @@ export default function ListingDiscussionThread({
             e.stopPropagation();
             setIsOpen(true);
           }}
-          className="flex flex-col items-center justify-center group active:scale-75 transition cursor-pointer"
+          className="flex flex-col items-center justify-center group active:scale-75 transition cursor-pointer font-sans"
         >
-          <div className="w-10 h-10 rounded-full bg-slate-950/85 hover:bg-slate-950 backdrop-blur-md border border-slate-700 flex items-center justify-center text-base shadow-xl group-hover:border-cyan-300 transition">
+          <div className="w-10 h-10 rounded-full bg-slate-950/85 hover:bg-slate-950 backdrop-blur-md border border-slate-700 flex items-center justify-center text-base shadow-xl group-hover:border-amber-300 transition">
             💬
           </div>
           <span className="text-[10px] font-black text-white drop-shadow-md mt-0.5">
@@ -351,22 +391,22 @@ export default function ListingDiscussionThread({
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xs flex items-end justify-center animate-fade-in select-none"
+          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-xs flex items-end justify-center animate-fade-in select-none font-sans"
         >
           <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
-          <div className="relative z-10 bg-[#121212] border-t border-zinc-800 rounded-t-3xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl text-zinc-100 animate-slide-up">
-            <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto mt-2.5 mb-1" />
+          <div className="relative z-10 bg-slate-950 border-t border-slate-800 rounded-t-3xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl text-slate-100 animate-slide-up">
+            <div className="w-10 h-1 bg-slate-700 rounded-full mx-auto mt-2.5 mb-1" />
 
             {/* Header Bar */}
-            <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+            <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-black text-white flex items-center space-x-1.5">
+                <h2 className="text-sm font-black text-slate-100 flex items-center space-x-1.5">
                   <span>💬</span>
-                  <span>Questions & Voice Notes ({comments.length})</span>
+                  <span>Questions & Discussion ({comments.length})</span>
                 </h2>
-                <p className="text-[10px] text-zinc-400 truncate max-w-[220px]">
-                  {listingTitle} • Auto-clears in 5 days
+                <p className="text-[10px] text-slate-400 truncate max-w-[220px]">
+                  {listingTitle}
                 </p>
               </div>
 
@@ -377,7 +417,7 @@ export default function ListingDiscussionThread({
                   className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition cursor-pointer ${
                     isSellerMode
                       ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                      : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                      : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
                   }`}
                 >
                   {isSellerMode ? '👑 Owner Mode' : '👤 User Mode'}
@@ -386,22 +426,28 @@ export default function ListingDiscussionThread({
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="w-7 h-7 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center text-sm font-bold cursor-pointer"
+                  className="w-7 h-7 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm font-bold cursor-pointer"
                 >
                   ✕
                 </button>
               </div>
             </div>
 
+            {/* Tier 2 Status Banner */}
+            {!isTier2Verified && (
+              <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-[10.5px] text-amber-300 flex items-center justify-between">
+                <span>🔒 Viewing Mode: Tier 2 Verified Resident PIN required to ask questions.</span>
+              </div>
+            )}
+
             {/* Q&A Comments Stream */}
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 max-h-[46vh]">
               {comments.length === 0 ? (
                 <div className="text-center py-12 space-y-2">
-                  <span className="text-3xl text-zinc-600">🎙️</span>
-                  <p className="text-xs text-zinc-400 font-medium">
-                    No active questions. Tap the mic below to ask via voice note!
+                  <span className="text-3xl text-slate-600">🎙️</span>
+                  <p className="text-xs text-slate-400 font-medium">
+                    No active questions. Verified residents can tap the mic below to ask via voice note!
                   </p>
-                  <p className="text-[10px] text-zinc-500">Inquiries expire automatically after 5 days.</p>
                 </div>
               ) : (
                 comments.map((c, idx) => {
@@ -418,10 +464,10 @@ export default function ListingDiscussionThread({
 
                         <div className="flex-1 space-y-1 min-w-0">
                           <div className="flex items-center space-x-1.5">
-                            <span className="text-[11px] font-bold text-zinc-200 truncate">
+                            <span className="text-[11px] font-bold text-slate-200 truncate">
                               @{c.userName?.toLowerCase().replace(/\s+/g, '_') || 'town_user'}
                             </span>
-                            <span className="text-[10px] text-zinc-500">
+                            <span className="text-[10px] text-slate-500">
                               • {c.timestamp || 'Just now'}
                             </span>
                           </div>
@@ -434,7 +480,7 @@ export default function ListingDiscussionThread({
                               senderName={c.userName}
                             />
                           ) : (
-                            <p className="text-xs text-zinc-100 leading-relaxed break-words font-normal">
+                            <p className="text-xs text-slate-100 leading-relaxed break-words font-normal">
                               {c.text}
                             </p>
                           )}
@@ -457,17 +503,17 @@ export default function ListingDiscussionThread({
                       {/* Nested Seller Reply (Voice or Text) */}
                       {c.sellerReply && (
                         <div className="ml-11 flex items-start space-x-2.5 pt-1">
-                          <div className="w-6 h-6 rounded-full bg-amber-500 text-zinc-950 font-black text-[10px] flex items-center justify-center shrink-0 shadow-md">
+                          <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center shrink-0 shadow-md">
                             👑
                           </div>
 
                           <div className="flex-1 space-y-1 min-w-0">
                             <div className="flex items-center space-x-1.5">
-                              <span className="bg-zinc-800 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded-full text-[10px] font-black flex items-center space-x-0.5">
+                              <span className="bg-slate-900 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded-full text-[10px] font-black flex items-center space-x-0.5">
                                 <span>{sellerName}</span>
                                 <span className="text-amber-400">✓</span>
                               </span>
-                              <span className="text-[9px] text-zinc-500">• Verified Response</span>
+                              <span className="text-[9px] text-slate-500">• Verified Response</span>
                             </div>
 
                             {c.sellerReply.type === 'audio' || c.sellerReply.audioUrl ? (
@@ -477,7 +523,7 @@ export default function ListingDiscussionThread({
                                 senderName="Owner Voice Note"
                               />
                             ) : (
-                              <p className="text-xs text-zinc-200 leading-relaxed break-words font-normal">
+                              <p className="text-xs text-slate-200 leading-relaxed break-words font-normal">
                                 {c.sellerReply.text}
                               </p>
                             )}
@@ -485,7 +531,7 @@ export default function ListingDiscussionThread({
                         </div>
                       )}
 
-                      {/* Seller Inline Reply Box (Voice or Text) */}
+                      {/* Seller Inline Reply Box */}
                       {isSellerMode && activeReplyId === c.id && !c.sellerReply && (
                         <div className="ml-11 pt-1.5 space-y-1.5">
                           {isSellerRecordingThis ? (
@@ -500,7 +546,7 @@ export default function ListingDiscussionThread({
                                   type="button"
                                   onClick={cancelSellerVoiceRecording}
                                   disabled={isUploadingSellerVoice}
-                                  className="text-[10px] font-bold text-zinc-400 hover:text-white"
+                                  className="text-[10px] font-bold text-slate-400 hover:text-white"
                                 >
                                   Cancel
                                 </button>
@@ -508,7 +554,7 @@ export default function ListingDiscussionThread({
                                   type="button"
                                   onClick={() => stopAndSendSellerVoice(c.id)}
                                   disabled={isUploadingSellerVoice}
-                                  className="px-2.5 py-1 bg-emerald-500 text-zinc-950 font-black text-xs rounded-xl shadow-md cursor-pointer"
+                                  className="px-2.5 py-1 bg-emerald-500 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer"
                                 >
                                   {isUploadingSellerVoice ? 'Sending...' : 'Send Voice ➔'}
                                 </button>
@@ -519,7 +565,7 @@ export default function ListingDiscussionThread({
                               <button
                                 type="button"
                                 onClick={() => startSellerVoiceRecording(c.id)}
-                                className="w-8 h-8 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 flex items-center justify-center text-sm font-black shadow-md cursor-pointer shrink-0"
+                                className="w-8 h-8 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center text-sm font-black shadow-md cursor-pointer shrink-0"
                                 title="Reply with Voice Note"
                               >
                                 🎙️
@@ -532,13 +578,13 @@ export default function ListingDiscussionThread({
                                 value={replyText}
                                 onChange={(e) => setReplyText(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handlePostTextReply(c.id)}
-                                className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-hidden focus:border-amber-400"
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400"
                               />
 
                               <button
                                 type="button"
                                 onClick={() => handlePostTextReply(c.id)}
-                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold rounded-xl text-xs cursor-pointer active:scale-95 shrink-0"
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs cursor-pointer active:scale-95 shrink-0"
                               >
                                 Reply
                               </button>
@@ -553,21 +599,17 @@ export default function ListingDiscussionThread({
             </div>
 
             {/* 🌟 3. BUYER ASK BAR (VOICE NOTE OR TEXT) */}
-            <div className="p-3.5 border-t border-zinc-800 bg-[#161616] space-y-2.5">
+            <div className="p-3.5 border-t border-slate-800 bg-slate-950 space-y-2.5">
               <div className="flex items-center justify-between px-2">
-                <input
-                  type="text"
-                  placeholder="Your Name (Optional)"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  className="bg-transparent text-[11px] text-zinc-300 placeholder-zinc-500 focus:outline-hidden"
-                />
+                <span className="text-[11px] font-bold text-slate-300">
+                  {currentUser ? `Asking as ${currentUser.full_name}` : 'Sign In required to post'}
+                </span>
                 <span className="text-[10px] text-amber-400 font-bold">
-                  Tap mic for instant voice note 🎙️
+                  {isTier2Verified ? 'Tier 2 Verified ✓' : 'Tier 2 Required 🔒'}
                 </span>
               </div>
 
-              {/* Active Recording State vs. Normal Search Bar */}
+              {/* Active Recording State vs. Input Bar */}
               {isRecording ? (
                 <div className="flex items-center justify-between bg-rose-500/20 border border-rose-500/60 rounded-full px-4 py-2.5 animate-pulse">
                   <div className="flex items-center space-x-2">
@@ -584,7 +626,7 @@ export default function ListingDiscussionThread({
                       type="button"
                       onClick={cancelBuyerVoiceRecording}
                       disabled={isUploadingBuyerVoice}
-                      className="text-[10px] font-bold text-zinc-400 hover:text-white"
+                      className="text-[10px] font-bold text-slate-400 hover:text-white"
                     >
                       Cancel
                     </button>
@@ -592,7 +634,7 @@ export default function ListingDiscussionThread({
                       type="button"
                       onClick={stopAndSendBuyerVoice}
                       disabled={isUploadingBuyerVoice}
-                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs rounded-full shadow-md cursor-pointer active:scale-95"
+                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-full shadow-md cursor-pointer active:scale-95"
                     >
                       {isUploadingBuyerVoice ? 'Sending...' : 'Send Voice ➔'}
                     </button>
@@ -600,24 +642,28 @@ export default function ListingDiscussionThread({
                 </div>
               ) : (
                 <form onSubmit={handleInitiateSend} className="relative">
-                  <div className="flex items-center bg-[#202124] border border-zinc-700/80 focus-within:border-zinc-500 rounded-full px-4 py-2 shadow-xl transition">
-                    <span className="text-zinc-400 text-sm mr-2.5">🔍</span>
+                  <div className="flex items-center bg-slate-900 border border-slate-800 focus-within:border-amber-400 rounded-full px-4 py-2 shadow-xl transition">
+                    <span className="text-slate-400 text-sm mr-2.5">🔍</span>
 
                     <input
                       ref={inputRef}
                       type="text"
-                      placeholder="Ask about price, condition, visit timings..."
+                      placeholder={
+                        isTier2Verified
+                          ? 'Ask about price, condition, visit timings...'
+                          : 'Tier 2 PIN required to post questions...'
+                      }
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
-                      className="flex-1 bg-transparent text-xs text-white placeholder-zinc-400 focus:outline-hidden"
+                      className="flex-1 bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
                     />
 
-                    {/* 🎙️ Voice Note Trigger Button */}
+                    {/* 🎙️ Voice Note Trigger */}
                     <button
                       type="button"
                       onClick={startBuyerVoiceRecording}
-                      className="ml-2 w-8 h-8 rounded-full bg-amber-400 hover:bg-amber-300 text-zinc-950 flex items-center justify-center text-sm font-black transition cursor-pointer shadow-md active:scale-90 shrink-0"
-                      title="Record Voice Note"
+                      className="ml-2 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 flex items-center justify-center text-sm font-black transition cursor-pointer shadow-md active:scale-90 shrink-0"
+                      title="Record Voice Note (Tier 2)"
                     >
                       🎙️
                     </button>
@@ -626,7 +672,7 @@ export default function ListingDiscussionThread({
                     <button
                       type="submit"
                       disabled={!newComment.trim()}
-                      className="ml-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-black text-xs rounded-full transition cursor-pointer active:scale-95 shrink-0"
+                      className="ml-1.5 px-3 py-1 bg-amber-400 hover:bg-amber-300 disabled:opacity-30 text-slate-950 font-black text-xs rounded-full transition cursor-pointer active:scale-95 shrink-0"
                     >
                       Ask
                     </button>
@@ -635,40 +681,40 @@ export default function ListingDiscussionThread({
               )}
             </div>
 
-            {/* 🌟 4. CONFIRMATION SHEET (Before Dispatching Text Query) */}
+            {/* 🌟 4. CONFIRMATION SHEET */}
             {pendingConfirmQuery && (
-              <div className="absolute inset-0 z-50 bg-black/85 backdrop-blur-sm rounded-t-3xl flex items-center justify-center p-4 animate-fade-in">
-                <div className="bg-[#1f1f1f] border border-zinc-700 rounded-2xl p-4 w-full max-w-sm space-y-3.5 shadow-2xl">
+              <div className="absolute inset-0 z-50 bg-black/85 backdrop-blur-sm rounded-t-3xl flex items-center justify-center p-4 animate-fade-in font-sans">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-sm space-y-3.5 shadow-2xl">
                   <div className="flex items-center space-x-2">
                     <span className="text-base">💬</span>
-                    <h3 className="text-xs font-black text-white">Confirm Question to Seller</h3>
+                    <h3 className="text-xs font-black text-slate-100">Confirm Question to Seller</h3>
                   </div>
 
-                  <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl space-y-1">
-                    <div className="text-[10px] text-zinc-400">
-                      Sending as: <strong className="text-cyan-300">{pendingConfirmQuery.senderName}</strong>
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                    <div className="text-[10px] text-slate-400">
+                      Sending as: <strong className="text-amber-300">{pendingConfirmQuery.senderName}</strong>
                     </div>
-                    <p className="text-xs text-zinc-100 font-medium leading-relaxed">
+                    <p className="text-xs text-slate-100 font-medium leading-relaxed">
                       "{pendingConfirmQuery.queryText}"
                     </p>
                   </div>
 
-                  <p className="text-[10px] text-zinc-400">
-                    This question will be sent directly to <strong>{sellerName}</strong> and will expire in 5 days.
+                  <p className="text-[10px] text-slate-400">
+                    This inquiry will be sent directly to <strong>{sellerName}</strong>.
                   </p>
 
                   <div className="flex items-center space-x-2 pt-1">
                     <button
                       type="button"
                       onClick={handleConfirmAndSend}
-                      className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl shadow-lg transition cursor-pointer active:scale-95"
+                      className="flex-1 py-2.5 bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition cursor-pointer active:scale-95"
                     >
                       ✓ Confirm & Send
                     </button>
                     <button
                       type="button"
                       onClick={() => setPendingConfirmQuery(null)}
-                      className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
                     >
                       ✎ Edit
                     </button>

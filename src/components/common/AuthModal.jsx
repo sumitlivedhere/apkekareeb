@@ -1,67 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  registerTemporaryUser,
-  verifyAdminActivationPin,
-  setPermanentSecretPin,
-  loginWithSecretPin,
-  upgradeToMerchant,
+  checkUserExistence,
+  loginWith4DigitPin,
+  registerTier1User,
+  verifyTier2WhatsAppPin,
+  completeTier3MerchantKyc,
   formatUpiHandshakeUrl,
   OFFICIAL_UPI_VPA,
 } from '../../services/authService';
-import {
-  getLiveBrowserCoordinates,
-  verifyTownResidency,
-  TOWN_CENTERS,
-} from '../../utils/geoFence';
+import { TOWN_CENTERS } from '../../utils/geoFence';
 
 export default function AuthModal({
   isOpen,
   onClose,
   onSuccess,
-  actionTitle = 'Join TownHub Community',
+  actionTitle = 'Sign In to Continue',
   selectedCity = 'Alwar',
 }) {
   if (!isOpen) return null;
 
-  // Active Modes: 'temp_register' | 'activate_pin' | 'set_secret_pin' | 'login' | 'merchant_upgrade' | 'merchant_setup'
-  const [authMode, setAuthMode] = useState('temp_register');
+  // Active Flow Modes: 'phone' | 'login_pin' | 'register' | 'tier2_pin' | 'tier3_kyc'
+  const [authMode, setAuthMode] = useState('phone');
 
-  // Step 1: Quick Join Persona & Location
-  const [fullName, setFullName] = useState('');
-  const [targetCity, setTargetCity] = useState(selectedCity || 'Alwar');
-  const [areaName, setAreaName] = useState('');
+  // Tier 1 Form Fields
   const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [areaName, setAreaName] = useState('');
+  const [targetCity, setTargetCity] = useState(selectedCity || 'Alwar');
+  const [showPin, setShowPin] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
-  // GPS Geofence State
-  const [userCoords, setUserCoords] = useState(null);
-  const [geoStatus, setGeoStatus] = useState('idle'); // 'idle' | 'checking' | 'passed' | 'mismatch' | 'error'
-  const [geoDetails, setGeoDetails] = useState(null);
+  // Tier 2 WhatsApp PIN Field
+  const [sixDigitPin, setSixDigitPin] = useState('');
 
-  // Step 2 & 3: Admin Activation & 6-Digit Secret PIN
-  const [activationPhone, setActivationPhone] = useState('');
-  const [activationPin, setActivationPin] = useState('');
-  const [secretPin, setSecretPin] = useState('');
-  const [confirmSecretPin, setConfirmSecretPin] = useState('');
-  const [showPins, setShowPins] = useState(false);
-
-  // Step 4: Standard Login
-  const [loginPhone, setLoginPhone] = useState('');
-  const [loginPin, setLoginPin] = useState('');
-
-  // Step 5: ₹1 UPI Merchant Upgrade
-  const [upiId, setUpiId] = useState('');
+  // Tier 3 Merchant KYC Fields
   const [businessName, setBusinessName] = useState('');
-  const [businessPin, setBusinessPin] = useState('');
-  const [confirmBusinessPin, setConfirmBusinessPin] = useState('');
+  const [merchantCategory, setMerchantCategory] = useState('market');
+  const [upiId, setUpiId] = useState('');
+  const [txnRef, setTxnRef] = useState('');
 
-  // UI State
+  // UI States
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const recognitionRef = useRef(null);
 
-  // 🎙️ Speech Recognition Setup for Hindi/English Voice Input
+  // 🎙️ Speech Recognition Setup for Voice Input
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -82,7 +67,7 @@ export default function AuthModal({
 
   const handleToggleVoiceInput = () => {
     if (!recognitionRef.current) {
-      setErrorMsg('Voice input is not supported on this browser. Please type your name.');
+      setErrorMsg('Voice input is not supported on this browser.');
       return;
     }
     if (isListening) {
@@ -95,290 +80,238 @@ export default function AuthModal({
     }
   };
 
-  // 📍 GPS Geofence Verification Check
-  const handleCheckGPS = async () => {
-    setIsLoading(true);
-    setGeoStatus('checking');
-    setErrorMsg('');
-    try {
-      const coords = await getLiveBrowserCoordinates();
-      setUserCoords(coords);
-      const verification = verifyTownResidency(coords.lat, coords.lng, targetCity);
-      setGeoDetails(verification);
-
-      if (verification.isWithinBoundary) {
-        setGeoStatus('passed');
-        setSuccessMsg(`✓ GPS Verified: Device located within ${verification.distanceKm} km of ${targetCity}`);
-      } else {
-        setGeoStatus('mismatch');
-        setErrorMsg(`Location Mismatch: ${verification.distanceKm} km from ${targetCity} (Allowed: ${verification.maxAllowedKm} km).`);
-      }
-    } catch (err) {
-      setGeoStatus('error');
-      setErrorMsg(err.message || 'GPS verification failed. Please grant browser location permissions.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 🌟 1. Temporary Registration
-  const handleTempRegister = async (e) => {
+  // 1. Phone Number Check
+  const handlePhoneCheck = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
-    if (!fullName.trim() || cleanPhone.length !== 10) {
-      setErrorMsg('Please enter your full name and a valid 10-digit WhatsApp number.');
+    if (cleanPhone.length !== 10) {
+      setErrorMsg('Please enter a valid 10-digit mobile number.');
       return;
     }
 
     setIsLoading(true);
-    const res = await registerTemporaryUser({
-      fullName: fullName.trim(),
-      phone: cleanPhone,
-      city: targetCity,
-      areaName: areaName.trim() || 'Town Center',
-    });
+    const { exists, hasPin, profile } = await checkUserExistence(cleanPhone);
     setIsLoading(false);
 
-    if (res.success && res.profile) {
-      setSuccessMsg(`Welcome ${fullName}! Temporary profile activated for comments, likes & cart.`);
-      setTimeout(() => {
-        if (onSuccess) onSuccess(res.profile);
-        onClose();
-      }, 1200);
+    if (exists && hasPin) {
+      setFullName(profile?.full_name || '');
+      setAreaName(profile?.area_name || '');
+      setAuthMode('login_pin');
     } else {
-      setErrorMsg(res.error || 'Temporary registration failed. Please try again.');
+      setAuthMode('register');
     }
   };
 
-  // 🌟 2. Verify Admin Activation PIN
-  const handleVerifyAdminPin = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanPhone = activationPhone.replace(/\D/g, '').slice(-10);
-    const cleanPin = activationPin.trim().toUpperCase();
-
-    if (cleanPhone.length !== 10 || !cleanPin) {
-      setErrorMsg('Please enter your 10-digit mobile number and the Admin PIN sent to your WhatsApp.');
-      return;
-    }
-
-    setIsLoading(true);
-    const res = await verifyAdminActivationPin({ phone: cleanPhone, activationPin: cleanPin });
-    setIsLoading(false);
-
-    if (res.success) {
-      setSuccessMsg('Admin PIN Verified! Please create your private 6-digit Secret PIN below.');
-      setTimeout(() => {
-        setSuccessMsg('');
-        setAuthMode('set_secret_pin');
-      }, 700);
-    } else {
-      setErrorMsg(res.error || 'Invalid Admin Activation PIN. Check your WhatsApp message.');
-    }
-  };
-
-  // 🌟 3. Set Permanent 6-Digit Secret PIN
-  const handleSetSecretPin = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanPhone = activationPhone.replace(/\D/g, '').slice(-10);
-    if (secretPin.length !== 6 || !/^\d+$/.test(secretPin)) {
-      setErrorMsg('Secret PIN must be exactly 6 numeric digits.');
-      return;
-    }
-    if (secretPin !== confirmSecretPin) {
-      setErrorMsg('Secret PIN and Confirmation PIN do not match.');
-      return;
-    }
-
-    setIsLoading(true);
-    const res = await setPermanentSecretPin({ phone: cleanPhone, secretPin });
-    setIsLoading(false);
-
-    if (res.success && res.profile) {
-      setSuccessMsg('Account permanently activated! 6-digit Secret PIN created successfully.');
-      setTimeout(() => {
-        if (onSuccess) onSuccess(res.profile);
-        onClose();
-      }, 1200);
-    } else {
-      setErrorMsg(res.error || 'Failed to save Secret PIN.');
-    }
-  };
-
-  // 🌟 4. Standard User Login
+  // 2. Tier 1 4-Digit MPIN Login
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanPhone = loginPhone.replace(/\D/g, '').slice(-10);
-    if (cleanPhone.length !== 10 || loginPin.length !== 6) {
-      setErrorMsg('Please enter your 10-digit mobile number and 6-digit Secret PIN.');
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (pin.length !== 4) {
+      setErrorMsg('Please enter your 4-digit MPIN.');
       return;
     }
 
     setIsLoading(true);
-    const res = await loginWithSecretPin({ phone: cleanPhone, pin: loginPin });
+    const res = await loginWith4DigitPin(cleanPhone, pin);
     setIsLoading(false);
 
     if (res.success && res.profile) {
-      if (onSuccess) onSuccess(res.profile);
-      onClose();
-    } else {
-      if (res.isTemporary) {
-        setErrorMsg(res.error);
-        setActivationPhone(cleanPhone);
-        setAuthMode('activate_pin');
-      } else {
-        setErrorMsg(res.error || 'Authentication failed. Please check your credentials.');
-      }
-    }
-  };
-
-  // 🌟 5. Launch ₹1 UPI Handshake for Merchant Upgrade
-  const handleLaunchUpiPayment = () => {
-    const cleanPhone = (phone || loginPhone || activationPhone).replace(/\D/g, '').slice(-10);
-    const upiUrl = formatUpiHandshakeUrl({
-      payeeVpa: OFFICIAL_UPI_VPA,
-      payeeName: 'TownHub Merchant KYC',
-      phone: cleanPhone || '9876543210',
-      amount: '1',
-    });
-    window.location.href = upiUrl;
-    setAuthMode('merchant_setup');
-  };
-
-  // 🌟 6. Complete Merchant Upgrade Setup
-  const handleFinalizeMerchant = async (e) => {
-    e.preventDefault();
-    const cleanPhone = (phone || loginPhone || activationPhone).replace(/\D/g, '').slice(-10);
-    const cleanUpi = upiId.toLowerCase().trim();
-
-    if (!cleanUpi.includes('@') || !businessName.trim() || businessPin.length !== 4 || businessPin !== confirmBusinessPin) {
-      setErrorMsg('Please enter a valid UPI ID (@), business name, and matching 4-digit business PINs.');
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMsg('');
-    const res = await upgradeToMerchant({
-      phone: cleanPhone,
-      businessName: businessName.trim(),
-      businessPin,
-      upiId: cleanUpi,
-    });
-    setIsLoading(false);
-
-    if (res.success && res.profile) {
-      setSuccessMsg('🏪 Merchant KYC Completed! Business Dashboard Unlocked.');
+      setSuccessMsg(`Welcome back, ${res.profile.full_name}!`);
       setTimeout(() => {
         if (onSuccess) onSuccess(res.profile);
         onClose();
-      }, 1200);
+      }, 500);
     } else {
-      setErrorMsg(res.error || 'Failed to complete merchant upgrade.');
+      setErrorMsg(res.error || 'Incorrect 4-Digit MPIN.');
     }
   };
 
+  // 3. Tier 1 Registration
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (!fullName.trim()) {
+      setErrorMsg('Please enter your full name.');
+      return;
+    }
+    if (pin.length !== 4) {
+      setErrorMsg('Please set a 4-digit MPIN.');
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await registerTier1User({
+      phone: cleanPhone,
+      fullName: fullName.trim(),
+      areaName: areaName.trim() || 'Town Center',
+      pin,
+      city: targetCity,
+    });
+    setIsLoading(false);
+
+    if (res.success && res.profile) {
+      setSuccessMsg('Account created successfully!');
+      setTimeout(() => {
+        if (onSuccess) onSuccess(res.profile);
+        onClose();
+      }, 500);
+    } else {
+      setErrorMsg(res.error || 'Registration failed.');
+    }
+  };
+
+  // 4. Tier 2 Admin WhatsApp PIN Verify
+  const handleTier2WhatsAppVerify = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (sixDigitPin.length !== 6) {
+      setErrorMsg('Please enter the 6-digit WhatsApp PIN.');
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await verifyTier2WhatsAppPin(cleanPhone, sixDigitPin);
+    setIsLoading(false);
+
+    if (res.success && res.profile) {
+      setSuccessMsg('🎉 Tier 2 Verified Resident Unlocked!');
+      setTimeout(() => {
+        if (onSuccess) onSuccess(res.profile);
+        onClose();
+      }, 700);
+    } else {
+      setErrorMsg(res.error || 'Invalid 6-digit WhatsApp PIN.');
+    }
+  };
+
+  // 5. Tier 3 Merchant ₹1 UPI KYC Activation
+  const handleTier3KycSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (!businessName.trim() || !upiId.trim()) {
+      setErrorMsg('Please enter your business name and UPI ID.');
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await completeTier3MerchantKyc({
+      phone: cleanPhone,
+      businessName: businessName.trim(),
+      category: merchantCategory,
+      upiId: upiId.trim(),
+      txnRef: txnRef.trim(),
+    });
+    setIsLoading(false);
+
+    if (res.success && res.profile) {
+      setSuccessMsg('🏪 Tier 3 Merchant Account Activated!');
+      setTimeout(() => {
+        if (onSuccess) onSuccess(res.profile);
+        onClose();
+      }, 700);
+    } else {
+      setErrorMsg(res.error || 'Merchant KYC verification failed.');
+    }
+  };
+
+  const upiPayUrl = formatUpiHandshakeUrl({
+    payeeVpa: OFFICIAL_UPI_VPA,
+    payeeName: 'Aapke Kareeb KYC',
+    phone: phone || '9876543210',
+    amount: '1',
+  });
+
   return (
     <div className="fixed inset-0 z-[110] bg-slate-950/85 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 select-none animate-fade-in text-slate-100 font-sans">
-      <div className="bg-[#111b21] border border-[#222e35] rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-4 space-y-3.5 shadow-2xl pb-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-4 space-y-3.5 shadow-2xl pb-6">
         
-        {/* Modal Top Header */}
-        <div className="flex items-center justify-between border-b border-[#222e35] pb-3">
+        {/* Top Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center space-x-2">
-            <span className="w-8 h-8 rounded-xl bg-[#25D366] text-[#111b21] flex items-center justify-center text-lg font-black shadow-md">
-              🛡️
+            <span className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 to-yellow-500 text-slate-950 flex items-center justify-center text-sm font-black shadow-md">
+              AK
             </span>
             <div>
-              <h3 className="text-xs font-black text-white">{actionTitle}</h3>
-              <p className="text-[10px] text-[#25D366] font-bold">
-                {targetCity} Resident & Merchant Portal
-              </p>
+              <h3 className="text-xs font-black text-slate-100">{actionTitle}</h3>
+              <p className="text-[10px] text-amber-400 font-bold">{targetCity} • Aapke Kareeb</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-7 h-7 bg-[#202c33] hover:bg-[#2a3942] text-slate-300 rounded-full flex items-center justify-center text-xs font-black cursor-pointer"
+            className="w-7 h-7 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-full flex items-center justify-center text-xs font-black cursor-pointer"
           >
             ✕
           </button>
         </div>
 
-        {/* 4-Way Navigation Tab Switcher */}
-        <div className="grid grid-cols-4 gap-1 bg-[#0b141a] p-1 rounded-2xl border border-[#222e35] text-[9.5px] font-bold">
+        {/* Dynamic Mode Switcher */}
+        <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-2xl border border-slate-800 text-[10px] font-bold">
           <button
             type="button"
             onClick={() => {
-              setAuthMode('temp_register');
+              setAuthMode('phone');
               setErrorMsg('');
               setSuccessMsg('');
             }}
             className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'temp_register'
-                ? 'bg-[#25D366] text-[#111b21] font-black shadow-md'
-                : 'text-slate-400 hover:text-white'
+              authMode === 'phone' || authMode === 'login_pin' || authMode === 'register'
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            1. Join
+            1. Login / Join
           </button>
+
           <button
             type="button"
             onClick={() => {
-              setAuthMode('activate_pin');
+              setAuthMode('tier2_pin');
               setErrorMsg('');
               setSuccessMsg('');
             }}
             className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'activate_pin' || authMode === 'set_secret_pin'
-                ? 'bg-[#25D366] text-[#111b21] font-black shadow-md'
-                : 'text-slate-400 hover:text-white'
+              authMode === 'tier2_pin'
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            2. Activate
+            2. Tier 2 PIN
           </button>
+
           <button
             type="button"
             onClick={() => {
-              setAuthMode('login');
+              setAuthMode('tier3_kyc');
               setErrorMsg('');
               setSuccessMsg('');
             }}
             className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'login'
-                ? 'bg-[#25D366] text-[#111b21] font-black shadow-md'
-                : 'text-slate-400 hover:text-white'
+              authMode === 'tier3_kyc'
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            3. Login
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode('merchant_upgrade');
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'merchant_upgrade' || authMode === 'merchant_setup'
-                ? 'bg-amber-400 text-slate-950 font-black shadow-md'
-                : 'text-amber-400/80 hover:text-amber-300'
-            }`}
-          >
-            🏪 KYC
+            3. Seller KYC
           </button>
         </div>
 
-        {/* Dynamic Status Alerts */}
+        {/* Status Messages */}
         {errorMsg && (
           <div className="p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-bold text-center animate-fade-in">
             ⚠️ {errorMsg}
@@ -390,66 +323,15 @@ export default function AuthModal({
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 1: QUICK TEMPORARY JOIN (WITH VOICE MIC & GPS GEOFENCE)           */}
-        {/* ========================================================================= */}
-        {authMode === 'temp_register' && (
-          <form onSubmit={handleTempRegister} className="space-y-3 text-xs">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-slate-400">
-                  Your Full Name (आपका पूरा नाम) *
-                </label>
-                <span className="text-[9px] text-[#25D366] font-semibold">बोलकर या लिखकर बताएं</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sumit Sharma"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="flex-1 bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-white font-semibold focus:outline-hidden focus:border-[#25D366]"
-                />
-                <button
-                  type="button"
-                  onClick={handleToggleVoiceInput}
-                  title="बोलकर नाम बताएं"
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-base transition active:scale-90 cursor-pointer ${
-                    isListening
-                      ? 'bg-rose-500 text-white animate-pulse'
-                      : 'bg-[#202c33] border border-[#2a3942] text-[#25D366] hover:bg-[#2a3942]'
-                  }`}
-                >
-                  🎙️
-                </button>
-              </div>
-              {isListening && (
-                <p className="text-[10px] text-rose-400 font-bold mt-1 animate-pulse">
-                  Listening... बोलिए अपना नाम
-                </p>
-              )}
-            </div>
-
+        {/* ─── STEP 1: MOBILE NUMBER INPUT ─── */}
+        {authMode === 'phone' && (
+          <form onSubmit={handlePhoneCheck} className="space-y-3 text-xs">
             <div>
               <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                Colony / Sector / Mohalla (कॉलोनी / क्षेत्र)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Budh Vihar / Scheme 2"
-                value={areaName}
-                onChange={(e) => setAreaName(e.target.value)}
-                className="w-full bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-white font-semibold focus:outline-hidden focus:border-[#25D366]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                WhatsApp Number (व्हाट्सएप नंबर) *
+                Mobile Number (मोबाइल नंबर)
               </label>
               <div className="flex items-center space-x-2">
-                <span className="bg-[#202c33] border border-[#2a3942] rounded-xl px-2.5 py-2.5 font-mono text-slate-400 font-bold">
+                <span className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2.5 font-mono text-amber-400 font-bold text-xs">
                   +91
                 </span>
                 <input
@@ -459,341 +341,262 @@ export default function AuthModal({
                   placeholder="9876543210"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                  className="flex-1 bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-white font-mono font-bold focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-slate-400">
-                  Select Your Shahar / Town (शहर) *
-                </label>
-                <button
-                  type="button"
-                  onClick={handleCheckGPS}
-                  disabled={isLoading}
-                  className="text-[9.5px] text-amber-300 hover:text-amber-200 font-bold flex items-center space-x-1 cursor-pointer"
-                >
-                  <span>📍</span>
-                  <span>{geoStatus === 'passed' ? '✓ GPS Verified' : 'Check GPS Location'}</span>
-                </button>
-              </div>
-              <select
-                value={targetCity}
-                onChange={(e) => setTargetCity(e.target.value)}
-                className="w-full bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-white font-bold focus:outline-hidden focus:border-[#25D366]"
-              >
-                {Object.keys(TOWN_CENTERS).map((city) => (
-                  <option key={city} value={city} className="bg-[#111b21] text-white">
-                    📍 {city} ({TOWN_CENTERS[city].name})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="p-2.5 rounded-2xl bg-[#202c33]/80 border border-[#2a3942] text-[10px] text-amber-300 leading-relaxed">
-              💡 <strong>Instant Access:</strong> Comment on listings, save favorites & track Surprise Me deals. Admin will dispatch your Activation PIN within 24 hours.
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading || !fullName.trim() || phone.replace(/\D/g, '').length !== 10}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-40 text-[#111b21] font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
-            >
-              {isLoading ? 'Creating Temporary Profile...' : '➔ Start As Temporary User'}
-            </button>
-          </form>
-        )}
-
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 2: ADMIN ACTIVATION PIN VERIFICATION                              */}
-        {/* ========================================================================= */}
-        {authMode === 'activate_pin' && (
-          <form onSubmit={handleVerifyAdminPin} className="space-y-3 text-xs">
-            <div className="p-3 bg-[#202c33] rounded-2xl border border-[#2a3942] space-y-2.5">
-              <div className="flex items-center space-x-1.5 text-amber-400 text-[10px] font-bold">
-                <span>💬</span>
-                <span>Enter WhatsApp PIN sent by TownHub Admin</span>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Registered WhatsApp Mobile Number
-                </label>
-                <div className="flex items-center space-x-2">
-                  <span className="bg-[#111b21] border border-[#2a3942] rounded-xl px-2.5 py-2 font-mono text-slate-400 font-bold">
-                    +91
-                  </span>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    placeholder="9876543210"
-                    value={activationPhone}
-                    onChange={(e) => setActivationPhone(e.target.value.replace(/\D/g, ''))}
-                    className="flex-1 bg-[#111b21] border border-[#2a3942] rounded-xl p-2 text-white font-mono font-bold focus:outline-hidden focus:border-[#25D366]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Admin Activation PIN (FirstName + 4 Digits)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. SUMIT4829"
-                  value={activationPin}
-                  onChange={(e) => setActivationPin(e.target.value.toUpperCase())}
-                  className="w-full bg-[#111b21] border border-amber-400/60 rounded-xl p-2.5 text-center text-sm font-mono font-black tracking-widest text-amber-300 uppercase focus:outline-hidden focus:border-[#25D366]"
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 font-mono font-bold text-sm focus:outline-none focus:border-amber-400"
+                  autoFocus
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || activationPhone.replace(/\D/g, '').length !== 10 || !activationPin.trim()}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-40 text-[#111b21] font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+              disabled={isLoading || phone.replace(/\D/g, '').length !== 10}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
             >
-              {isLoading ? 'Verifying Admin PIN...' : 'Verify & Set 6-Digit PIN ➔'}
+              {isLoading ? 'Checking Account...' : 'Continue ➔'}
             </button>
           </form>
         )}
 
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 3: SET SECRET 6-DIGIT PERSONAL PIN                                */}
-        {/* ========================================================================= */}
-        {authMode === 'set_secret_pin' && (
-          <form onSubmit={handleSetSecretPin} className="space-y-3 text-xs">
-            <div className="p-3 bg-[#202c33] rounded-2xl border border-[#2a3942] space-y-2.5">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-emerald-400 font-bold">
-                  ✓ Verified: +91 {activationPhone}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowPins((p) => !p)}
-                  className="text-slate-400 hover:text-white font-bold cursor-pointer"
-                >
-                  {showPins ? '🙈 Hide' : '👁️ Show'}
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Create 6-Digit Secret PIN (गोपनीय पिन बनाएं) *
-                </label>
-                <input
-                  type={showPins ? 'text' : 'password'}
-                  required
-                  maxLength={6}
-                  placeholder="••••••"
-                  value={secretPin}
-                  onChange={(e) => setSecretPin(e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-[#111b21] border border-[#2a3942] rounded-xl p-2.5 text-center text-lg font-mono font-black tracking-widest text-white focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Confirm 6-Digit Secret PIN (पिन दोबारा दर्ज करें) *
-                </label>
-                <input
-                  type={showPins ? 'text' : 'password'}
-                  required
-                  maxLength={6}
-                  placeholder="••••••"
-                  value={confirmSecretPin}
-                  onChange={(e) => setConfirmSecretPin(e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-[#111b21] border border-[#2a3942] rounded-xl p-2.5 text-center text-lg font-mono font-black tracking-widest text-white focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
-
-              <p className="text-[9.5px] text-slate-400 leading-tight">
-                🔒 This 6-digit PIN is completely private to you for all future logins.
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading || secretPin.length !== 6 || secretPin !== confirmSecretPin}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-40 text-[#111b21] font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
-            >
-              {isLoading ? 'Activating Profile...' : '✓ Complete Permanent Registration'}
-            </button>
-          </form>
-        )}
-
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 4: STANDARD USER LOGIN (MOBILE + 6-DIGIT SECRET PIN)               */}
-        {/* ========================================================================= */}
-        {authMode === 'login' && (
+        {/* ─── STEP 2A: 4-DIGIT MPIN LOGIN ─── */}
+        {authMode === 'login_pin' && (
           <form onSubmit={handleLoginSubmit} className="space-y-3 text-xs">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                Registered Mobile Number (मोबाइल नंबर)
-              </label>
-              <div className="flex items-center space-x-2">
-                <span className="bg-[#202c33] border border-[#2a3942] rounded-xl px-2.5 py-2.5 font-mono text-slate-400 font-bold">
-                  +91
-                </span>
-                <input
-                  type="tel"
-                  required
-                  maxLength={10}
-                  placeholder="9876543210"
-                  value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, ''))}
-                  className="flex-1 bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-white font-mono font-bold focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-300 font-bold">Welcome back, {fullName}</span>
+              <button
+                type="button"
+                onClick={() => setAuthMode('phone')}
+                className="text-[10px] text-amber-400 font-bold hover:underline"
+              >
+                Change
+              </button>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-slate-400">
-                  6-Digit Secret PIN (6 अंकों का पिन)
-                </label>
+                <label className="text-[10px] font-bold text-slate-400">4-Digit MPIN</label>
                 <button
                   type="button"
-                  onClick={() => setShowPins((p) => !p)}
-                  className="text-[9px] text-[#25D366] font-bold hover:underline cursor-pointer"
+                  onClick={() => setShowPin((p) => !p)}
+                  className="text-[9px] text-amber-400 font-bold hover:underline"
                 >
-                  {showPins ? 'Hide' : 'Show'}
+                  {showPin ? 'Hide' : 'Show'}
                 </button>
               </div>
               <input
-                type={showPins ? 'text' : 'password'}
+                type={showPin ? 'text' : 'password'}
+                inputMode="numeric"
+                required
+                maxLength={4}
+                placeholder="••••"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none focus:border-amber-400"
+                autoFocus
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || pin.length !== 4}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+            >
+              {isLoading ? 'Verifying MPIN...' : 'Log In ➔'}
+            </button>
+          </form>
+        )}
+
+        {/* ─── STEP 2B: REGISTRATION WITH 4-DIGIT PIN ─── */}
+        {authMode === 'register' && (
+          <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-300 font-bold">Create Account for +91 {phone}</span>
+              <button
+                type="button"
+                onClick={() => setAuthMode('phone')}
+                className="text-[10px] text-amber-400 font-bold hover:underline"
+              >
+                Change
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-bold text-slate-400">Full Name (पूरा नाम) *</label>
+                <span className="text-[9px] text-amber-400 font-semibold">बोलकर बताएं</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Rahul Sharma"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+                />
+                <button
+                  type="button"
+                  onClick={handleToggleVoiceInput}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm ${
+                    isListening ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-950 border border-slate-800 text-amber-400'
+                  }`}
+                >
+                  🎙️
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">Locality (कॉलोनी / क्षेत्र)</label>
+              <input
+                type="text"
+                placeholder="e.g. Budh Vihar / Scheme 2"
+                value={areaName}
+                onChange={(e) => setAreaName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">Set 4-Digit MPIN *</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                required
+                maxLength={4}
+                placeholder="••••"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-center text-lg font-mono font-black tracking-widest text-amber-300 focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || !fullName.trim() || pin.length !== 4}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+            >
+              {isLoading ? 'Creating Account...' : 'Complete Sign Up ➔'}
+            </button>
+          </form>
+        )}
+
+        {/* ─── TIER 2: ADMIN 6-DIGIT WHATSAPP PIN VERIFY ─── */}
+        {authMode === 'tier2_pin' && (
+          <form onSubmit={handleTier2WhatsAppVerify} className="space-y-3 text-xs">
+            <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span className="text-[11px] font-bold text-amber-400 block">💬 Admin WhatsApp Activation</span>
+              <p className="text-[10px] text-slate-400">
+                Enter the 6-digit approval PIN sent by Admin to your WhatsApp.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">Registered Mobile Number</label>
+              <input
+                type="tel"
+                required
+                maxLength={10}
+                placeholder="9876543210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-mono focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-1">6-Digit WhatsApp PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
                 required
                 maxLength={6}
                 placeholder="••••••"
-                value={loginPin}
-                onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-[#202c33] border border-[#2a3942] rounded-xl p-3 text-center text-lg font-mono font-black tracking-widest text-white focus:outline-hidden focus:border-[#25D366]"
+                value={sixDigitPin}
+                onChange={(e) => setSixDigitPin(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-2.5 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none"
               />
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || loginPhone.replace(/\D/g, '').length !== 10 || loginPin.length !== 6}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-40 text-[#111b21] font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+              disabled={isLoading || phone.length !== 10 || sixDigitPin.length !== 6}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
             >
-              {isLoading ? 'Verifying...' : '➔ Login with PIN'}
+              {isLoading ? 'Verifying...' : 'Unlock Tier 2 Badge ➔'}
             </button>
           </form>
         )}
 
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 5: ₹1 UPI MERCHANT UPGRADE PROMPT                                  */}
-        {/* ========================================================================= */}
-        {authMode === 'merchant_upgrade' && (
-          <div className="space-y-3.5 text-xs text-center">
-            <div className="p-3.5 bg-[#202c33] rounded-2xl border border-[#2a3942] space-y-2">
-              <span className="text-3xl block">🏪</span>
-              <h4 className="text-sm font-black text-white">
-                विक्रेता / सेवा प्रदाता (Seller/Provider) बनना चाहते हैं?
-              </h4>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                Pay <strong className="text-amber-400">₹1</strong> via UPI to link and verify your bank account. Your bank UPI ID will be registered with your Business ID.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={handleLaunchUpiPayment}
-                className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] text-[#111b21] font-black text-xs rounded-xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1.5 cursor-pointer"
-              >
-                <span>💳</span>
-                <span>Open UPI App (Pay ₹1) ➔</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAuthMode('merchant_setup')}
-                className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition"
-              >
-                ➔ I Have Paid ₹1 (Set Business ID)
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* 🌟 VIEW 6: MERCHANT BUSINESS ID & UPI PROFILE SETUP                       */}
-        {/* ========================================================================= */}
-        {authMode === 'merchant_setup' && (
-          <form onSubmit={handleFinalizeMerchant} className="space-y-3 text-xs">
-            <div className="p-3 bg-[#202c33] rounded-2xl border border-[#2a3942] space-y-2">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Bank KYC Verification:</span>
-                <span className="text-[#25D366] font-bold">✓ ₹1 UPI Initiated</span>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Bank Payout UPI ID (1 UPI = 1 Business Account) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. rahul@okhdfcbank or 9116544765@ybl"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value.toLowerCase().trim())}
-                  className="w-full bg-[#111b21] border border-[#2a3942] rounded-xl p-2.5 text-white font-mono font-bold focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Business / Shop / Service Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sharma Electricals & Sanitations"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  className="w-full bg-[#111b21] border border-[#2a3942] rounded-xl p-2.5 text-white font-semibold focus:outline-hidden focus:border-[#25D366]"
-                />
-              </div>
-            </div>
-
+        {/* ─── TIER 3: MERCHANT ₹1 UPI KYC ─── */}
+        {authMode === 'tier3_kyc' && (
+          <form onSubmit={handleTier3KycSubmit} className="space-y-2.5 text-xs">
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                Set 4-Digit Business Security PIN (डैशबोर्ड पिन) *
-              </label>
+              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Registered Mobile Number *</label>
               <input
-                type="password"
+                type="tel"
                 required
-                maxLength={4}
-                placeholder="••••"
-                value={businessPin}
-                onChange={(e) => setBusinessPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-center text-lg font-mono font-black tracking-widest text-white focus:outline-hidden focus:border-[#25D366]"
+                maxLength={10}
+                placeholder="9876543210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-mono focus:outline-none focus:border-amber-400"
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                Confirm 4-Digit Business PIN *
-              </label>
+              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Shop / Business Name *</label>
               <input
-                type="password"
+                type="text"
                 required
-                maxLength={4}
-                placeholder="••••"
-                value={confirmBusinessPin}
-                onChange={(e) => setConfirmBusinessPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-[#202c33] border border-[#2a3942] rounded-xl p-2.5 text-center text-lg font-mono font-black tracking-widest text-white focus:outline-hidden focus:border-[#25D366]"
+                placeholder="e.g. Royal Lehengas & Sherwani"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Business Payout UPI ID *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. shopname@upi"
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-amber-300 font-mono focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 text-center space-y-1.5">
+              <p className="text-[10px] text-slate-300 font-semibold">Step 1: Complete ₹1 KYC verification via UPI</p>
+              <a
+                href={upiPayUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition"
+              >
+                ⚡ 1-Tap Pay ₹1 via UPI App
+              </a>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Step 2: UPI Reference / UTR Number *</label>
+              <input
+                type="text"
+                required
+                placeholder="12-digit UTR Number"
+                value={txnRef}
+                onChange={(e) => setTxnRef(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-mono focus:outline-none focus:border-amber-400"
               />
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || !upiId.includes('@') || !businessName.trim() || businessPin.length !== 4 || businessPin !== confirmBusinessPin}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20bd5a] disabled:opacity-40 text-[#111b21] font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+              disabled={isLoading || !businessName.trim() || !upiId.trim() || !txnRef.trim()}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
             >
-              {isLoading ? 'Verifying & Upgrading...' : '✓ Complete Merchant KYC Registration'}
+              {isLoading ? 'Activating Merchant...' : 'Complete Merchant Activation ➔'}
             </button>
           </form>
         )}
