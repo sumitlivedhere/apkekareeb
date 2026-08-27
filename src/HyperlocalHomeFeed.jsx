@@ -1,9 +1,244 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import TownHubView from './categories/TownHubView';
 import SearchOverlay from './components/common/SearchOverlay';
 import PostListingModal from './components/common/PostListingModal';
 import { hyperlocalStore } from './store/hyperlocalStore';
 import { isBusinessAuthorized, isAdminAuthorized } from './services/authService';
+import { useTheme } from './context/ThemeContext';
+
+// 21 Hyperlocal Town Categories with Theme-Adaptive Colors
+const TOWN_CATEGORIES = [
+  {
+    id: 'kaarigar',
+    name: 'Kaarigar & Mistri',
+    hindi: 'कारीगर व मिस्त्री सेवा',
+    icon: '🛠️',
+    lightBg: 'bg-amber-50/90 border-amber-200 hover:border-amber-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-amber-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-amber-800 font-black',
+    darkHindi: 'text-amber-400 font-bold',
+  },
+  {
+    id: 'property',
+    name: 'Property & Real Estate',
+    hindi: 'प्रॉपर्टी व रियल एस्टेट',
+    icon: '🏢',
+    lightBg: 'bg-sky-50/90 border-sky-200 hover:border-sky-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-sky-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-sky-800 font-black',
+    darkHindi: 'text-sky-400 font-bold',
+  },
+  {
+    id: 'transporters',
+    name: 'Transporters / Loading',
+    hindi: 'ट्रांसपोर्ट व माल ढुलाई',
+    icon: '🚚',
+    lightBg: 'bg-yellow-50/90 border-yellow-200 hover:border-yellow-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-yellow-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-amber-900 font-black',
+    darkHindi: 'text-yellow-400 font-bold',
+  },
+  {
+    id: 'white-collar',
+    name: 'Doctor / CA / Lawyer / Consultant',
+    hindi: 'प्रोफेशनल्स व विशेषज्ञ',
+    icon: '👔',
+    lightBg: 'bg-indigo-50/90 border-indigo-200 hover:border-indigo-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-indigo-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-indigo-800 font-black',
+    darkHindi: 'text-indigo-400 font-bold',
+  },
+  {
+    id: 'restaurants',
+    name: 'Restaurant / Cafe / Food',
+    hindi: 'रेस्टोरेंट व कैफे',
+    icon: '🍔',
+    lightBg: 'bg-rose-50/90 border-rose-200 hover:border-rose-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-rose-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-rose-800 font-black',
+    darkHindi: 'text-rose-400 font-bold',
+  },
+  {
+    id: 'fashion',
+    name: 'Flagship Showrooms & Boutiques',
+    hindi: 'प्रीमियम शोरूम व बुटीक',
+    icon: '💎',
+    lightBg: 'bg-pink-50/90 border-pink-200 hover:border-pink-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-pink-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-pink-800 font-black',
+    darkHindi: 'text-pink-400 font-bold',
+  },
+  {
+    id: 'education',
+    name: 'Education, Skills & Apprenticeship',
+    hindi: 'शिक्षा, हुनर व ट्रेनी ट्रेनिंग',
+    icon: '🎓',
+    lightBg: 'bg-blue-50/90 border-blue-200 hover:border-blue-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-blue-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-blue-800 font-black',
+    darkHindi: 'text-blue-400 font-bold',
+  },
+  {
+    id: 'construction',
+    name: 'Construction & Materials',
+    hindi: 'निर्माण कार्य व सामग्री',
+    icon: '🏗️',
+    lightBg: 'bg-orange-50/90 border-orange-200 hover:border-orange-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-orange-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-orange-900 font-black',
+    darkHindi: 'text-orange-400 font-bold',
+  },
+  {
+    id: 'shaadi',
+    name: 'Shaadi & Wedding 360°',
+    hindi: 'विवाह सेवा व शादी की तैयारी',
+    icon: '💍',
+    lightBg: 'bg-rose-50/90 border-rose-200 hover:border-rose-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-rose-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-rose-800 font-black',
+    darkHindi: 'text-rose-400 font-bold',
+  },
+  {
+    id: 'festival',
+    name: 'Festival Offers & Melas',
+    hindi: 'त्योहारी ऑफर्स व मेले',
+    icon: '🎪',
+    lightBg: 'bg-purple-50/90 border-purple-200 hover:border-purple-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-purple-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-purple-800 font-black',
+    darkHindi: 'text-purple-400 font-bold',
+  },
+  {
+    id: 'recommerce',
+    name: 'Re-Commerce / Second Hand',
+    hindi: 'पुराना बाज़ार व थ्रिफ्ट',
+    icon: '🛍️',
+    lightBg: 'bg-emerald-50/90 border-emerald-200 hover:border-emerald-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-emerald-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-emerald-800 font-black',
+    darkHindi: 'text-emerald-400 font-bold',
+  },
+  {
+    id: 'vehicles',
+    name: 'Automobiles & Vehicles',
+    hindi: 'ऑटोमोबाइल व वाहन',
+    icon: '🏎️',
+    lightBg: 'bg-cyan-50/90 border-cyan-200 hover:border-cyan-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-cyan-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-cyan-800 font-black',
+    darkHindi: 'text-cyan-400 font-bold',
+  },
+  {
+    id: 'electronics',
+    name: 'Electronics & Gadgets',
+    hindi: 'इलेक्ट्रॉनिक्स व गैजेट्स',
+    icon: '📱',
+    lightBg: 'bg-sky-50/90 border-sky-200 hover:border-sky-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-sky-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-sky-800 font-black',
+    darkHindi: 'text-sky-400 font-bold',
+  },
+  {
+    id: 'fashion-lifestyle',
+    name: 'Fashion & Lifestyle',
+    hindi: 'फैशन व लाइफस्टाइल',
+    icon: '✨',
+    lightBg: 'bg-pink-50/90 border-pink-200 hover:border-pink-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-pink-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-pink-800 font-black',
+    darkHindi: 'text-pink-400 font-bold',
+  },
+  {
+    id: 'medical',
+    name: 'Medical, Hospitals & Doctors',
+    hindi: 'चिकित्सा, डॉक्टर व अस्पताल',
+    icon: '🏥',
+    lightBg: 'bg-teal-50/90 border-teal-200 hover:border-teal-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-teal-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-teal-800 font-black',
+    darkHindi: 'text-teal-400 font-bold',
+  },
+  {
+    id: 'furniture',
+    name: 'Furniture & Decor',
+    hindi: 'फर्नीचर व इंटीरियर',
+    icon: '🛋️',
+    lightBg: 'bg-amber-50/90 border-amber-200 hover:border-amber-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-amber-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-amber-900 font-black',
+    darkHindi: 'text-amber-400 font-bold',
+  },
+  {
+    id: 'market',
+    name: 'Market & Retail',
+    hindi: 'लोकल बाज़ार व डील्स',
+    icon: '🛒',
+    lightBg: 'bg-emerald-50/90 border-emerald-200 hover:border-emerald-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-emerald-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-emerald-800 font-black',
+    darkHindi: 'text-emerald-400 font-bold',
+  },
+  {
+    id: 'advertising',
+    name: 'Advertising & Space Exchange',
+    hindi: 'विज्ञापन व लोकल प्रोमो',
+    icon: '📢',
+    lightBg: 'bg-purple-50/90 border-purple-200 hover:border-purple-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-purple-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-purple-800 font-black',
+    darkHindi: 'text-purple-400 font-bold',
+  },
+  {
+    id: 'community',
+    name: 'Community & Events',
+    hindi: 'समाज, संस्थाएं व कार्यक्रम',
+    icon: '🤝',
+    lightBg: 'bg-blue-50/90 border-blue-200 hover:border-blue-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-blue-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-blue-800 font-black',
+    darkHindi: 'text-blue-400 font-bold',
+  },
+  {
+    id: 'fitness',
+    name: 'Fitness, Gyms & Sports',
+    hindi: 'फिटनेस, जिम व खेल',
+    icon: '🏋️',
+    lightBg: 'bg-red-50/90 border-red-200 hover:border-red-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-red-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-red-800 font-black',
+    darkHindi: 'text-red-400 font-bold',
+  },
+  {
+    id: 'creators',
+    name: 'Local Creators & Artists',
+    hindi: 'लोकल आर्टिस्ट व वीडियो',
+    icon: '🎬',
+    lightBg: 'bg-fuchsia-50/90 border-fuchsia-200 hover:border-fuchsia-400',
+    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-fuchsia-400/50',
+    lightText: 'text-slate-900',
+    lightHindi: 'text-fuchsia-800 font-black',
+    darkHindi: 'text-fuchsia-400 font-bold',
+  },
+];
 
 export default function HyperlocalHomeFeed({
   userLocation,
@@ -15,13 +250,14 @@ export default function HyperlocalHomeFeed({
   searchQuery = '',
   onSearchChange,
 }) {
+  const { isDark } = useTheme();
   const currentCity = userLocation?.city || 'Alwar';
-  const displayLocality = userLocation?.display || `${userLocation?.locality || 'Nearby'}, ${currentCity}`;
+  const displayLocality = userLocation?.display || `${userLocation?.locality || 'Town Center'}, ${currentCity}`;
   const allListings = hyperlocalStore.getAllListings();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [speakingCatId, setSpeakingCatId] = useState(null);
 
-  // Strictly check if current session is an authorized Seller or Master Admin
   const canPostListing = useMemo(() => {
     return isBusinessAuthorized() || isAdminAuthorized();
   }, []);
@@ -33,43 +269,64 @@ export default function HyperlocalHomeFeed({
     return () => clearTimeout(timer);
   }, [localQuery, onSearchChange]);
 
-  return (
-    <div className="p-3.5 space-y-4 animate-fade-in text-slate-800 relative">
-      <style>{`
-        @keyframes subtleWiggle {
-          0%, 100% { transform: rotate(0deg) scale(1); }
-          25% { transform: rotate(-0.8deg) scale(1.008); }
-          75% { transform: rotate(0.8deg) scale(1.008); }
-        }
-        .animate-subtle-wiggle {
-          animation: subtleWiggle 3.2s ease-in-out infinite;
-        }
-      `}</style>
+  // 🔊 Audio Speech Synthesizer for Accessibility
+  const handleSpeakCategory = (e, cat) => {
+    e.stopPropagation();
+    if (!('speechSynthesis' in window)) return;
 
-      {/* 1. AAPKE KAREEB (GPS PINNING RADAR) & SEARCH */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 p-4 rounded-3xl text-white shadow-lg border border-slate-800 space-y-3">
-        
-        {/* Locality, Post Here & Live GPS Refresh */}
-        <div className="flex items-center justify-between">
+    window.speechSynthesis.cancel();
+    setSpeakingCatId(cat.id);
+
+    const utterance = new SpeechSynthesisUtterance(`${cat.name}. ${cat.hindi}`);
+    utterance.lang = 'hi-IN';
+    utterance.rate = 0.95;
+    utterance.onend = () => setSpeakingCatId(null);
+    utterance.onerror = () => setSpeakingCatId(null);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const filteredCategories = useMemo(() => {
+    if (!searchQuery.trim()) return TOWN_CATEGORIES;
+    const q = searchQuery.toLowerCase().trim();
+    return TOWN_CATEGORIES.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.hindi.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q)
+    );
+  }, [searchQuery]);
+
+  return (
+    <div className="p-3.5 space-y-3.5 animate-fade-in font-sans select-none pb-12">
+      
+      {/* 🌟 1. GPS PINNING RADAR & GLOBAL SEARCH CARD */}
+      <section
+        className={`p-4 rounded-3xl border transition-colors shadow-md ${
+          isDark
+            ? 'bg-slate-900 border-slate-800 text-slate-100'
+            : 'bg-white border-slate-200 text-slate-900 shadow-slate-200/50'
+        }`}
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
           <div className="min-w-0 flex-1 pr-2">
             <div className="flex items-center space-x-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[10px] text-amber-400 font-black uppercase tracking-widest">
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-black uppercase tracking-widest">
                 AAPKE KAREEB • आपके करीब
               </span>
             </div>
 
-            <h2 className="text-sm font-black text-white mt-1 truncate flex items-center space-x-1">
+            <h2 className="text-xs font-black text-slate-900 dark:text-slate-100 mt-1 truncate flex items-center space-x-1">
               <span>📍</span>
               <span className="truncate">{displayLocality}</span>
             </h2>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
-            {/* Post Here Button - Only rendered for authorized Sellers and Admin */}
             {canPostListing && (
               <button
                 type="button"
@@ -82,13 +339,16 @@ export default function HyperlocalHomeFeed({
               </button>
             )}
 
-            {/* GPS Pin / Refresh Trigger */}
             <button
               type="button"
               onClick={onRefreshLocation}
               disabled={isLocating}
               title="Refresh GPS Location"
-              className="px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 active:scale-95 text-amber-300 border border-slate-700 rounded-xl text-xs font-black flex items-center space-x-1.5 transition cursor-pointer disabled:opacity-50 shadow-sm"
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer active:scale-95 flex items-center space-x-1.5 shadow-xs disabled:opacity-50 ${
+                isDark
+                  ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300'
+                  : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+              }`}
             >
               <span className={isLocating ? 'animate-spin inline-block' : ''}>
                 🔄
@@ -99,34 +359,129 @@ export default function HyperlocalHomeFeed({
         </div>
 
         {/* Global Search Input */}
-        <div className="relative pt-1">
-          <input
-            type="text"
-            placeholder="Search Plumber, 2 BHK Flat, Bolero, Doctor, Cafe..."
-            value={searchQuery}
-            onChange={(e) => {
-              setLocalQuery(e.target.value);
-              onSearchChange(e.target.value);
-            }}
-            className="w-full pl-9 pr-8 py-2.5 bg-slate-800/80 border border-slate-700 rounded-2xl font-bold text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-amber-400"
-          />
-          <span className="absolute left-3 top-3.5 text-xs text-slate-400">🔍</span>
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setLocalQuery('');
-                onSearchChange('');
+        <div className="pt-3">
+          <div
+            className={`flex items-center rounded-2xl px-3.5 py-2.5 border transition-all ${
+              isDark
+                ? 'bg-slate-950 border-slate-800 focus-within:border-amber-400'
+                : 'bg-slate-50 border-slate-300 focus-within:border-amber-500 focus-within:bg-white shadow-xs'
+            }`}
+          >
+            <span className="text-slate-400 text-xs mr-2.5">🔍</span>
+            <input
+              type="text"
+              placeholder="Search Plumber, 2 BHK Flat, Bolero, Doctor, Cafe..."
+              value={searchQuery}
+              onChange={(e) => {
+                setLocalQuery(e.target.value);
+                onSearchChange(e.target.value);
               }}
-              className="absolute right-3 top-3.5 text-xs text-slate-400 hover:text-white cursor-pointer"
-            >
-              ✕
-            </button>
-          )}
+              className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none font-semibold"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalQuery('');
+                  onSearchChange('');
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
+      </section>
+
+      {/* 🌟 2. CATEGORIES HEADER STRIP */}
+      <div className="flex items-center justify-between px-1 pt-1">
+        <div className="flex items-center space-x-1.5">
+          <span className="text-base">🏛️</span>
+          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-300">
+            All Town Categories (सभी श्रेणियां)
+          </h3>
+        </div>
+        <span
+          className={`px-2.5 py-0.5 rounded-full text-[10px] font-black font-mono border ${
+            isDark
+              ? 'bg-slate-900 text-amber-400 border-slate-800'
+              : 'bg-slate-100 text-slate-700 border-slate-300'
+          }`}
+        >
+          {filteredCategories.length} Categories
+        </span>
       </div>
 
-      {/* 🌟 Real-Time In-Memory Search Overlay */}
+      {/* 🌟 3. HIGH-CONTRAST CATEGORY CARDS DIRECTORY */}
+      <div className="space-y-2.5">
+        {filteredCategories.map((cat) => {
+          const isSpeaking = speakingCatId === cat.id;
+
+          return (
+            <div
+              key={cat.id}
+              onClick={() => onSelectCategory(cat.id)}
+              className={`p-3.5 rounded-3xl border transition-all duration-150 cursor-pointer active:scale-[0.98] shadow-sm flex items-center justify-between space-x-3 ${
+                isDark ? cat.darkBg : cat.lightBg
+              }`}
+            >
+              {/* Left: Category Icon & Clean High-Contrast Text */}
+              <div className="flex items-center space-x-3.5 min-w-0">
+                <div
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 border ${
+                    isDark
+                      ? 'bg-slate-950 border-slate-800 shadow-md'
+                      : 'bg-white border-slate-200/80 shadow-xs'
+                  }`}
+                >
+                  {cat.icon}
+                </div>
+
+                <div className="min-w-0">
+                  <h4 className="text-[13px] font-black leading-snug truncate text-slate-900 dark:text-slate-100">
+                    {cat.name}
+                  </h4>
+                  <p
+                    className={`text-[11px] leading-snug mt-0.5 truncate ${
+                      isDark ? cat.darkHindi : cat.lightHindi
+                    }`}
+                  >
+                    {cat.hindi}
+                  </p>
+                  <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                    📍 {currentCity} • Verified Hub
+                  </p>
+                </div>
+              </div>
+
+              {/* Right: Adaptive Voice Speaker & Navigation Arrow */}
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => handleSpeakCategory(e, cat)}
+                  className={`w-9 h-9 rounded-2xl border flex items-center justify-center text-sm transition cursor-pointer active:scale-90 shadow-xs ${
+                    isSpeaking
+                      ? 'bg-amber-400 text-slate-950 border-amber-500 animate-pulse'
+                      : isDark
+                      ? 'bg-slate-950/80 hover:bg-slate-800 border-slate-800 text-slate-300'
+                      : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-amber-800'
+                  }`}
+                  title="बोलकर सुनें (Listen)"
+                >
+                  {isSpeaking ? '🔊' : '🔈'}
+                </button>
+
+                <span className="text-slate-400 dark:text-slate-500 text-xs font-black">
+                  ➔
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 🌟 4. Real-Time Search Overlay */}
       {searchQuery.trim().length > 0 && (
         <SearchOverlay
           query={searchQuery}
@@ -151,52 +506,7 @@ export default function HyperlocalHomeFeed({
         />
       )}
 
-      {/* 2. 🌟 PROMINENT WIGGLING "SURPRISE ME" CATEGORY */}
-      <div className="relative animate-subtle-wiggle">
-        <div className="absolute -inset-[2px] rounded-3xl overflow-hidden pointer-events-none">
-          <div className="w-[250%] h-[250%] absolute -top-[75%] -left-[75%] bg-[conic-gradient(from_0deg,transparent_0_260deg,#fbbf24_300deg,#f59e0b_330deg,#ffffff_360deg)] animate-[spin_3.5s_linear_infinite]"></div>
-        </div>
-
-        <div className="absolute -inset-[1px] rounded-3xl bg-amber-400/25 blur-xs pointer-events-none"></div>
-
-        <button
-          type="button"
-          onClick={() => onSelectCategory('surprise')}
-          className="relative z-10 w-full p-4 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 hover:from-slate-900 hover:to-indigo-900 text-white rounded-3xl font-black text-xs shadow-2xl flex items-center justify-between active:scale-[0.98] transition cursor-pointer border border-amber-400/30 group"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-300 text-slate-950 flex items-center justify-center text-2xl font-black shadow-lg group-hover:scale-110 group-hover:rotate-12 transition">
-              🎲
-            </div>
-            <div className="text-left">
-              <div className="flex items-center space-x-1.5">
-                <span className="font-black text-amber-300 text-sm tracking-tight">
-                  Surprise Me! (कुछ नया देखें)
-                </span>
-                <span className="bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase shadow-xs">
-                  Trending
-                </span>
-              </div>
-              <span className="block text-[11px] text-slate-300 font-medium leading-tight mt-1">
-                Explore handpicked deals & verified services nearby
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-1 bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 text-[11px] font-black px-3 py-2 rounded-2xl shadow-md shrink-0 group-hover:translate-x-1 transition">
-            <span>Open</span>
-            <span>➔</span>
-          </div>
-        </button>
-      </div>
-
-      {/* 3. 17 TOP-LEVEL CATEGORIES DIRECTORY */}
-      <TownHubView
-        selectedCity={currentCity}
-        onSelectCategory={onSelectCategory}
-      />
-
-      {/* Post Listing Modal - Accessible only to authorized Sellers or Admin */}
+      {/* Post Listing Modal */}
       {isPostModalOpen && canPostListing && (
         <PostListingModal
           selectedCity={currentCity}
