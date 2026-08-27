@@ -1,0 +1,344 @@
+import React, { useMemo } from 'react';
+import { useCartSlice, hyperlocalStore } from '../../store/hyperlocalStore';
+import { getCurrentUserProfile } from '../../services/authService';
+import { useTheme } from '../../context/ThemeContext';
+
+export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
+  const { isDark } = useTheme();
+  const cartItems = useCartSlice();
+  const currentUser = getCurrentUserProfile();
+
+  const isPermanentUser = Boolean(
+    currentUser &&
+      (currentUser.verification_tier === 'verified_resident' ||
+        currentUser.verification_tier === 'verified_merchant' ||
+        currentUser.is_verified === true)
+  );
+
+  // Group items by Seller for multi-category ordering
+  const groupedBySeller = useMemo(() => {
+    const map = {};
+    cartItems.forEach((item) => {
+      const sellerKey = item.phone || item.sellerName || 'General_Merchant';
+      if (!map[sellerKey]) {
+        map[sellerKey] = {
+          sellerName: item.sellerName || 'Verified Merchant',
+          phone: item.phone || '',
+          whatsapp: item.whatsapp || item.phone || '',
+          location: item.location || 'Town Center',
+          items: [],
+          subtotal: 0,
+        };
+      }
+      map[sellerKey].items.push(item);
+      map[sellerKey].subtotal += (item.numericPrice || 0) * (item.quantity || 1);
+    });
+    return Object.values(map);
+  }, [cartItems]);
+
+  const totalCalculablePrice = useMemo(() => {
+    return cartItems.reduce((sum, item) => sum + (item.numericPrice || 0) * (item.quantity || 1), 0);
+  }, [cartItems]);
+
+  // Dispatch individual seller order via formatted WhatsApp contract
+  const handleDispatchWhatsAppOrder = (sellerGroup) => {
+    if (!currentUser) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+
+    const itemsSummary = sellerGroup.items
+      .map(
+        (i, idx) =>
+          `${idx + 1}. *${i.title}*\n   Qty: ${i.quantity} | Rate: ${i.price}`
+      )
+      .join('\n\n');
+
+    const buyerName = currentUser?.full_name || 'Resident';
+    const buyerPhone = currentUser?.phone || '';
+    const buyerLocality = currentUser?.area_name || 'Town Center';
+
+    const message =
+      `🛍️ *NEW AAPKE KAREEB ORDER & BOOKING*\n` +
+      `----------------------------------------\n` +
+      `Namaste *${sellerGroup.sellerName}*! 🙏\n\n` +
+      `I want to place an order / booking for the following selected item(s):\n\n` +
+      `${itemsSummary}\n\n` +
+      `----------------------------------------\n` +
+      (sellerGroup.subtotal > 0 ? `💰 *Estimated Total: ₹${sellerGroup.subtotal.toLocaleString('en-IN')}*\n` : '') +
+      `👤 *Customer:* ${buyerName} (+91 ${buyerPhone})\n` +
+      `📍 *Delivery / Service Area:* ${buyerLocality}\n\n` +
+      `Please confirm availability, timing, and dispatch details. Dhanyawaad!`;
+
+    const targetPhone = sellerGroup.whatsapp || sellerGroup.phone;
+    const url = `https://wa.me/91${targetPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex justify-end animate-fade-in font-sans select-none">
+      <div
+        className={`w-full max-w-md h-full flex flex-col justify-between shadow-2xl transition-colors duration-200 border-l ${
+          isDark
+            ? 'bg-slate-950 text-slate-100 border-slate-800'
+            : 'bg-white text-slate-900 border-slate-200'
+        }`}
+      >
+        {/* 🌟 1. Top Header */}
+        <header
+          className={`p-4 border-b flex items-center justify-between ${
+            isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}
+        >
+          <div className="flex items-center space-x-2">
+            <span className="text-xl">🛍️</span>
+            <div>
+              <h2 className="text-sm font-black tracking-tight">Your Selected Items (कार्ट)</h2>
+              <span className="text-[10px] text-amber-500 font-bold block">
+                {cartItems.length} {cartItems.length === 1 ? 'item' : 'items'} selected
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {cartItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Clear all selected items from your cart?')) {
+                    hyperlocalStore.clearCart();
+                  }
+                }}
+                className="text-[10px] text-rose-500 hover:text-rose-400 font-bold px-2 py-1 bg-rose-500/10 rounded-lg cursor-pointer transition active:scale-95"
+              >
+                Clear All
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black cursor-pointer active:scale-90 transition ${
+                isDark ? 'bg-slate-800 text-slate-300 hover:text-white' : 'bg-slate-200 text-slate-700 hover:text-black'
+              }`}
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+
+        {/* 🌟 2. Body List Grouped By Seller */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          
+          {/* Permanent User Status Alert Banner */}
+          {!currentUser ? (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-xs">
+              <div className="space-y-0.5">
+                <span className="font-black text-amber-500 block">👤 Login to Checkout</span>
+                <p className="text-[10.5px] text-slate-400">Save selected items across town categories.</p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                className="px-3 py-1.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-xl cursor-pointer active:scale-95 shadow-xs"
+              >
+                Login ➔
+              </button>
+            </div>
+          ) : !isPermanentUser ? (
+            <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl text-[11px] text-cyan-300 space-y-1">
+              <span className="font-black block">⭐ Verified Resident Recommended</span>
+              <p className="text-[10px] text-slate-400">
+                Enter your 6-digit WhatsApp PIN in Profile for 1-tap fast merchant priority dispatch.
+              </p>
+            </div>
+          ) : null}
+
+          {cartItems.length === 0 ? (
+            <div className="text-center py-20 space-y-3">
+              <span className="text-4xl block">🛒</span>
+              <h3 className="text-sm font-black text-slate-400">Your Cart is Empty</h3>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                Select items, rental attire, groceries, or service bookings across any town category.
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition"
+              >
+                Explore Categories ➔
+              </button>
+            </div>
+          ) : (
+            groupedBySeller.map((sellerGroup, gIdx) => (
+              <div
+                key={gIdx}
+                className={`p-3.5 rounded-3xl border space-y-3 shadow-xs ${
+                  isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                {/* Merchant Header */}
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-2">
+                  <div>
+                    <span className="text-[9px] font-black uppercase text-amber-500 tracking-wider block">
+                      SELLER / MERCHANT
+                    </span>
+                    <h4 className="text-xs font-black truncate max-w-[200px]">
+                      🏪 {sellerGroup.sellerName}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      📍 {sellerGroup.location} • 📱 +91 {sellerGroup.phone}
+                    </span>
+                  </div>
+
+                  <span className="text-[10px] font-bold text-slate-500 font-mono">
+                    {sellerGroup.items.length} {sellerGroup.items.length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
+
+                {/* Items from this seller */}
+                <div className="space-y-2.5">
+                  {sellerGroup.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-2.5 rounded-2xl border flex items-center justify-between space-x-3 ${
+                        isDark ? 'bg-slate-950 border-slate-800/80' : 'bg-white border-slate-200'
+                      }`}
+                    >
+                      {/* Thumbnail & Title */}
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.title}
+                            className="w-12 h-12 rounded-xl object-cover border border-slate-200 dark:border-slate-800 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-amber-400/20 text-amber-500 font-black flex items-center justify-center text-lg shrink-0">
+                            🛍️
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <h5 className="text-[11.5px] font-black leading-snug truncate">
+                            {item.title}
+                          </h5>
+                          <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-bold block">
+                            {item.price}
+                          </span>
+                          <span className="text-[8.5px] text-slate-400 uppercase font-semibold">
+                            {item.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Quantity Controls & Delete */}
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <div
+                          className={`flex items-center space-x-1 border rounded-xl px-1 py-0.5 ${
+                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-300'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              hyperlocalStore.updateCartQuantity(item.id, (item.quantity || 1) - 1)
+                            }
+                            className="w-5 h-5 flex items-center justify-center font-black text-xs text-slate-400 hover:text-amber-500 cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <span className="text-[11px] font-black font-mono w-4 text-center">
+                            {item.quantity || 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              hyperlocalStore.updateCartQuantity(item.id, (item.quantity || 1) + 1)
+                            }
+                            className="w-5 h-5 flex items-center justify-center font-black text-xs text-slate-400 hover:text-amber-500 cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => hyperlocalStore.removeFromCart(item.id)}
+                          className="text-slate-400 hover:text-rose-500 text-xs p-1 cursor-pointer"
+                          title="Remove item"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 1-Tap Order to this Merchant via WhatsApp */}
+                <div className="pt-1 flex items-center justify-between">
+                  <div className="text-[11px] font-bold">
+                    {sellerGroup.subtotal > 0 && (
+                      <span>Subtotal: <strong className="text-emerald-500">₹{sellerGroup.subtotal.toLocaleString('en-IN')}</strong></span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDispatchWhatsAppOrder(sellerGroup)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
+                  >
+                    <span>💬</span>
+                    <span>Order from Seller ➔</span>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 🌟 3. Sticky Bottom Summary */}
+        {cartItems.length > 0 && (
+          <footer
+            className={`p-4 border-t space-y-2 ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="text-slate-400">Total Estimated Items:</span>
+              <span className="font-mono font-black text-sm text-slate-800 dark:text-slate-100">
+                {cartItems.reduce((s, i) => s + (i.quantity || 1), 0)} Units
+              </span>
+            </div>
+
+            {totalCalculablePrice > 0 && (
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-slate-400">Calculated Cart Value:</span>
+                <span className="font-mono font-black text-base text-emerald-500">
+                  ₹{totalCalculablePrice.toLocaleString('en-IN')}
+                </span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (groupedBySeller.length === 1) {
+                  handleDispatchWhatsAppOrder(groupedBySeller[0]);
+                } else {
+                  alert('Please tap "Order from Seller ➔" on individual merchants above to send customized orders to each shop.');
+                }
+              }}
+              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition cursor-pointer flex items-center justify-center space-x-2"
+            >
+              <span>🛍️</span>
+              <span>{groupedBySeller.length === 1 ? 'Dispatch Order on WhatsApp ➔' : 'Review & Dispatch Orders ➔'}</span>
+            </button>
+          </footer>
+        )}
+      </div>
+    </div>
+  );
+}

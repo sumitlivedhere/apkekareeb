@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useSyncExternalStore } from 'react';
 import { initialShaadiVendors } from '../data/shaadiData';
 import { initialTransportFirms, initialIndividualTransporters } from '../data/transporterData';
 import { initialKaarigarWorkers } from '../data/kaarigarData';
@@ -31,6 +30,70 @@ import { getCategoryById, sanitizeSubCategoryId } from '../data/taxonomyRegistry
 import { getCurrentUserProfile, isAdminAuthorized } from '../services/authService';
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+const USER_CART_STORAGE_KEY = 'aapkekareeb_cart_items';
+const USER_INTERESTS_STORAGE_KEY = 'aapkekareeb_user_interests';
+const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
+
+// Local storage helpers
+function getStoredCartItems() {
+  try {
+    const raw = localStorage.getItem(USER_CART_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredCartItems(items) {
+  try {
+    localStorage.setItem(USER_CART_STORAGE_KEY, JSON.stringify(items));
+  } catch {}
+}
+
+function getStoredInterestsMap() {
+  try {
+    const raw = localStorage.getItem(USER_INTERESTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredInterestsMap(data) {
+  try {
+    localStorage.setItem(USER_INTERESTS_STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function getStoredReviewsMap() {
+  try {
+    const raw = localStorage.getItem(USER_REVIEWS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredReviewsMap(data) {
+  try {
+    localStorage.setItem(USER_REVIEWS_STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+/**
+ * Parses numeric price from text strings (e.g., '₹1,500', '1.69 Lakh', '₹500/day')
+ */
+export function parseNumericPrice(priceStr) {
+  if (!priceStr || typeof priceStr !== 'string') return 0;
+  const clean = priceStr.toLowerCase().replace(/,/g, '');
+  if (clean.includes('lakh')) {
+    const val = parseFloat(clean.replace(/[^\d.]/g, ''));
+    return isNaN(val) ? 0 : Math.round(val * 100000);
+  }
+  const numericOnly = clean.replace(/[^\d.]/g, '');
+  const parsed = parseFloat(numericOnly);
+  return isNaN(parsed) ? 0 : Math.round(parsed);
+}
 
 // Bidirectional category-to-slice mapping
 export const CATEGORY_SLICE_MAP = {
@@ -234,7 +297,8 @@ export function normalizeDBListing(item) {
         ? item.interest_count
         : item.interestCount || 0
     ),
-    rating: item.rating || 5.0,
+    rating: Number(item.rating || 5.0),
+    reviewsCount: Number(item.reviews_count || 0),
     verified: item.verified !== undefined ? item.verified : true,
     badge: item.badge || (hasPendingApproval ? '⏳ Pending Approval' : '🟢 Verified Listing'),
     experience: item.experience || '5+ Years Exp',
@@ -256,7 +320,7 @@ export function normalizeDBListing(item) {
 }
 
 /**
- * Hook to filter notifications based on the active role and phone
+ * Hook to filter notifications based on active role and phone
  */
 export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
   const allNotifications = useNotificationSlice();
@@ -357,12 +421,13 @@ class HyperlocalEngineStore {
 
       threads: {},
       interests: {},
+      reviews: getStoredReviewsMap(),
+      cart: getStoredCartItems(),
       notifications: [],
     };
     this.listeners = new Set();
   }
 
-  // 🛡️ Public Feed: ONLY returns approved active items
   getState(key) {
     if (key === 'notifications') {
       return this.state.notifications || [];
@@ -377,7 +442,6 @@ class HyperlocalEngineStore {
     });
   }
 
-  // 👑 Master Feed: Returns all items for Admin & Merchant Hub
   getAllListings() {
     const buckets = Object.values(this.state).filter(Array.isArray);
     const seenIds = new Set();
@@ -418,7 +482,6 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
-  // 🗑️ Remove listing locally and notify subscribers (Properly inside class)
   removeListing(listingId) {
     const targetStr = String(listingId);
     Object.keys(this.state).forEach((key) => {
@@ -514,6 +577,41 @@ class HyperlocalEngineStore {
     this.state.threads = { ...this.state.threads, ...grouped };
     Object.keys(grouped).forEach((lid) => this.notify(`thread:${lid}`));
     this.notify('threads');
+  }
+
+  hydrateReviews(reviewRows) {
+    if (!Array.isArray(reviewRows) || reviewRows.length === 0) return;
+    const grouped = { ...this.state.reviews };
+
+    reviewRows.forEach((row) => {
+      const listingId = String(row.listing_id);
+      if (!grouped[listingId]) grouped[listingId] = [];
+
+      const exists = grouped[listingId].some((r) => String(r.id) === String(row.id));
+      if (!exists) {
+        grouped[listingId].unshift({
+          id: row.id,
+          listingId: listingId,
+          userId: row.user_id || null,
+          phone: row.phone,
+          userName: row.user_name || 'Verified Resident',
+          rating: Number(row.rating) || 5,
+          comment: row.comment || '',
+          photos: Array.isArray(row.photos) ? row.photos : [],
+          video: row.video_url || null,
+          audioUrl: row.audio_url || null,
+          audioDuration: row.audio_duration || null,
+          createdAt: row.created_at || new Date().toISOString(),
+          verifiedResident: Boolean(row.is_verified_resident),
+        });
+      }
+    });
+
+    this.state.reviews = grouped;
+    saveStoredReviewsMap(grouped);
+    Object.keys(grouped).forEach((lid) => this.notify(`reviews:${lid}`));
+    this.notify('reviews');
+    this.notify('all');
   }
 
   addNotification(notif) {
@@ -663,6 +761,14 @@ class HyperlocalEngineStore {
     }
   }
 
+  // 🌟 SINGLE-TAP INTEREST CHECK & TOGGLE
+  hasUserInterested(listingId) {
+    const user = getCurrentUserProfile();
+    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : 'guest_device';
+    const stored = getStoredInterestsMap();
+    return Boolean(stored[`${userPhone}_${listingId}`]);
+  }
+
   getInterestCount(listingId, defaultCount = 0) {
     const strId = String(listingId);
     return this.state.interests[strId] !== undefined
@@ -670,24 +776,250 @@ class HyperlocalEngineStore {
       : defaultCount;
   }
 
-  incrementInterest(listingId, defaultCount = 0, listingTitle = '', sellerName = '') {
+  toggleInterestOnce(listingId, defaultCount = 0, listingTitle = '', sellerName = '') {
     const strId = String(listingId);
-    const count = this.getInterestCount(listingId, defaultCount) + 1;
+    const user = getCurrentUserProfile();
+    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : 'guest_device';
+    const stored = getStoredInterestsMap();
+    const interestKey = `${userPhone}_${strId}`;
+
+    if (stored[interestKey]) {
+      return {
+        success: false,
+        message: 'You have already registered your interest for this listing.',
+        count: this.getInterestCount(strId, defaultCount),
+      };
+    }
+
+    stored[interestKey] = true;
+    saveStoredInterestsMap(stored);
+
+    const count = this.getInterestCount(strId, defaultCount) + 1;
     this.state.interests[strId] = count;
     this.notify(`interest:${strId}`);
+    this.notify('all');
 
     this.addNotification({
       tag: 'INTEREST REGISTERED',
-      title: `You expressed interest in "${listingTitle || 'Listing'}"`,
+      title: `Interest registered for "${listingTitle || 'Listing'}"`,
       message: `${sellerName || 'The seller'} was notified. Total buyers interested: ${count}`,
       time: 'Just now',
       type: 'interest',
-      targetId: listingId,
+      targetId: strId,
       recipient_role: 'seller',
     });
 
-    updateInterestCountInDB(listingId, count);
-    return count;
+    if (supabase && userPhone !== 'guest_device') {
+      try {
+        supabase.rpc('toggle_listing_interest', {
+          p_listing_id: strId,
+          p_phone: userPhone,
+        });
+      } catch (err) {
+        updateInterestCountInDB(strId, count);
+      }
+    } else {
+      updateInterestCountInDB(strId, count);
+    }
+
+    return { success: true, count };
+  }
+
+  incrementInterest(listingId, defaultCount = 0, listingTitle = '', sellerName = '') {
+    const res = this.toggleInterestOnce(listingId, defaultCount, listingTitle, sellerName);
+    return res.count;
+  }
+
+  // 🌟 PRODUCT RATINGS & MULTIMEDIA REVIEWS MANAGEMENT
+  getListingReviews(listingId) {
+    const strId = String(listingId);
+    return this.state.reviews[strId] || [];
+  }
+
+  async addListingReview(listingId, reviewData) {
+    const strId = String(listingId);
+    const user = getCurrentUserProfile();
+    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : reviewData.phone || 'guest';
+    const currentReviews = this.getListingReviews(strId);
+
+    // Prevent duplicate reviews by the same phone number
+    const existingIndex = currentReviews.findIndex((r) => r.phone === userPhone);
+    if (existingIndex >= 0) {
+      return { success: false, message: 'You have already reviewed this product.' };
+    }
+
+    const newReview = {
+      id: `rev_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      listingId: strId,
+      userId: user?.id || null,
+      phone: userPhone,
+      userName: reviewData.userName || user?.full_name || 'Verified Resident',
+      rating: Number(reviewData.rating) || 5,
+      comment: reviewData.comment || '',
+      photos: reviewData.photos || [],
+      video: reviewData.video || null,
+      audioUrl: reviewData.audioUrl || null,
+      audioDuration: reviewData.audioDuration || null,
+      createdAt: new Date().toISOString(),
+      verifiedResident: Boolean(user?.verification_tier === 'verified_resident' || user?.is_verified),
+    };
+
+    const updatedReviews = [newReview, ...currentReviews];
+    this.state.reviews[strId] = updatedReviews;
+    saveStoredReviewsMap(this.state.reviews);
+
+    this.notify(`reviews:${strId}`);
+    this.notify('reviews');
+    this.notify('all');
+
+    // Sync review to Supabase
+    if (supabase) {
+      try {
+        await supabase.from('listing_reviews').insert([
+          {
+            listing_id: strId,
+            user_id: user?.id || null,
+            user_name: newReview.userName,
+            phone: userPhone,
+            rating: newReview.rating,
+            comment: newReview.comment,
+            photos: newReview.photos,
+            video_url: newReview.video,
+            audio_url: newReview.audioUrl,
+            audio_duration: newReview.audioDuration,
+            is_verified_resident: newReview.verifiedResident,
+          },
+        ]);
+      } catch (err) {
+        console.warn('Review database sync note:', err.message);
+      }
+    }
+
+    return { success: true, review: newReview };
+  }
+
+  getListingRatingStats(listingId, defaultRating = 4.8) {
+    const reviews = this.getListingReviews(listingId);
+    if (reviews.length === 0) {
+      return {
+        averageRating: Number(defaultRating).toFixed(1),
+        totalReviews: 0,
+        breakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      };
+    }
+
+    const total = reviews.length;
+    const sum = reviews.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
+    const avg = (sum / total).toFixed(1);
+
+    const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviews.forEach((r) => {
+      const star = Math.min(5, Math.max(1, Math.round(r.rating || 5)));
+      breakdown[star] = (breakdown[star] || 0) + 1;
+    });
+
+    return {
+      averageRating: avg,
+      totalReviews: total,
+      breakdown,
+    };
+  }
+
+  // 🛒 UNIVERSAL SHOPPING CART MANAGEMENT
+  getCartItems() {
+    return this.state.cart || [];
+  }
+
+  getCartCount() {
+    return (this.state.cart || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+  }
+
+  getCartTotal() {
+    return (this.state.cart || []).reduce((sum, item) => {
+      const unit = parseNumericPrice(item.price);
+      return sum + unit * (item.quantity || 1);
+    }, 0);
+  }
+
+  addToCart(listingItem, quantity = 1) {
+    if (!listingItem || !listingItem.id) return { success: false, message: 'Invalid listing' };
+
+    const cart = [...(this.state.cart || [])];
+    const existingIndex = cart.findIndex((i) => String(i.id) === String(listingItem.id));
+
+    if (existingIndex > -1) {
+      cart[existingIndex].quantity = (cart[existingIndex].quantity || 1) + quantity;
+    } else {
+      cart.push({
+        id: String(listingItem.id),
+        listingId: String(listingItem.id),
+        title: listingItem.title || listingItem.name || 'Listing Item',
+        price: listingItem.price || listingItem.rates || 'Contact for Price',
+        numericPrice: parseNumericPrice(listingItem.price || listingItem.rates),
+        image: listingItem.image || listingItem.image_url || (listingItem.images && listingItem.images[0]) || null,
+        sellerName: listingItem.sellerName || listingItem.providerName || 'Verified Merchant',
+        phone: String(listingItem.phone || listingItem.whatsapp || '').replace(/\D/g, '').slice(-10),
+        whatsapp: String(listingItem.whatsapp || listingItem.phone || '').replace(/\D/g, '').slice(-10),
+        category: listingItem.category || 'general',
+        subCategory: listingItem.subCategory || 'all',
+        location: listingItem.location || 'Town Center',
+        quantity: Math.max(1, quantity),
+        addedAt: new Date().toISOString(),
+      });
+    }
+
+    this.state.cart = cart;
+    saveStoredCartItems(cart);
+    this.notify('cart');
+    this.notify('all');
+
+    return { success: true, count: this.getCartCount(), cart };
+  }
+
+  updateCartQuantity(listingId, quantity) {
+    let cart = [...(this.state.cart || [])];
+    const targetId = String(listingId);
+
+    if (quantity <= 0) {
+      cart = cart.filter((i) => String(i.id) !== targetId);
+    } else {
+      const idx = cart.findIndex((i) => String(i.id) === targetId);
+      if (idx > -1) {
+        cart[idx].quantity = quantity;
+      }
+    }
+
+    this.state.cart = cart;
+    saveStoredCartItems(cart);
+    this.notify('cart');
+    this.notify('all');
+  }
+
+  removeFromCart(listingId) {
+    const targetId = String(listingId);
+    const cart = (this.state.cart || []).filter((i) => String(i.id) !== targetId);
+    this.state.cart = cart;
+    saveStoredCartItems(cart);
+    this.notify('cart');
+    this.notify('all');
+  }
+
+  clearCart() {
+    this.state.cart = [];
+    saveStoredCartItems([]);
+    this.notify('cart');
+    this.notify('all');
+  }
+
+  isItemInCart(listingId) {
+    const targetId = String(listingId);
+    return (this.state.cart || []).some((i) => String(i.id) === targetId);
+  }
+
+  getCartItemQuantity(listingId) {
+    const targetId = String(listingId);
+    const match = (this.state.cart || []).find((i) => String(i.id) === targetId);
+    return match ? match.quantity : 0;
   }
 
   subscribe(listener) {
@@ -701,6 +1033,24 @@ class HyperlocalEngineStore {
 }
 
 export const hyperlocalStore = new HyperlocalEngineStore();
+
+// Wrapper export for custom component hook usage
+export const useHyperlocalStore = () => ({
+  listings: hyperlocalStore.state.listings,
+  interests: hyperlocalStore.state.interests,
+  reviews: hyperlocalStore.state.reviews,
+  cart: hyperlocalStore.state.cart,
+  toggleInterestOnce: (lid, title, seller) => hyperlocalStore.toggleInterestOnce(lid, 0, title, seller),
+  hasUserInterested: (lid) => hyperlocalStore.hasUserInterested(lid),
+  addListingReview: (lid, data) => hyperlocalStore.addListingReview(lid, data),
+  getListingRatingStats: (lid, def) => hyperlocalStore.getListingRatingStats(lid, def),
+  getInterestCount: (lid, def) => hyperlocalStore.getInterestCount(lid, def),
+  addToCart: (item, qty) => hyperlocalStore.addToCart(item, qty),
+  updateCartQuantity: (lid, qty) => hyperlocalStore.updateCartQuantity(lid, qty),
+  removeFromCart: (lid) => hyperlocalStore.removeFromCart(lid),
+  clearCart: () => hyperlocalStore.clearCart(),
+  isItemInCart: (lid) => hyperlocalStore.isItemInCart(lid),
+});
 
 let isHydrating = false;
 let lastHydrateTimestamp = 0;
@@ -758,6 +1108,18 @@ export async function hydrateFromDB() {
         created_at: n.created_at,
       }));
       hyperlocalStore.notify('notifications');
+    }
+
+    // 3. Fetch Product Reviews
+    const reviewsFetch = supabase
+      .from('listing_reviews')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    const { data: reviewsData } = await Promise.race([reviewsFetch, timeoutPromise]).catch(() => ({ data: null }));
+    if (reviewsData && reviewsData.length > 0) {
+      hyperlocalStore.hydrateReviews(reviewsData);
     }
   } catch (err) {
     console.warn('Fast hydration notice, continuing with local store:', err.message);
@@ -848,6 +1210,15 @@ export function initRealtimeSubscriptions() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'listing_reviews' },
+        (payload) => {
+          if (payload.new) {
+            hyperlocalStore.hydrateReviews([payload.new]);
+          }
+        }
+      )
       .subscribe();
   };
 
@@ -909,11 +1280,71 @@ export function useInterestSlice(listingId, defaultCount = 0) {
 
   useEffect(() => {
     return hyperlocalStore.subscribe((_, changedKey) => {
-      if (!changedKey || changedKey === `interest:${listingId}`) {
+      if (!changedKey || changedKey === `interest:${listingId}` || changedKey === 'all') {
         setCount(hyperlocalStore.getInterestCount(listingId, defaultCount));
       }
     });
   }, [listingId, defaultCount]);
+
+  return count;
+}
+
+export function useListingReviews(listingId) {
+  const [reviews, setReviews] = useState(() =>
+    hyperlocalStore.getListingReviews(listingId)
+  );
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === `reviews:${listingId}` || changedKey === 'reviews' || changedKey === 'all') {
+        setReviews([...hyperlocalStore.getListingReviews(listingId)]);
+      }
+    });
+  }, [listingId]);
+
+  return reviews;
+}
+
+export function useListingRatingStats(listingId, defaultRating = 4.8) {
+  const [stats, setStats] = useState(() =>
+    hyperlocalStore.getListingRatingStats(listingId, defaultRating)
+  );
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === `reviews:${listingId}` || changedKey === 'reviews' || changedKey === 'all') {
+        setStats(hyperlocalStore.getListingRatingStats(listingId, defaultRating));
+      }
+    });
+  }, [listingId, defaultRating]);
+
+  return stats;
+}
+
+export function useCartSlice() {
+  const [cart, setCart] = useState(() => hyperlocalStore.getCartItems());
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'cart' || changedKey === 'all') {
+        setCart([...hyperlocalStore.getCartItems()]);
+      }
+    });
+  }, []);
+
+  return cart;
+}
+
+export function useCartCount() {
+  const [count, setCount] = useState(() => hyperlocalStore.getCartCount());
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'cart' || changedKey === 'all') {
+        setCount(hyperlocalStore.getCartCount());
+      }
+    });
+  }, []);
 
   return count;
 }

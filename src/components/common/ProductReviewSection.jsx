@@ -3,6 +3,8 @@ import { getCurrentUserProfile } from '../../services/authService';
 import { useHyperlocalStore, useListingReviews } from '../../store/hyperlocalStore';
 import { uploadVoiceNoteToStorage } from '../../services/listingService';
 import { getOptimizedVoiceStream, createOptimizedMediaRecorder } from '../../utils/audioCompressor';
+import { compressImage } from '../../utils/imageCompressor';
+import { compressVideo } from '../../utils/videoCompressor';
 import VoiceNotePlayer from './VoiceNotePlayer';
 
 export default function ProductReviewSection({ listingId, listingTitle = 'Product', sellerName = 'Seller' }) {
@@ -46,46 +48,48 @@ export default function ProductReviewSection({ listingId, listingTitle = 'Produc
   const hasAlreadyReviewed = reviews.some((r) => r.phone === user?.phone);
 
   // 📷 Photo Upload Handlers
-  const handlePhotoSelect = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+  const handlePhotoSelect = async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
 
-    const newPreviews = files.map((file) => ({
-      file,
-      previewUrl: URL.createObjectURL(file),
-    }));
+  const compressedPreviews = await Promise.all(
+    files.slice(0, 4).map(async (file) => {
+      // Compresses 12MB raw photo down to ~150KB WebP
+      const compressedBlob = await compressImage(file, {
+        maxWidth: 1280,
+        maxHeight: 1280,
+        quality: 0.78,
+        format: 'image/webp',
+      });
+      return {
+        file: new File([compressedBlob], `${Date.now()}.webp`, { type: 'image/webp' }),
+        previewUrl: URL.createObjectURL(compressedBlob),
+      };
+    })
+  );
 
-    setAttachedPhotos((prev) => [...prev, ...newPreviews].slice(0, 4)); // max 4 photos
-    e.target.value = '';
-  };
+  setAttachedPhotos((prev) => [...prev, ...compressedPreviews].slice(0, 4));
+  e.target.value = '';
+};
 
   const handleRemovePhoto = (idx) => {
     setAttachedPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
   // 🎬 Video Upload Handler (Capped to 30 Seconds)
-  const handleVideoSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleVideoSelect = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    const tempUrl = URL.createObjectURL(file);
-    const videoElem = document.createElement('video');
-    videoElem.src = tempUrl;
-
-    videoElem.onloadedmetadata = () => {
-      if (videoElem.duration > 31) {
-        alert('⚠️ Video must be 30 seconds or shorter.');
-        return;
-      }
-      setAttachedVideo({
-        file,
-        previewUrl: tempUrl,
-        duration: Math.round(videoElem.duration),
-      });
-    };
-
-    e.target.value = '';
-  };
+  // Compress and trim video to max 30s & 720p WebM
+  const compressed = await compressVideo(file, { maxDuration: 30, resolution: '720p' });
+  setAttachedVideo({
+    file: compressed.file,
+    previewUrl: URL.createObjectURL(compressed.file),
+    duration: compressed.duration,
+  });
+  e.target.value = '';
+};
 
   // 🎙️ Voice Recording Handlers
   const startVoiceReview = async () => {

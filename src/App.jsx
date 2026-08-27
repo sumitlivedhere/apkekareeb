@@ -3,12 +3,13 @@ import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';
 import {
   useRoleFilteredNotifications,
+  useCartCount,
   hyperlocalStore,
   hydrateFromDB,
   initRealtimeSubscriptions,
 } from './store/hyperlocalStore';
 import { useUserLocation } from './hooks/useUserLocation';
-import { getCurrentUserProfile, logoutUser } from './services/authService';
+import { getCurrentUserProfile } from './services/authService';
 import { useTheme } from './context/ThemeContext';
 
 // Instant Critical Screens & Modals
@@ -18,6 +19,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AuthModal from './components/common/AuthModal';
 import AdminKeyModal from './components/common/AdminKeyModal';
 import PWAInstallBanner from './components/common/PWAInstallBanner';
+import CartDrawer from './components/common/CartDrawer';
 
 // 1. Lazy Loaded User Auth & Profile Station
 const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboard'));
@@ -27,12 +29,11 @@ const ContextualListingModal = lazy(() => import('./components/ContextualListing
 const ListingDetailModal = lazy(() => import('./components/common/ListingDetailModal'));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 
-// Code-Split Lazy Loaded Hubs
+// Code-Split Lazy Loaded Category Hubs
 const ProviderDashboard = lazy(() => import('./ProviderDashboard'));
 const MedicalHub = lazy(() => import('./categories/MedicalHub'));
 const PropertyHub = lazy(() => import('./categories/PropertyHub'));
 const VehicleHub = lazy(() => import('./categories/VehicleHub'));
-const FestivalFeed = lazy(() => import('./components/FestivalFeed'));
 const FestivalHub = lazy(() => import('./categories/FestivalHub'));
 const ElectronicsHub = lazy(() => import('./categories/ElectronicsHub'));
 const FashionHub = lazy(() => import('./categories/FashionHub'));
@@ -63,6 +64,7 @@ const EducationFeed = lazy(() => import('./components/EducationFeed'));
 const RestaurantsFeed = lazy(() => import('./components/RestaurantsFeed'));
 const MallsFeed = lazy(() => import('./components/MallsFeed'));
 const ShaadiFeed = lazy(() => import('./components/ShaadiFeed'));
+const FestivalFeed = lazy(() => import('./components/FestivalFeed'));
 const ConstructionFeed = lazy(() => import('./components/ConstructionFeed'));
 const AdvertisingFeed = lazy(() => import('./components/AdvertisingFeed'));
 const CommunityFeed = lazy(() => import('./components/CommunityFeed'));
@@ -89,7 +91,7 @@ const INITIAL_NAV_STATE = {
 };
 
 export default function App() {
-  const { theme, isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme } = useTheme();
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
@@ -108,6 +110,10 @@ export default function App() {
 
   // 🏪 Prompt State for Non-Sellers Attempting to Post
   const [isBusinessPromptOpen, setIsBusinessPromptOpen] = useState(false);
+
+  // 🛒 Universal Cart & Notification Overlay State
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const cartCount = useCartCount();
 
   const [isListingModalOpen, setIsListingModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -144,7 +150,9 @@ export default function App() {
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
   useEffect(() => {
-    if (deepLinkedItem) {
+    if (isCartOpen) {
+      activeModalCloserRef.current = () => setIsCartOpen(false);
+    } else if (deepLinkedItem) {
       activeModalCloserRef.current = () => {
         setDeepLinkedItem(null);
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -165,6 +173,7 @@ export default function App() {
       activeModalCloserRef.current = null;
     }
   }, [
+    isCartOpen,
     deepLinkedItem,
     selectedDetailItem,
     isListingModalOpen,
@@ -204,7 +213,6 @@ export default function App() {
   // Mobile Hardware & Gesture PopState Listener
   useEffect(() => {
     const handlePopState = (e) => {
-      // 1. If any modal is active or was closed via history pop, dismiss modal first
       if (e.state && e.state.modal) {
         return;
       }
@@ -212,7 +220,6 @@ export default function App() {
         activeModalCloserRef.current();
         return;
       }
-      // 2. Otherwise synchronize sliding screen history
       if (e.state && typeof e.state.idx === 'number') {
         setHistoryIndex(e.state.idx);
       } else {
@@ -232,7 +239,7 @@ export default function App() {
     searchQuery,
   } = currentNav;
 
-  // 🛡️ Strict Seller / Merchant & Admin Authorization Check
+  // 🛡️ Strict Merchant & Admin Authorization Check
   const isSeller = Boolean(
     currentUser?.is_merchant === true ||
     currentUser?.verification_tier === 'verified_merchant'
@@ -274,7 +281,6 @@ export default function App() {
       let finalHistory = nextHistory;
       let nextIdx = historyIndex + 1;
 
-      // Keep sliding buffer of max 6 entries (±5 steps)
       if (nextHistory.length > 6) {
         finalHistory = nextHistory.slice(nextHistory.length - 6);
         nextIdx = 5;
@@ -369,6 +375,7 @@ export default function App() {
   const handleTouchStart = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
+      isCartOpen ||
       isListingModalOpen ||
       isNotificationsOpen ||
       selectedDetailItem ||
@@ -385,6 +392,7 @@ export default function App() {
   const handleTouchEnd = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
+      isCartOpen ||
       isListingModalOpen ||
       isNotificationsOpen ||
       selectedDetailItem ||
@@ -560,6 +568,29 @@ export default function App() {
                 <span>Post Here</span>
               </button>
             )}
+
+          {/* 🛒 Universal Shopping Cart Button */}
+          <button
+            type="button"
+            onClick={() => setIsCartOpen(true)}
+            className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
+              cartCount > 0
+                ? 'bg-amber-400/20 border-amber-400/80 text-amber-300 shadow-md'
+                : isDark
+                ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
+                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
+            }`}
+            title="Open Cart & Selected Items"
+          >
+            <span className="text-sm">🛍️</span>
+            {cartCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+                <span className="relative inline-flex items-center justify-center rounded-full h-3.5 w-3.5 bg-amber-400 text-[8.5px] font-black text-slate-950 shadow-xs">
+                  {cartCount}
+                </span>
+              </span>
+            )}
+          </button>
 
           {/* 🔔 Live Alerts Button */}
           <button
@@ -1089,6 +1120,16 @@ export default function App() {
           />
         )}
       </Suspense>
+
+      {/* 🛒 Universal Shopping Cart Drawer */}
+      <CartDrawer
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        onOpenAuth={() => {
+          setIsCartOpen(false);
+          setIsAuthModalOpen(true);
+        }}
+      />
 
       {/* 🏪 Business Side Onboarding Prompt for Non-Seller Residents */}
       {isBusinessPromptOpen && (

@@ -928,24 +928,39 @@ export default function ListingDetailModal({
           </div>
         </main>
 
-        {/* 🌟 Sticky Bottom Actions Footer */}
-        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-2 gap-2.5">
+        {/* 🌟 Sticky Bottom Actions Footer with Universal Add-to-Cart Action */}
+        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-12 gap-2">
+          {/* Universal Add to Cart Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const res = hyperlocalStore.addToCart(item, 1);
+              if (res.success) {
+                alert(`🛍️ Added "${item.title || item.name}" to your Cart!`);
+              }
+            }}
+            className="col-span-4 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1 cursor-pointer"
+          >
+            <span>+ 🛒</span>
+            <span>Add</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsContactModalOpen(true)}
-            className="py-3 px-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
+            className="col-span-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1.5 cursor-pointer"
           >
             <span>📞</span>
-            <span>Contact Merchant</span>
+            <span>Contact</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsShareModalOpen(true)}
-            className="py-3 px-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 text-white font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
+            className="col-span-3 py-3 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1 cursor-pointer"
           >
             <span>🔗</span>
-            <span>Share Listing</span>
+            <span>Share</span>
           </button>
         </footer>
 
