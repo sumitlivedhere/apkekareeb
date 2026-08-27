@@ -116,6 +116,71 @@ export default function App() {
   const touchStartY = useRef(0);
   const touchStartTime = useRef(0);
 
+  // 🕵️ Stealth Master Admin Access (5 Quick Taps on Logo)
+  const adminTapCountRef = useRef(0);
+  const adminTapTimerRef = useRef(null);
+
+  const handleSecretAdminTap = () => {
+    adminTapCountRef.current += 1;
+    if (adminTapTimerRef.current) clearTimeout(adminTapTimerRef.current);
+
+    if (adminTapCountRef.current >= 5) {
+      adminTapCountRef.current = 0;
+      if (isAdminUnlocked) {
+        navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
+      } else {
+        setIsAdminKeyModalOpen(true);
+      }
+    } else {
+      adminTapTimerRef.current = setTimeout(() => {
+        adminTapCountRef.current = 0;
+      }, 1500);
+    }
+  };
+
+  // Track active overlay/modal for hardware back-button interception
+  const activeModalCloserRef = useRef(null);
+  useEffect(() => {
+    if (selectedDetailItem) {
+      activeModalCloserRef.current = () => setSelectedDetailItem(null);
+    } else if (isListingModalOpen) {
+      activeModalCloserRef.current = () => setIsListingModalOpen(false);
+    } else if (isNotificationsOpen) {
+      activeModalCloserRef.current = () => setIsNotificationsOpen(false);
+    } else if (isAuthModalOpen) {
+      activeModalCloserRef.current = () => setIsAuthModalOpen(false);
+    } else if (isAdminKeyModalOpen) {
+      activeModalCloserRef.current = () => setIsAdminKeyModalOpen(false);
+    } else if (isBusinessPromptOpen) {
+      activeModalCloserRef.current = () => setIsBusinessPromptOpen(false);
+    } else {
+      activeModalCloserRef.current = null;
+    }
+  }, [
+    selectedDetailItem,
+    isListingModalOpen,
+    isNotificationsOpen,
+    isAuthModalOpen,
+    isAdminKeyModalOpen,
+    isBusinessPromptOpen,
+  ]);
+
+  // Mobile Hardware / Browser Back Button Interceptor
+  useEffect(() => {
+    const handlePopState = () => {
+      // 1. If any modal/drawer is open, close it first without navigating back
+      if (activeModalCloserRef.current) {
+        activeModalCloserRef.current();
+        return;
+      }
+      // 2. Otherwise step back in internal history
+      setHistoryIndex((prev) => Math.max(0, prev - 1));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Initialize DB Hydration & Realtime WebSockets on Boot
   useEffect(() => {
     hydrateFromDB();
@@ -166,33 +231,43 @@ export default function App() {
       return;
     }
 
+    // Push entry into browser history so mobile hardware back button triggers popstate
+    window.history.pushState({ appNav: true }, '');
+
     setHistory((prev) => {
       const branchCut = prev.slice(0, historyIndex + 1);
-      return [...branchCut, nextState];
+      const nextHistory = [...branchCut, nextState];
+      // Keep a sliding buffer of max 6 entries (current + 5 previous steps)
+      if (nextHistory.length > 6) {
+        return nextHistory.slice(nextHistory.length - 6);
+      }
+      return nextHistory;
     });
-    setHistoryIndex((prev) => prev + 1);
+
+    setHistoryIndex((prev) => Math.min(prev + 1, 5));
   };
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < history.length - 1;
 
   const goBack = () => {
-    if (canGoBack) setHistoryIndex((prev) => prev - 1);
+    if (canGoBack) window.history.back();
   };
 
   const goForward = () => {
-    if (canGoForward) setHistoryIndex((prev) => prev + 1);
+    if (canGoForward) window.history.forward();
   };
 
   const handleNewNotification = (notif) => {
     hyperlocalStore.addNotification(notif);
   };
 
-  // 👑 Seller & Admin Posting Handler (Routes Non-Sellers to Become a Seller Onboarding)
   const handleOpenPostModal = () => {
     if (isAuthorizedToPost) {
+      window.history.pushState({ modal: true }, '');
       setIsListingModalOpen(true);
     } else {
+      window.history.pushState({ modal: true }, '');
       setIsBusinessPromptOpen(true);
     }
   };
@@ -201,16 +276,8 @@ export default function App() {
     if (isAuthorizedToPost) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
     } else {
+      window.history.pushState({ modal: true }, '');
       setIsBusinessPromptOpen(true);
-    }
-  };
-
-  const handleLogout = async () => {
-    if (window.confirm('Do you want to log out / reset Admin session?')) {
-      await logoutUser();
-      localStorage.removeItem('townhub_admin_unlocked');
-      setIsAdminUnlocked(false);
-      setCurrentUser(null);
     }
   };
 
@@ -247,6 +314,7 @@ export default function App() {
       const allItems = hyperlocalStore.getAllListings();
       const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
       if (matched) {
+        window.history.pushState({ modal: true }, '');
         setSelectedDetailItem(matched);
         return;
       }
@@ -371,61 +439,35 @@ export default function App() {
       {/* 🌟 1. Sticky Header */}
       <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md px-3 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
         
-        {/* Left: Step History Controller & Resident Auth Shortcut */}
-        <div className="flex items-center space-x-1.5 bg-slate-900/90 p-1 rounded-2xl border border-slate-800 shadow-inner shrink-0">
-          <button
-            type="button"
-            onClick={goBack}
-            disabled={!canGoBack}
-            title="Step Back (Swipe Right)"
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs transition active:scale-90 ${
-              canGoBack
-                ? 'bg-slate-800 hover:bg-amber-400 hover:text-slate-950 text-amber-300 shadow-xs cursor-pointer'
-                : 'bg-slate-900 text-slate-600 cursor-not-allowed opacity-40'
-            }`}
-          >
-            ❮
-          </button>
-
+        {/* Left: Resident Profile & Auth Shortcut */}
+        <div className="flex items-center shrink-0">
           <button
             type="button"
             onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
-            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1"
+            className="px-2.5 py-1.5 bg-slate-900/90 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1.5 shadow-xs"
             title="Open Resident Profile & Login"
           >
             <span>👤</span>
-            <span className="truncate max-w-[50px]">{currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={goForward}
-            disabled={!canGoForward}
-            title="Step Forward (Swipe Left)"
-            className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs transition active:scale-90 ${
-              canGoForward
-                ? 'bg-slate-800 hover:bg-amber-400 hover:text-slate-950 text-amber-300 shadow-xs cursor-pointer'
-                : 'bg-slate-900 text-slate-600 cursor-not-allowed opacity-40'
-            }`}
-          >
-            ❯
+            <span className="truncate max-w-[65px]">
+              {currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}
+            </span>
           </button>
         </div>
 
-        {/* Center: Brand Header */}
+        {/* Center: Brand Header (5 Quick Taps unlocks Secret Admin Modal) */}
         <div
-          onClick={() => navigateTo({ screen: 'home', searchQuery: '' })}
-          className="flex items-center space-x-1.5 cursor-pointer active:scale-95 transition mx-1"
+          onClick={() => {
+            handleSecretAdminTap();
+            navigateTo({ screen: 'home', searchQuery: '' });
+          }}
+          className="flex flex-col items-center justify-center cursor-pointer active:scale-95 transition mx-1 text-center select-none"
         >
-          <span className="text-lg">🏛️</span>
-          <div>
-            <h1 className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none">
-              TownHub • {userLocation?.locality || selectedCity}
-            </h1>
-            <p className="text-[8px] text-slate-400 font-semibold leading-none mt-0.5">
-              Step {historyIndex + 1} of {history.length}
-            </p>
-          </div>
+          <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none">
+            Aapke
+          </span>
+          <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none mt-0.5">
+            Kareeb
+          </span>
         </div>
 
         {/* Right Action Cluster */}
@@ -451,7 +493,10 @@ export default function App() {
           {/* 🔔 Live Alerts Button */}
           <button
             type="button"
-            onClick={() => setIsNotificationsOpen(true)}
+            onClick={() => {
+              window.history.pushState({ modal: true }, '');
+              setIsNotificationsOpen(true);
+            }}
             className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
               unreadNotifCount > 0
                 ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-400/70 shadow-md shadow-amber-500/20'
@@ -470,27 +515,6 @@ export default function App() {
               </span>
             )}
           </button>
-
-          {/* 👑 Admin Status Badge */}
-          {isAdminUnlocked ? (
-            <button
-              type="button"
-              onClick={() => navigateTo({ screen: 'admin-dashboard', searchQuery: '' })}
-              className="flex items-center space-x-1 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 rounded-xl px-2 py-1.5 cursor-pointer active:scale-95 transition"
-              title="Open Admin Dashboard"
-            >
-              <span className="text-[10px]">👑</span>
-              <span className="text-[10px] font-black text-amber-300">Admin</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsAdminKeyModalOpen(true)}
-              className="px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black rounded-xl shadow-md transition active:scale-95 cursor-pointer"
-            >
-              👑 Admin
-            </button>
-          )}
         </div>
       </header>
 
@@ -503,7 +527,10 @@ export default function App() {
             onRefreshLocation={detectLocation}
             onSelectCategory={handleOpenCategory}
             onSelectIntent={(category, subCategory) => handleOpenFeed(category, subCategory)}
-            onSelectItem={(item) => setSelectedDetailItem(item)}
+            onSelectItem={(item) => {
+              window.history.pushState({ modal: true }, '');
+              setSelectedDetailItem(item);
+            }}
             searchQuery={searchQuery}
             onSearchChange={(q) => navigateTo({ searchQuery: q })}
           />
@@ -887,42 +914,7 @@ export default function App() {
         </Suspense>
       </main>
 
-      {/* 🌟 3. Floating Step History Pill */}
-      <aside className="fixed bottom-16 right-4 z-40 flex items-center space-x-1 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-full border border-slate-700 shadow-2xl">
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={!canGoBack}
-          className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs transition active:scale-90 ${
-            canGoBack
-              ? 'bg-slate-800 text-amber-400 hover:bg-amber-400 hover:text-slate-950 cursor-pointer shadow-md'
-              : 'bg-slate-950 text-slate-700 cursor-not-allowed opacity-30'
-          }`}
-          title="Go Back (Swipe Right)"
-        >
-          ◀
-        </button>
-
-        <span className="text-[9px] font-mono font-bold text-slate-400 px-1">
-          {historyIndex + 1}/{history.length}
-        </span>
-
-        <button
-          type="button"
-          onClick={goForward}
-          disabled={!canGoForward}
-          className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs transition active:scale-90 ${
-            canGoForward
-              ? 'bg-slate-800 text-amber-400 hover:bg-amber-400 hover:text-slate-950 cursor-pointer shadow-md'
-              : 'bg-slate-950 text-slate-700 cursor-not-allowed opacity-30'
-          }`}
-          title="Go Forward (Swipe Left)"
-        >
-          ▶
-        </button>
-      </aside>
-
-      {/* 🌟 4. Bottom Navigation Bar */}
+      {/* 🌟 3. Bottom Navigation Bar */}
       <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 px-6 py-2 z-30 flex items-center justify-around shadow-2xl">
         <button
           type="button"
@@ -958,7 +950,7 @@ export default function App() {
         </button>
       </footer>
 
-      {/* 🌟 5. Modals & Drawers */}
+      {/* 🌟 4. Modals & Drawers */}
       <Suspense fallback={null}>
         {isListingModalOpen && isAuthorizedToPost && (
           <ContextualListingModal
@@ -966,7 +958,9 @@ export default function App() {
             selectedCategory={selectedCategory}
             selectedSubCategory={selectedSubCategory}
             selectedCity={selectedCity}
-            onClose={() => setIsListingModalOpen(false)}
+            onClose={() => {
+              if (activeModalCloserRef.current) activeModalCloserRef.current();
+            }}
           />
         )}
 
@@ -974,7 +968,9 @@ export default function App() {
           <ListingDetailModal
             item={selectedDetailItem}
             selectedCity={selectedCity}
-            onClose={() => setSelectedDetailItem(null)}
+            onClose={() => {
+              if (activeModalCloserRef.current) activeModalCloserRef.current();
+            }}
             onNewNotification={handleNewNotification}
           />
         )}
@@ -1011,17 +1007,6 @@ export default function App() {
               >
                 <span>🏪</span>
                 <span>Become a Seller / Complete KYC ➔</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsBusinessPromptOpen(false);
-                  setIsAdminKeyModalOpen(true);
-                }}
-                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-bold rounded-xl border border-slate-700 active:scale-95 transition cursor-pointer"
-              >
-                👑 Master Admin Login
               </button>
 
               <button
