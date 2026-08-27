@@ -9,6 +9,7 @@ import {
 } from './store/hyperlocalStore';
 import { useUserLocation } from './hooks/useUserLocation';
 import { getCurrentUserProfile, logoutUser } from './services/authService';
+import { useTheme } from './context/ThemeContext';
 
 // Instant Critical Screens & Modals
 import HyperlocalHomeFeed from './HyperlocalHomeFeed';
@@ -27,7 +28,6 @@ const ListingDetailModal = lazy(() => import('./components/common/ListingDetailM
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 
 // Code-Split Lazy Loaded Hubs
-const SurpriseFeed = lazy(() => import('./components/SurpriseFeed'));
 const ProviderDashboard = lazy(() => import('./ProviderDashboard'));
 const MedicalHub = lazy(() => import('./categories/MedicalHub'));
 const PropertyHub = lazy(() => import('./categories/PropertyHub'));
@@ -89,6 +89,7 @@ const INITIAL_NAV_STATE = {
 };
 
 export default function App() {
+  const { theme, isDark, toggleTheme } = useTheme();
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
@@ -203,8 +204,8 @@ export default function App() {
   // Mobile Hardware & Gesture PopState Listener
   useEffect(() => {
     const handlePopState = (e) => {
-      // 1. If any modal is active or was closed via history pop, ignore top-level route change
-      if (e.state && (e.state.modal || e.state.surpriseMode)) {
+      // 1. If any modal is active or was closed via history pop, dismiss modal first
+      if (e.state && e.state.modal) {
         return;
       }
       if (activeModalCloserRef.current) {
@@ -273,7 +274,7 @@ export default function App() {
       let finalHistory = nextHistory;
       let nextIdx = historyIndex + 1;
 
-      // Keep sliding buffer of max 6 entries
+      // Keep sliding buffer of max 6 entries (±5 steps)
       if (nextHistory.length > 6) {
         finalHistory = nextHistory.slice(nextHistory.length - 6);
         nextIdx = 5;
@@ -412,16 +413,6 @@ export default function App() {
   };
 
   const handleOpenCategory = (catId, sub = 'all') => {
-    if (catId === 'surprise') {
-      navigateTo({
-        screen: 'surprise-feed',
-        category: 'surprise',
-        subCategory: 'bubbles',
-        searchQuery: '',
-      });
-      return;
-    }
-
     const hubMap = {
       property: 'property-hub',
       vehicles: 'vehicle-hub',
@@ -491,27 +482,52 @@ export default function App() {
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between max-w-md mx-auto relative shadow-2xl overflow-x-hidden font-sans select-none pb-24 touch-pan-y"
+      className={`min-h-screen flex flex-col justify-between max-w-md mx-auto relative shadow-2xl overflow-x-hidden font-sans select-none pb-24 touch-pan-y transition-colors duration-200 ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
     >
       {/* 🌟 1. Sticky Header */}
-      <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md px-3 py-2 border-b border-slate-800 flex items-center justify-between shadow-md">
-        
-        {/* Left: Resident Profile & Auth Shortcut */}
-        <div className="flex items-center shrink-0">
+      <header
+        className={`sticky top-0 z-40 backdrop-blur-md px-3 py-2 border-b flex items-center justify-between shadow-md transition-colors ${
+          isDark
+            ? 'bg-slate-950/90 border-slate-800 text-slate-100'
+            : 'bg-white/90 border-slate-200 text-slate-900'
+        }`}
+      >
+        {/* Left: Resident Profile & Theme Switcher */}
+        <div className="flex items-center space-x-1.5 shrink-0">
           <button
             type="button"
             onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
-            className="px-2.5 py-1.5 bg-slate-900/90 hover:bg-slate-800 border border-slate-800 rounded-xl text-[10px] font-bold text-slate-200 cursor-pointer active:scale-95 transition flex items-center space-x-1.5 shadow-xs"
+            className={`px-2.5 py-1.5 border rounded-xl text-[10px] font-bold cursor-pointer active:scale-95 transition flex items-center space-x-1.5 shadow-xs ${
+              isDark
+                ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-200'
+                : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+            }`}
             title="Open Resident Profile & Login"
           >
             <span>👤</span>
-            <span className="truncate max-w-[65px]">
+            <span className="truncate max-w-[55px]">
               {currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}
             </span>
           </button>
+
+          {/* ☀️ / 🌙 Theme Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center text-xs font-bold transition cursor-pointer active:scale-90 ${
+              isDark
+                ? 'bg-slate-900 border-slate-800 text-amber-300 hover:bg-slate-800'
+                : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+            }`}
+            title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
+          >
+            {isDark ? '☀️' : '🌙'}
+          </button>
         </div>
 
-        {/* Center: Brand Header */}
+        {/* Center: Brand Header (5 Quick Taps unlocks Secret Admin Modal) */}
         <div
           onClick={() => {
             handleSecretAdminTap();
@@ -529,12 +545,10 @@ export default function App() {
 
         {/* Right Action Cluster */}
         <div className="flex items-center space-x-1.5 shrink-0">
-          
           {/* Post Here Button */}
           {currentScreen !== 'home' &&
             currentScreen !== 'provider-dashboard' &&
             currentScreen !== 'admin-dashboard' &&
-            currentScreen !== 'surprise-feed' &&
             currentScreen !== 'user-auth-dashboard' && (
               <button
                 type="button"
@@ -557,7 +571,9 @@ export default function App() {
             className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
               unreadNotifCount > 0
                 ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-400/70 shadow-md shadow-amber-500/20'
-                : 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
+                : isDark
+                ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
+                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
             }`}
             title="Open Town Alerts"
           >
@@ -594,24 +610,6 @@ export default function App() {
         )}
 
         <Suspense fallback={<ScreenSkeleton />}>
-          {currentScreen === 'surprise-feed' && (
-            <SurpriseFeed
-              selectedCity={selectedCity}
-              searchQuery={searchQuery}
-              selectedSubCategory={selectedSubCategory}
-              onSelectSubCategory={(subCatId) =>
-                navigateTo({
-                  screen: 'surprise-feed',
-                  category: 'surprise',
-                  subCategory: subCatId,
-                  searchQuery: '',
-                })
-              }
-              onBack={goBack}
-              onNewNotification={handleNewNotification}
-            />
-          )}
-
           {currentScreen === 'user-auth-dashboard' && (
             <UserAuthDashboard
               selectedCity={selectedCity}
@@ -1002,12 +1000,22 @@ export default function App() {
       </main>
 
       {/* 🌟 3. Bottom Navigation Bar */}
-      <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 px-6 py-2 z-30 flex items-center justify-around shadow-2xl">
+      <footer
+        className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto backdrop-blur-md border-t px-6 py-2 z-30 flex items-center justify-around shadow-2xl transition-colors ${
+          isDark
+            ? 'bg-slate-950/95 border-slate-800'
+            : 'bg-white/95 border-slate-200'
+        }`}
+      >
         <button
           type="button"
           onClick={() => navigateTo({ screen: 'home', searchQuery: '' })}
           className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
-            currentScreen === 'home' ? 'text-amber-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            currentScreen === 'home'
+              ? 'text-amber-500 font-black'
+              : isDark
+              ? 'text-slate-400 hover:text-slate-200'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <span className="text-lg">🏛️</span>
@@ -1018,7 +1026,9 @@ export default function App() {
         <button
           type="button"
           onClick={handleOpenPostModal}
-          className="w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg active:scale-95 hover:scale-105 transition -mt-5 ring-4 ring-slate-950 cursor-pointer"
+          className={`w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg active:scale-95 hover:scale-105 transition -mt-5 ring-4 cursor-pointer ${
+            isDark ? 'ring-slate-950' : 'ring-white'
+          }`}
           title={isAuthorizedToPost ? 'Post Listing / Business' : 'Open for Business side'}
         >
           +
@@ -1029,7 +1039,11 @@ export default function App() {
           type="button"
           onClick={handleOpenBusinessHub}
           className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
-            currentScreen === 'provider-dashboard' ? 'text-amber-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            currentScreen === 'provider-dashboard'
+              ? 'text-amber-500 font-black'
+              : isDark
+              ? 'text-slate-400 hover:text-slate-200'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
           <span className="text-lg">📊</span>
@@ -1092,7 +1106,7 @@ export default function App() {
                 यह सुविधा केवल विक्रेताओं के लिए है — क्या आप विक्रेता बनकर जुड़ना चाहते हैं?
               </p>
               <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
-                Complete the KYC process (Login ➔ Profile ➔ Permanent PIN ➔ Seller Upgrade) to list inventory across {selectedCity}.
+                Complete the KYC process (Login ➔ Profile ➔ 6-Digit WhatsApp PIN ➔ ₹1 UPI KYC) to list inventory across {selectedCity}.
               </p>
             </div>
 

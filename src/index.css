@@ -43,3 +43,15 @@
   animation: bell-ring 3.5s ease-in-out infinite;
   transform-origin: top center;
 }
+
+html.light {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}

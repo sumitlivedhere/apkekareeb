@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
+import { ThemeProvider } from './context/ThemeContext';
 import { initRealtimeSubscriptions, hydrateFromDB } from './store/hyperlocalStore';
 import { installGlobalMediaGuard } from './utils/globalMediaGuard';
 import { registerSW } from 'virtual:pwa-register';
@@ -37,13 +38,13 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   });
 }
 
-// 1. Establish persistent WebSockets listener for live town feeds & threads[cite: 3]
+// 1. Establish persistent WebSockets listener for live town feeds & threads
 initRealtimeSubscriptions();
 
-// 2. Hydrate existing database listings from PostgreSQL into store[cite: 3]
+// 2. Hydrate existing database listings from PostgreSQL into store
 hydrateFromDB();
 
-// 3. Activate global media shield across all 17 feeds[cite: 3]
+// 3. Activate global media shield across all feeds
 installGlobalMediaGuard();
 
 const rootElement = document.getElementById('root');
@@ -51,7 +52,9 @@ const rootElement = document.getElementById('root');
 if (rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
-      <App />
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
     </StrictMode>
   );
 }
