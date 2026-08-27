@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useInterestSlice, useThreadSlice, hyperlocalStore } from '../../store/hyperlocalStore';
-import ActionButtons from './ActionButtons';
 import VoiceNotePlayer from './VoiceNotePlayer';
+import ContactSheetModal from './ContactSheetModal';
+import ShareSheetModal from './ShareSheetModal';
 import { uploadVoiceNoteToStorage } from '../../services/listingService';
 import { getCurrentUserProfile } from '../../services/authService';
 import {
@@ -10,8 +11,6 @@ import {
 } from '../../utils/audioCompressor';
 import ReportModal from './ReportModal';
 import AuthModal from './AuthModal';
-import WhatsAppStatusModal from './WhatsAppStatusModal';
-import { shareListingToWhatsApp } from '../../utils/shareHelper';
 
 export default function ListingDetailModal({
   item,
@@ -27,7 +26,6 @@ export default function ListingDetailModal({
   const isClosedByHistoryRef = useRef(false);
 
   useEffect(() => {
-    // Push dedicated modal history state so mobile hardware back button closes modal without popping the underlying feed
     window.history.pushState({ modal: 'listing-detail' }, '');
 
     const handlePopState = () => {
@@ -47,18 +45,19 @@ export default function ListingDetailModal({
     }
   };
 
-  // 🛡️ User Authentication & Moderation State
+  // 🛡️ User Authentication & Modals State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   // 📷 Photo Carousel & Lightbox State
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const carouselRef = useRef(null);
 
-  // 🎬 Walkthrough Video State
+  // 🎬 Video State
   const rawVideos = item.videos || item.video_urls || [];
   const videos = rawVideos.map((v) =>
     typeof v === 'string' ? { url: v, duration: '0:30', name: 'Walkthrough Video' } : v
@@ -74,7 +73,7 @@ export default function ListingDetailModal({
   const [sellerReplyText, setSellerReplyText] = useState('');
   const [isSellerMode, setIsSellerMode] = useState(false);
 
-  // 🎙️ Buyer Voice Recording State
+  // 🎙️ Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
@@ -117,7 +116,7 @@ export default function ListingDetailModal({
     }
   };
 
-  // Live Reactive Slices
+  // Interest & Threads
   const interestCount = useInterestSlice(
     item.id,
     Number(item.interestCount || item.interest_count || 0)
@@ -133,7 +132,7 @@ export default function ListingDetailModal({
     );
   };
 
-  // 🎙️ 1. Start Buyer Voice Recording
+  // Voice Inquiries
   const handleStartVoiceRecording = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -153,12 +152,11 @@ export default function ListingDetailModal({
       timerRef.current = setInterval(() => {
         setRecordSeconds((p) => p + 1);
       }, 1000);
-    } catch (err) {
-      alert('Microphone access denied. Please allow microphone permissions in browser settings.');
+    } catch {
+      alert('Microphone access denied. Please enable microphone permissions in browser settings.');
     }
   };
 
-  // 🎙️ 2. Stop Recording & Send Voice Note
   const handleStopAndSendVoice = () => {
     const mediaRecorder = mediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -235,7 +233,6 @@ export default function ListingDetailModal({
     };
   }, []);
 
-  // 💬 Submit Text Query
   const handlePostQuery = (e) => {
     e.preventDefault();
     if (!userQuery.trim()) return;
@@ -268,7 +265,6 @@ export default function ListingDetailModal({
     setUserQuery('');
   };
 
-  // 👑 Seller Reply
   const handlePostSellerReply = (commentId) => {
     if (!sellerReplyText.trim()) return;
 
@@ -287,20 +283,26 @@ export default function ListingDetailModal({
     setActiveReplyId(null);
   };
 
-  // Contact & Social URL Resolvers
+  // Contacts
   const rawPhone = item.phone || item.whatsapp || '9876543201';
   const cleanPhone = String(rawPhone).replace(/\D/g, '');
   const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+  const sellerDisplayName = item.sellerName || item.driverName || 'Verified Member';
+  const sellerInitial = sellerDisplayName.charAt(0).toUpperCase();
 
-  const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
-    `Namaste ${item.sellerName || item.driverName || ''}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
-  )}`;
+  const rawInsta = item.instagram || item.insta || item.instagram_handle || '';
+  const cleanInsta = rawInsta.replace('@', '').trim();
+  const instaUrl = cleanInsta.startsWith('http') ? cleanInsta : `https://instagram.com/${cleanInsta}`;
 
   const telegramUrl = item.telegram
     ? String(item.telegram).startsWith('http')
       ? item.telegram
       : `https://t.me/${String(item.telegram).replace('@', '')}`
     : `https://t.me/+${formattedPhone}`;
+
+  const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
+    `Namaste ${sellerDisplayName}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
+  )}`;
 
   const mapUrl =
     item.mapUrl ||
@@ -315,24 +317,20 @@ export default function ListingDetailModal({
     return colors[Math.abs(hash) % colors.length];
   };
 
-  const sellerDisplayName = item.sellerName || item.driverName || 'Verified Member';
-  const sellerInitial = sellerDisplayName.charAt(0).toUpperCase();
-
   const handleTouchStart = (e) => {
-    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isRecording) return;
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isRecording) return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
   };
 
   const handleTouchEnd = (e) => {
-    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isRecording) return;
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isRecording) return;
     const target = e.target;
     if (target.closest('.overflow-x-auto, input, textarea, select, video')) return;
 
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
 
-    // Swiping right dismisses the modal and retains the list's scroll position
     if (deltaX > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
       handleModalClose();
     }
@@ -346,7 +344,6 @@ export default function ListingDetailModal({
         onTouchEnd={handleTouchEnd}
         className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden select-none"
       >
-        
         {/* Top App Bar */}
         <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md px-4 py-3 border-b border-slate-800 flex items-center justify-between shadow-md">
           <button
@@ -358,26 +355,15 @@ export default function ListingDetailModal({
             <span>Close</span>
           </button>
 
-          <span className="text-xs font-black text-amber-400 uppercase tracking-wider truncate max-w-[150px]">
+          <span className="text-xs font-black text-amber-400 uppercase tracking-wider truncate max-w-[130px]">
             {item.subCategory || item.category || 'Listing'}
           </span>
 
           <div className="flex items-center space-x-1.5">
             <button
               type="button"
-              onClick={() => setIsStatusModalOpen(true)}
-              className="text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg font-black flex items-center space-x-1 cursor-pointer active:scale-95 transition"
-              title="Generate WhatsApp Status Pamphlet"
-            >
-              <span>📲</span>
-              <span>Status Poster</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => shareListingToWhatsApp(item, selectedCity)}
-              className="text-[10px] bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40 px-2 py-1 rounded-lg font-black flex items-center space-x-1 cursor-pointer active:scale-95 transition"
-              title="Share listing on WhatsApp"
+              onClick={() => setIsShareModalOpen(true)}
+              className="text-[10px] bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40 px-2.5 py-1.5 rounded-xl font-black flex items-center space-x-1 cursor-pointer active:scale-95 transition shadow-sm"
             >
               <span>🔗</span>
               <span>Share</span>
@@ -386,8 +372,8 @@ export default function ListingDetailModal({
             <button
               type="button"
               onClick={() => setIsReportModalOpen(true)}
-              className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-1 rounded-lg font-bold flex items-center space-x-1 cursor-pointer active:scale-95 transition"
-              title="Report Spam or Fake Listing"
+              className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 p-1.5 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-95 transition"
+              title="Report Spam"
             >
               <span>🚩</span>
             </button>
@@ -396,7 +382,6 @@ export default function ListingDetailModal({
 
         {/* Scrollable Body */}
         <main className="flex-1 overflow-y-auto pb-32 space-y-4">
-          
           {/* Media Switcher Tabs */}
           {videos.length > 0 && (
             <div className="px-4 pt-2">
@@ -430,7 +415,7 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Photo View */}
+          {/* Photo Carousel View */}
           {activeMediaTab === 'photos' && (
             <div className="relative h-80 w-full bg-slate-950 overflow-hidden group">
               <div
@@ -530,18 +515,6 @@ export default function ListingDetailModal({
                   className="w-full h-full object-contain"
                 />
 
-                <div className="absolute top-3 left-3 flex items-center space-x-1.5 pointer-events-none">
-                  <span className="bg-cyan-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-lg shadow-md flex items-center space-x-1">
-                    <span>🎬</span>
-                    <span>Video {activeVideoIdx + 1}/{videos.length}</span>
-                  </span>
-                  {videos[activeVideoIdx]?.duration && (
-                    <span className="bg-slate-950/90 text-cyan-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border border-cyan-400/30">
-                      ⏱️ {videos[activeVideoIdx].duration}s
-                    </span>
-                  )}
-                </div>
-
                 <button
                   type="button"
                   onClick={() => setIsVideoMuted(!isVideoMuted)}
@@ -550,26 +523,6 @@ export default function ListingDetailModal({
                   {isVideoMuted ? '🔇' : '🔊'}
                 </button>
               </div>
-
-              {videos.length > 1 && (
-                <div className="flex items-center space-x-2 overflow-x-auto py-1 scrollbar-none">
-                  {videos.map((vid, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setActiveVideoIdx(idx)}
-                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center space-x-1.5 ${
-                        activeVideoIdx === idx
-                          ? 'bg-cyan-400 text-slate-950 shadow-md'
-                          : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                      }`}
-                    >
-                      <span>🎬 Video {idx + 1}</span>
-                      <span className="text-[10px] opacity-80">({vid.duration || '0:30'})</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 
@@ -586,7 +539,7 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* Operational Badges: Hours & Ready Stock */}
+            {/* Operational Badges */}
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
                 <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Operational Hours</span>
@@ -626,12 +579,12 @@ export default function ListingDetailModal({
             </div>
 
             {/* Verified Seller Profile & Social Connect */}
-            <div className="p-3.5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 rounded-2xl border border-slate-800 space-y-3 shadow-md">
+            <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3 shadow-md">
               <div className="flex items-center space-x-3">
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
                   {sellerInitial}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center space-x-1.5">
                     <h3 className="font-black text-white text-sm truncate">
                       {sellerDisplayName}
@@ -650,35 +603,56 @@ export default function ListingDetailModal({
                 </div>
               </div>
 
-              {/* 3-Button Social Grid */}
-              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
+              {/* Direct Channels Bar */}
+              <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-800/80">
                 <a
                   href={whatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="py-2 px-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl flex items-center justify-center space-x-1 text-[11px] font-black transition active:scale-95 shadow-sm"
+                  className="py-2.5 px-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
                 >
                   <span>💬</span>
-                  <span>WhatsApp</span>
-                </a>
-
-                <a
-                  href={telegramUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-2 px-1.5 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-xl flex items-center justify-center space-x-1 text-[11px] font-black transition active:scale-95 shadow-sm"
-                >
-                  <span>✈️</span>
-                  <span>Telegram</span>
+                  <span className="truncate">WhatsApp</span>
                 </a>
 
                 <a
                   href={`tel:${cleanPhone}`}
-                  className="py-2 px-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl flex items-center justify-center space-x-1 text-[11px] font-black transition active:scale-95 shadow-sm"
+                  className="py-2.5 px-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
                 >
                   <span>📞</span>
-                  <span>Call Now</span>
+                  <span className="truncate">Call</span>
                 </a>
+
+                {cleanInsta ? (
+                  <a
+                    href={instaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-2.5 px-1 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
+                  >
+                    <span>📸</span>
+                    <span className="truncate">Insta</span>
+                  </a>
+                ) : (
+                  <a
+                    href={telegramUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-2.5 px-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
+                  >
+                    <span>✈️</span>
+                    <span className="truncate">Telegram</span>
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsShareModalOpen(true)}
+                  className="py-2.5 px-1 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm cursor-pointer"
+                >
+                  <span>🚀</span>
+                  <span className="truncate">Poster</span>
+                </button>
               </div>
             </div>
 
@@ -723,16 +697,16 @@ export default function ListingDetailModal({
               </a>
             </div>
 
-            {/* Q&A / Voice Inquiries */}
+            {/* Q&A / Voice Inquiries Thread */}
             <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3.5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                 <div>
                   <h3 className="text-xs font-black text-white flex items-center space-x-1.5">
                     <span>💬</span>
-                    <span>Questions & Voice Inquiries ({comments.length})</span>
+                    <span>Questions & Inquiries ({comments.length})</span>
                   </h3>
                   <p className="text-[10px] text-slate-400">
-                    Speak via 🎙️ or type. Queries expire automatically in 5 days.
+                    Speak via 🎙️ or type.
                   </p>
                 </div>
 
@@ -749,7 +723,7 @@ export default function ListingDetailModal({
                 </button>
               </div>
 
-              {/* Q&A Thread List */}
+              {/* Complete Q&A Thread List */}
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {comments.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs font-medium">
@@ -850,7 +824,7 @@ export default function ListingDetailModal({
                 )}
               </div>
 
-              {/* Inquiry Input Bar */}
+              {/* Inquiry Input Form */}
               <div className="pt-2 border-t border-slate-800 space-y-2">
                 <input
                   type="text"
@@ -862,20 +836,13 @@ export default function ListingDetailModal({
 
                 {isRecording ? (
                   <div className="flex items-center justify-between p-2.5 bg-rose-500/20 border border-rose-500/50 rounded-xl animate-pulse">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                      <span className="text-xs font-black text-rose-300">
-                        {isUploadingVoice
-                          ? 'Sending voice note...'
-                          : `Recording: 0:${recordSeconds < 10 ? '0' : ''}${recordSeconds}`}
-                      </span>
-                    </div>
-
+                    <span className="text-xs font-black text-rose-300">
+                      Recording: 0:{recordSeconds < 10 ? '0' : ''}${recordSeconds}
+                    </span>
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
                         onClick={handleCancelVoiceRecording}
-                        disabled={isUploadingVoice}
                         className="text-[10px] font-bold text-slate-400 hover:text-white"
                       >
                         Cancel
@@ -883,10 +850,9 @@ export default function ListingDetailModal({
                       <button
                         type="button"
                         onClick={handleStopAndSendVoice}
-                        disabled={isUploadingVoice}
                         className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-lg shadow-md cursor-pointer active:scale-95"
                       >
-                        {isUploadingVoice ? 'Sending...' : 'Send Voice ➔'}
+                        Send Voice ➔
                       </button>
                     </div>
                   </div>
@@ -895,7 +861,6 @@ export default function ListingDetailModal({
                     <button
                       type="button"
                       onClick={handleStartVoiceRecording}
-                      title="Tap to ask via Voice Note"
                       className="w-9 h-9 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center font-black text-sm shrink-0 shadow-md active:scale-90 transition cursor-pointer"
                     >
                       🎙️
@@ -906,7 +871,7 @@ export default function ListingDetailModal({
                       placeholder="Type query or tap 🎙️ mic..."
                       value={userQuery}
                       onChange={(e) => setUserQuery(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-400 font-medium"
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-400"
                     />
 
                     <button
@@ -920,31 +885,31 @@ export default function ListingDetailModal({
                 )}
               </div>
             </div>
-
           </div>
         </main>
 
-        {/* Sticky Bottom Actions Footer */}
-        {/* Sticky Bottom Actions Footer */}
-        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl">
-          <ActionButtons
-            item={item}
-            selectedCity={selectedCity}
-            phone={item.phone || '9876543201'}
-            whatsapp={item.whatsapp || item.phone || '919876543210'}
-            message={`Namaste ${sellerDisplayName}, I found your listing "${item.title || ''}" on Aapke Kareeb (${item.location || selectedCity}). Is this available?`}
-          />
+        {/* 🌟 Sticky Bottom Actions Footer */}
+        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsContactModalOpen(true)}
+            className="py-3 px-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <span>📞</span>
+            <span>Contact Merchant</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="py-3 px-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 text-white font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <span>🔗</span>
+            <span>Share / Status</span>
+          </button>
         </footer>
 
-        {isStatusModalOpen && (
-          <WhatsAppStatusModal
-            item={item}
-            selectedCity={selectedCity}
-            onClose={() => setIsStatusModalOpen(false)}
-          />
-        )}
-
-        {/* Full-Screen Lightbox */}
+        {/* Full-Screen Photo Lightbox */}
         {isLightboxOpen && (
           <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between animate-fade-in p-4">
             <div className="flex items-center justify-between text-white pb-2">
@@ -1017,20 +982,39 @@ export default function ListingDetailModal({
             )}
           </div>
         )}
+
+        {/* Contact Sheet Modal */}
+        {isContactModalOpen && (
+          <ContactSheetModal
+            item={item}
+            phone={item.phone || item.contact}
+            whatsapp={item.whatsapp || item.phone}
+            instagram={item.instagram || item.insta}
+            selectedCity={selectedCity}
+            onClose={() => setIsContactModalOpen(false)}
+          />
+        )}
+
+        {/* In-App Share & 4K Status Sheet Modal */}
+        {isShareModalOpen && (
+          <ShareSheetModal
+            item={item}
+            selectedCity={selectedCity}
+            onClose={() => setIsShareModalOpen(false)}
+          />
+        )}
       </div>
 
-      {/* 🛡️ Community Reporting Modal */}
+      {/* Community Report Modal */}
       <ReportModal
         isOpen={isReportModalOpen}
         listing={item}
         reporterPhone={currentUser?.phone || '9876543210'}
         onClose={() => setIsReportModalOpen(false)}
-        onSuccess={() => {
-          handleModalClose();
-        }}
+        onSuccess={handleModalClose}
       />
 
-      {/* 🛡️ User Verification Modal */}
+      {/* User Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

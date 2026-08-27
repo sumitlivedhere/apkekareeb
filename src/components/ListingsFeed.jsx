@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { hyperlocalStore, useInterestSlice } from '../store/hyperlocalStore';
-import ActionButtons from './common/ActionButtons';
 import ListingDetailModal from './common/ListingDetailModal';
-import VoiceNotePlayer from './common/VoiceNotePlayer';
 
 function StandardListingCard({ item, selectedCity, onSelect }) {
   const [activeMediaTab, setActiveMediaTab] = useState('photos');
@@ -37,15 +35,15 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
   }, [item.videos, item.video_urls]);
 
   const hasVideo = videos.length > 0;
-  const priceDisplay = item.price || item.deal_price || item.rent || item.rates || 'Contact for Price';
+  const priceDisplay = item.price || item.deal_price || item.rent || item.rates || 'Best Price';
 
   return (
     <article
       onClick={onSelect}
-      className="bg-slate-900/95 hover:bg-slate-900 border border-slate-800 hover:border-amber-400/60 rounded-3xl overflow-hidden p-3.5 space-y-3 relative cursor-pointer transition active:scale-[0.99] shadow-xl group"
+      className="bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-3xl overflow-hidden p-3.5 space-y-3 relative cursor-pointer transition-all duration-300 active:scale-[0.99] shadow-xl hover:shadow-amber-500/5 group select-none"
     >
-      {/* Media Box */}
-      <div className="relative h-48 w-full bg-slate-950 rounded-2xl overflow-hidden select-none border border-slate-800">
+      {/* 🌟 1. Media Visual Box */}
+      <div className="relative h-48 w-full bg-slate-950 rounded-2xl overflow-hidden select-none border border-slate-800/80 shadow-inner">
         {activeMediaTab === 'photos' || !hasVideo ? (
           <img
             src={cleanPhotos[photoIndex] || cleanPhotos[0]}
@@ -67,6 +65,7 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
           />
         )}
 
+        {/* Video / Photo Tab Pill */}
         {hasVideo && (
           <div
             onClick={(e) => e.stopPropagation()}
@@ -93,6 +92,7 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
           </div>
         )}
 
+        {/* Photo Navigation Arrows */}
         {activeMediaTab === 'photos' && cleanPhotos.length > 1 && (
           <div
             onClick={(e) => e.stopPropagation()}
@@ -102,7 +102,7 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
               type="button"
               onClick={() => setPhotoIndex((p) => Math.max(0, p - 1))}
               disabled={photoIndex === 0}
-              className="w-6 h-6 rounded-full bg-slate-950/80 text-white text-[10px] flex items-center justify-center pointer-events-auto disabled:opacity-0 shadow"
+              className="w-6 h-6 rounded-full bg-slate-950/80 text-white text-[10px] flex items-center justify-center pointer-events-auto disabled:opacity-0 shadow hover:bg-slate-900 transition"
             >
               ❮
             </button>
@@ -110,13 +110,14 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
               type="button"
               onClick={() => setPhotoIndex((p) => Math.min(cleanPhotos.length - 1, p + 1))}
               disabled={photoIndex === cleanPhotos.length - 1}
-              className="w-6 h-6 rounded-full bg-slate-950/80 text-white text-[10px] flex items-center justify-center pointer-events-auto disabled:opacity-0 shadow"
+              className="w-6 h-6 rounded-full bg-slate-950/80 text-white text-[10px] flex items-center justify-center pointer-events-auto disabled:opacity-0 shadow hover:bg-slate-900 transition"
             >
               ❯
             </button>
           </div>
         )}
 
+        {/* Floating Price & Verified Pill */}
         <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center space-x-1.5">
           <span className="text-xs font-black px-2.5 py-1 rounded-xl text-slate-950 bg-amber-400 shadow-md">
             {priceDisplay}
@@ -126,6 +127,7 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
           </span>
         </div>
 
+        {/* Floating Interest Score */}
         <button
           type="button"
           onClick={handleStarClick}
@@ -136,7 +138,7 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
         </button>
       </div>
 
-      {/* Info Section */}
+      {/* 🌟 2. Content & Merchant Details */}
       <div className="space-y-1">
         <div className="flex items-start justify-between">
           <div className="min-w-0 pr-2">
@@ -144,43 +146,35 @@ function StandardListingCard({ item, selectedCity, onSelect }) {
               {item.title || item.name}
             </h3>
             {(item.sellerName || item.provider_name || item.brand) && (
-              <p className="text-[10px] text-amber-300 font-bold mt-0.5 truncate">
-                👤 {item.sellerName || item.provider_name || item.brand}
+              <p className="text-[10.5px] text-amber-400/90 font-bold mt-0.5 truncate flex items-center space-x-1">
+                <span>👤</span>
+                <span>{item.sellerName || item.provider_name || item.brand}</span>
               </p>
             )}
           </div>
 
-          <span className="text-[9px] font-black text-slate-300 bg-slate-800 px-2 py-0.5 rounded-lg uppercase tracking-wider shrink-0 border border-slate-700">
+          <span className="text-[9px] font-black text-cyan-300 bg-cyan-950/80 border border-cyan-500/30 px-2 py-0.5 rounded-lg uppercase tracking-wider shrink-0">
             {item.subCategory || item.category || 'DEAL'}
           </span>
         </div>
 
         {item.description && (
-          <p className="text-[11px] text-slate-300 line-clamp-2 leading-relaxed">
+          <p className="text-[11px] text-slate-300 line-clamp-2 leading-relaxed font-normal">
             {item.description}
           </p>
         )}
       </div>
 
-      {/* Location & Turn-by-Turn Footer */}
-      <div className="flex items-center justify-between text-[10.5px] pt-2 border-t border-slate-800 text-slate-400 font-medium">
+      {/* 🌟 3. Location Footer & Tap to Inspect Indicator */}
+      <div className="flex items-center justify-between text-[10.5px] pt-2 border-t border-slate-800/80 text-slate-400 font-medium">
         <div className="flex items-center space-x-1 truncate max-w-[220px]">
           <span>📍</span>
           <span className="truncate text-slate-300 font-bold">{item.location || selectedCity}</span>
         </div>
-
-        <span className="text-[9.5px] font-bold text-amber-400 uppercase tracking-widest shrink-0">
-          Details ➔
+        <span className="text-[10px] font-black text-amber-400 flex items-center space-x-1 shrink-0 group-hover:translate-x-0.5 transition-transform">
+          <span>View Details</span>
+          <span>➔</span>
         </span>
-      </div>
-
-      {/* Action Buttons */}
-      <div onClick={(e) => e.stopPropagation()}>
-        <ActionButtons
-          phone={item.phone || item.contact || '9876543210'}
-          whatsapp={item.whatsapp || item.phone || item.contact || '919876543210'}
-          message={`Namaste, I found your listing "${item.title || item.name}" in Aapke Kareeb (${selectedCity}). I want more details.`}
-        />
       </div>
     </article>
   );
@@ -240,8 +234,8 @@ export default function ListingsFeed({
   }, [selectedCategory, selectedSubCategory, searchQuery, activeFilter]);
 
   return (
-    <div className="p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-100 flex-1 pb-24">
-      {/* 🌟 1. Top Category Bar */}
+    <div className="p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-100 flex-1 pb-24 select-none">
+      {/* Top Header */}
       <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-2xl flex items-center justify-between shadow-md">
         <div className="flex items-center space-x-2">
           <button
@@ -266,7 +260,7 @@ export default function ListingsFeed({
         </span>
       </div>
 
-      {/* 🌟 2. Quick Filters */}
+      {/* Filter Tabs */}
       <div className="flex items-center space-x-1.5 overflow-x-auto py-1 scrollbar-none text-xs font-bold">
         {[
           { id: 'all', label: '🌟 All Listings' },
@@ -288,7 +282,7 @@ export default function ListingsFeed({
         ))}
       </div>
 
-      {/* 🌟 3. Listings Stream */}
+      {/* Listings Stream */}
       {listings.length === 0 ? (
         <div className="bg-slate-900/60 rounded-3xl p-8 text-center border border-slate-800 space-y-2.5">
           <span className="text-3xl block">📦</span>
@@ -317,7 +311,7 @@ export default function ListingsFeed({
         </div>
       )}
 
-      {/* 🌟 4. Full Detail Modal Triggered on Tap */}
+      {/* Full Detail Modal */}
       {selectedDetailItem && (
         <ListingDetailModal
           item={selectedDetailItem}
