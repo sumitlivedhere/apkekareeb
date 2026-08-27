@@ -177,12 +177,18 @@ export default function App() {
   }, []);
 
   // Mobile Hardware & Gesture PopState Listener (Supports both Back & Forward)
+ // Mobile Hardware & Gesture PopState Listener (Supports both Back & Forward)
   useEffect(() => {
     const handlePopState = (e) => {
+      // 1. If any modal is active or was closed via history pop, ignore top-level route change
+      if (e.state && (e.state.modal || e.state.surpriseMode)) {
+        return;
+      }
       if (activeModalCloserRef.current) {
         activeModalCloserRef.current();
         return;
       }
+      // 2. Otherwise synchronize sliding screen history
       if (e.state && typeof e.state.idx === 'number') {
         setHistoryIndex(e.state.idx);
       } else {
@@ -337,14 +343,30 @@ export default function App() {
   // 🌟 Touch Swipe Gesture Handlers
  // 🌟 Universal Touch Swipe Gesture Handlers (Left = Forward, Right = Back)
   const handleTouchStart = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
+    if (
+      document.querySelector('[data-modal-open="true"]') ||
+      isListingModalOpen ||
+      isNotificationsOpen ||
+      selectedDetailItem ||
+      isAuthModalOpen ||
+      isAdminKeyModalOpen ||
+      isBusinessPromptOpen
+    ) return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
     touchStartTime.current = Date.now();
   };
 
   const handleTouchEnd = (e) => {
-    if (isListingModalOpen || isNotificationsOpen || selectedDetailItem || isAuthModalOpen || isAdminKeyModalOpen || isBusinessPromptOpen) return;
+    if (
+      document.querySelector('[data-modal-open="true"]') ||
+      isListingModalOpen ||
+      isNotificationsOpen ||
+      selectedDetailItem ||
+      isAuthModalOpen ||
+      isAdminKeyModalOpen ||
+      isBusinessPromptOpen
+    ) return;
 
     const target = e.target;
     // Don't trigger page swipe if user is scrolling horizontal chip lists or typing

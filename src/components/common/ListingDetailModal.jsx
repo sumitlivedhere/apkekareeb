@@ -19,6 +19,32 @@ export default function ListingDetailModal({
 }) {
   if (!item) return null;
 
+  // 🛡️ Modal History & Swipe Gesture Tracking
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const isClosedByHistoryRef = useRef(false);
+
+  useEffect(() => {
+    // Push dedicated modal history state so mobile hardware back button closes modal without popping the underlying feed
+    window.history.pushState({ modal: 'listing-detail' }, '');
+
+    const handlePopState = () => {
+      isClosedByHistoryRef.current = true;
+      onClose();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [onClose]);
+
+  const handleModalClose = () => {
+    if (!isClosedByHistoryRef.current) {
+      window.history.back();
+    }
+  };
+
   // 🛡️ User Authentication & Moderation State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -264,7 +290,7 @@ export default function ListingDetailModal({
   const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
-    `Namaste ${item.sellerName || item.driverName || ''}, I found your listing "${item.title || item.name}" on TownHub (${item.location || selectedCity}). I want more details.`
+    `Namaste ${item.sellerName || item.driverName || ''}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
   )}`;
 
   const telegramUrl = item.telegram
@@ -289,15 +315,40 @@ export default function ListingDetailModal({
   const sellerDisplayName = item.sellerName || item.driverName || 'Verified Member';
   const sellerInitial = sellerDisplayName.charAt(0).toUpperCase();
 
+  const handleTouchStart = (e) => {
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isRecording) return;
+    touchStartX.current = e.changedTouches[0].clientX;
+    touchStartY.current = e.changedTouches[0].clientY;
+  };
+
+  const handleTouchEnd = (e) => {
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isRecording) return;
+    const target = e.target;
+    if (target.closest('.overflow-x-auto, input, textarea, select, video')) return;
+
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Swiping right dismisses the modal and retains the list's scroll position
+    if (deltaX > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+      handleModalClose();
+    }
+  };
+
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden select-none">
+      <div
+        data-modal-open="true"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden select-none"
+      >
         
         {/* Top App Bar */}
         <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md px-4 py-3 border-b border-slate-800 flex items-center justify-between shadow-md">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleModalClose}
             className="flex items-center space-x-1.5 text-xs font-black bg-slate-900 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl border border-slate-800 transition active:scale-95 cursor-pointer"
           >
             <span>✕</span>
@@ -609,7 +660,7 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* 4 Highlights & Description */}
+            {/* Highlights & Description */}
             {item.description && (
               <div className="space-y-1.5 p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800">
                 <h2 className="text-[11px] font-black text-slate-300 uppercase tracking-wider">
@@ -856,7 +907,7 @@ export default function ListingDetailModal({
           <ActionButtons
             phone={item.phone || '9876543201'}
             whatsapp={item.whatsapp || item.phone || '919876543210'}
-            message={`Namaste ${sellerDisplayName}, I found your listing "${item.title || ''}" on TownHub (${item.location || selectedCity}). Is this available?`}
+            message={`Namaste ${sellerDisplayName}, I found your listing "${item.title || ''}" on Aapke Kareeb (${item.location || selectedCity}). Is this available?`}
           />
         </footer>
 
@@ -942,7 +993,7 @@ export default function ListingDetailModal({
         reporterPhone={currentUser?.phone || '9876543210'}
         onClose={() => setIsReportModalOpen(false)}
         onSuccess={() => {
-          onClose();
+          handleModalClose();
         }}
       />
 
