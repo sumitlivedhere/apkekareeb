@@ -16,6 +16,7 @@ import TownHubView from './categories/TownHubView';
 import NotificationCenter from './components/NotificationCenter';
 import AuthModal from './components/common/AuthModal';
 import AdminKeyModal from './components/common/AdminKeyModal';
+import PWAInstallBanner from './components/common/PWAInstallBanner';
 
 // 1. Lazy Loaded User Auth & Profile Station
 const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboard'));
@@ -1065,6 +1066,9 @@ export default function App() {
           }
         }}
       />
+
+      {/* 📲 1-Tap Home Screen Install Prompt */}
+      <PWAInstallBanner />
 
       {/* 📈 Performance & Web Analytics Metrics */}
       <SpeedInsights />

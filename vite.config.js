@@ -13,11 +13,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons.svg'],
       manifest: {
-        name: 'Town Hub Hyperlocal',
-        short_name: 'TownHub',
-        description: 'Hyperlocal Marketplace & Services for Alwar',
-        theme_color: '#4338ca',
-        background_color: '#0f172a',
+        name: 'Aapke Kareeb • आपका लोकल बाज़ार',
+        short_name: 'AapkeKareeb',
+        description: 'Hyperlocal Marketplace, Deals & Services for Alwar',
+        theme_color: '#020617',
+        background_color: '#020617',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
@@ -31,6 +31,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         runtimeCaching: [
           {

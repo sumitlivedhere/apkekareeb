@@ -16,7 +16,6 @@ class AmbientWaterBubbleSynth {
       if (!AudioCtx) return;
       this.ctx = new AudioCtx();
 
-      // Ensure audio context resumes immediately after user gesture
       if (this.ctx.state === 'suspended') {
         this.ctx.resume();
       }
@@ -38,7 +37,6 @@ class AmbientWaterBubbleSynth {
 
       this.isPlaying = true;
 
-      // Continuously spawn randomized liquid droplet bloop sounds
       const scheduleBloop = () => {
         if (!this.isPlaying || !this.ctx || this.ctx.state === 'closed') return;
 
@@ -220,7 +218,7 @@ const ALL_TOWN_BUBBLES = [
   {
     id: 'transporters',
     name: 'Transporters',
-    hindiName: 'ट्रांसपोर्ट व गाड़ियां',
+    hindiName: 'ट्रांसपोर्ट व गाड़ियां',
     icon: '🚚',
     theme: 'from-blue-400 via-indigo-500 to-cyan-600',
     glowColor: 'rgba(59, 130, 246, 0.55)',
@@ -364,7 +362,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
   };
 
   return (
-    <div className="relative w-full flex-1 flex flex-col justify-between p-3.5 select-none text-slate-100 overflow-hidden min-h-[calc(100vh-80px)]">
+    <div className="relative w-full flex-1 flex flex-col justify-center items-center p-3 select-none text-slate-100 overflow-hidden min-h-[calc(100vh-100px)]">
       
       {/* 🌟 Rising Background White Micro-Bubbles & Liquid Wobble Keyframes */}
       <style>{`
@@ -444,22 +442,9 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         ))}
       </div>
 
-      {/* 🌟 2. TOP HEADER */}
-      <div className="text-center space-y-1 z-10 pt-1 shrink-0">
-        <span className="text-[10px] font-black uppercase text-cyan-400 bg-cyan-950/80 px-3 py-0.5 rounded-full border border-cyan-400/30 tracking-wider shadow-lg">
-          🫧 17 FLOATING TOWN BUBBLES
-        </span>
-        <h2 className="text-base font-black text-slate-100 tracking-tight pt-1">
-          Kisi 1 Bul-bule Par Tap Karke Phodein!
-        </h2>
-        <p className="text-[11px] text-slate-400">
-          Pop a floating sphere to unlock surprise deals across {selectedCity}
-        </p>
-      </div>
-
-      {/* 🌟 3. FLOATING CATEGORY BUBBLES SCROLLABLE CANVAS */}
-      <div className="relative z-10 flex-1 my-auto py-3 overflow-y-auto max-h-[calc(100vh-230px)] scrollbar-none px-1">
-        <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto place-items-center">
+      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS */}
+      <div className="relative z-10 w-full flex-1 my-auto py-4 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-none px-1 flex flex-col justify-center">
+        <div className="grid grid-cols-3 gap-3.5 max-w-sm mx-auto place-items-center">
           {ALL_TOWN_BUBBLES.map((bubble) => {
             const isPopped = poppedBubbleId === bubble.id;
             const isAnyPopped = Boolean(poppedBubbleId);
@@ -531,25 +516,6 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
             );
           })}
         </div>
-      </div>
-
-      {/* 🌟 4. FOOTER CONTROLS */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-900 z-10 shrink-0">
-        <button
-          type="button"
-          onClick={() => {
-            synthRef.current.stop();
-            onBack();
-          }}
-          className="px-4 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold border border-slate-800 active:scale-95 transition cursor-pointer flex items-center space-x-1 shadow-sm"
-        >
-          <span>← Back to Modes</span>
-        </button>
-
-        <span className="text-[10px] text-cyan-400 font-bold flex items-center space-x-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-          <span>Water Droplets Audio Active</span>
-        </span>
       </div>
 
     </div>
