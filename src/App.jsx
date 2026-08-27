@@ -273,6 +273,10 @@ export default function App() {
     if (canGoForward) window.history.forward();
   };
 
+  const goToHome = () => {
+    navigateTo({ screen: 'home', searchQuery: '' });
+  };
+
   const handleNewNotification = (notif) => {
     hyperlocalStore.addNotification(notif);
   };
@@ -611,14 +615,14 @@ export default function App() {
               category={selectedCategory}
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed(selectedCategory, sub)}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
           {currentScreen === 'admin-dashboard' && (
             <AdminDashboard
               selectedCity={selectedCity}
-              onBack={() => navigateTo({ screen: 'home' })}
+              onBack={goToHome}
             />
           )}
 
@@ -627,7 +631,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('medical', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -636,7 +640,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('property', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -645,7 +649,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('vehicles', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -654,7 +658,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('electronics', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -663,7 +667,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('fashion', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -672,7 +676,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('furniture', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -681,7 +685,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('kaarigar', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -690,7 +694,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('transporters', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -699,7 +703,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('white-collar', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -708,7 +712,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('education', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -717,7 +721,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('restaurants', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -726,7 +730,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('malls', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -735,7 +739,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('shaadi', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -745,7 +749,7 @@ export default function App() {
               onSelectSubCategory={(sub) => handleOpenFeed('festival', sub)}
               onSelectFestivalCategory={(sub) => handleOpenFeed('festival', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -754,7 +758,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('construction', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -763,7 +767,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('advertising', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -772,7 +776,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('community', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -781,7 +785,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('market', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -790,7 +794,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('recommerce', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -799,7 +803,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('fitness', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
@@ -808,7 +812,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('creators', sub)}
               onPostClick={handleOpenPostModal}
-              onBack={goBack}
+              onBack={goToHome}
             />
           )}
 
