@@ -4,14 +4,46 @@ import App from './App.jsx';
 import './index.css';
 import { initRealtimeSubscriptions, hydrateFromDB } from './store/hyperlocalStore';
 import { installGlobalMediaGuard } from './utils/globalMediaGuard';
+import { registerSW } from 'virtual:pwa-register';
 
-// 1. Establish persistent WebSockets listener for live town feeds & threads
+// 🔄 Auto-update Service Worker in background immediately on new deploy
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    updateSW(true);
+  },
+  onOfflineReady() {},
+});
+
+// ⚡ Check for updates when user opens/resumes the app
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      updateSW();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    updateSW();
+  });
+
+  // Automatically reload when new service worker takes control
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+}
+
+// 1. Establish persistent WebSockets listener for live town feeds & threads[cite: 3]
 initRealtimeSubscriptions();
 
-// 2. Hydrate existing database listings from PostgreSQL into store
+// 2. Hydrate existing database listings from PostgreSQL into store[cite: 3]
 hydrateFromDB();
 
-//3 Activate global media shield across all 17 feeds
+// 3. Activate global media shield across all 17 feeds[cite: 3]
 installGlobalMediaGuard();
 
 const rootElement = document.getElementById('root');
