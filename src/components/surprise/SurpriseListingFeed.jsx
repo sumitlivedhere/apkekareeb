@@ -232,10 +232,11 @@ function SurpriseCardItem({ item, selectedCity, onSelect, getMessageTemplate }) 
 export default function SurpriseListingFeed({
   selectedCity = 'Alwar',
   searchQuery = '',
-  chosenCategory,
+  chosenCategory = { id: 'all', name: 'All Mix' },
   onOpenBubbles,
   onNewNotification,
 }) {
+  
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
   const [activeFilter, setActiveFilter] = useState('all');
   const [shuffleKey, setShuffleKey] = useState(0);

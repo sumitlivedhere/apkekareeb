@@ -113,28 +113,6 @@ const playBubblePopAudio = () => {
   } catch {}
 };
 
-// 18 Ambient Rising White Micro-Bubbles
-const WHITE_RISING_BUBBLES = [
-  { id: 1, left: '5%', size: 'w-2 h-2', duration: '4.2s', delay: '0s', sway: '12px' },
-  { id: 2, left: '14%', size: 'w-3.5 h-3.5', duration: '5.6s', delay: '1.2s', sway: '-16px' },
-  { id: 3, left: '22%', size: 'w-2 h-2', duration: '4.8s', delay: '0.4s', sway: '10px' },
-  { id: 4, left: '32%', size: 'w-3 h-3', duration: '6.2s', delay: '2.1s', sway: '-18px' },
-  { id: 5, left: '42%', size: 'w-2.5 h-2.5', duration: '4.5s', delay: '0.9s', sway: '14px' },
-  { id: 6, left: '52%', size: 'w-3 h-3', duration: '5.2s', delay: '1.6s', sway: '-12px' },
-  { id: 7, left: '62%', size: 'w-3 h-3', duration: '6.0s', delay: '0.2s', sway: '16px' },
-  { id: 8, left: '72%', size: 'w-2 h-2', duration: '4.1s', delay: '1.8s', sway: '-10px' },
-  { id: 9, left: '82%', size: 'w-3.5 h-3.5', duration: '5.4s', delay: '1.1s', sway: '14px' },
-  { id: 10, left: '92%', size: 'w-2 h-2', duration: '4.9s', delay: '2.5s', sway: '-14px' },
-  { id: 11, left: '18%', size: 'w-2.5 h-2.5', duration: '5.0s', delay: '3.2s', sway: '15px' },
-  { id: 12, left: '28%', size: 'w-3 h-3', duration: '6.5s', delay: '2.7s', sway: '-12px' },
-  { id: 13, left: '48%', size: 'w-1.5 h-1.5', duration: '3.8s', delay: '3.0s', sway: '8px' },
-  { id: 14, left: '68%', size: 'w-2 h-2', duration: '4.6s', delay: '3.5s', sway: '-15px' },
-  { id: 15, left: '78%', size: 'w-3 h-3', duration: '5.8s', delay: '0.7s', sway: '12px' },
-  { id: 16, left: '88%', size: 'w-2 h-2', duration: '4.4s', delay: '2.9s', sway: '-8px' },
-  { id: 17, left: '10%', size: 'w-3 h-3', duration: '5.7s', delay: '1.9s', sway: '10px' },
-  { id: 18, left: '96%', size: 'w-2.5 h-2.5', duration: '6.1s', delay: '0.5s', sway: '-16px' },
-];
-
 // 17 Town Categories + 1 Hero Wildcard
 const ALL_TOWN_BUBBLES = [
   {
@@ -356,7 +334,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
     playBubblePopAudio();
     setPoppedBubbleId(bubble.id);
 
-    setTimeout(() => {
+   setTimeout(() => {
       onSelectCategory(bubble.id, bubble.name);
     }, 420);
   };
@@ -364,29 +342,8 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
   return (
     <div className="relative w-full h-[calc(100dvh-125px)] max-h-[calc(100dvh-125px)] flex flex-col justify-center items-center select-none text-slate-100 overflow-hidden px-2">
       
-      {/* 🌟 Rising Background White Micro-Bubbles Keyframes */}
+      {/* 🌟 Liquid Wobble & Bubble Keyframes */}
       <style>{`
-        @keyframes riseFloatUpStrict {
-          0% {
-            transform: translateY(100%) translateX(0px) scale(0.6);
-            opacity: 0;
-          }
-          15% {
-            opacity: 0.8;
-          }
-          50% {
-            transform: translateY(45%) translateX(var(--sway, 10px)) scale(1.05);
-            opacity: 0.85;
-          }
-          85% {
-            opacity: 0.7;
-          }
-          100% {
-            transform: translateY(-10%) translateX(0px) scale(1.4);
-            opacity: 0;
-            filter: blur(2px);
-          }
-        }
         @keyframes liquidBobbing {
           0%, 100% { transform: translateY(0px) rotate(0deg); }
           50% { transform: translateY(-5px) rotate(1deg); }
@@ -404,9 +361,6 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
           0% { transform: translate(0, 0) scale(1); opacity: 1; }
           100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
         }
-        .white-rising-bubble-particle {
-          animation: riseFloatUpStrict var(--dur, 5s) ease-in-out infinite;
-        }
         .liquid-bubble-float {
           animation: liquidBobbing 4s ease-in-out infinite;
         }
@@ -418,26 +372,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
         }
       `}</style>
 
-      {/* 🌟 1. BACKGROUND RISING TRANSLUCENT WHITE MICRO-BUBBLES (Contained) */}
-      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-        {WHITE_RISING_BUBBLES.map((b) => (
-          <div
-            key={b.id}
-            style={{
-              left: b.left,
-              bottom: '0px',
-              '--dur': b.duration,
-              '--sway': b.sway,
-              animationDelay: b.delay,
-            }}
-            className={`absolute ${b.size} rounded-full bg-white/60 border border-white/90 shadow-[0_0_10px_rgba(255,255,255,0.8)] backdrop-blur-[0.5px] white-rising-bubble-particle`}
-          >
-            <span className="absolute top-0.5 left-0.5 w-1 h-0.5 rounded-full bg-white opacity-90 rotate-[-30deg]"></span>
-          </div>
-        ))}
-      </div>
-
-      {/* 🌟 2. FLOATING CATEGORY BUBBLES CANVAS (Strict Scroll Container) */}
+      {/* 🌟 FLOATING CATEGORY BUBBLES CANVAS */}
       <div className="relative z-10 w-full h-full overflow-y-auto overscroll-contain scrollbar-none py-2 px-1 flex flex-col items-center">
         <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto place-items-center my-auto">
           {ALL_TOWN_BUBBLES.map((bubble) => {
@@ -504,7 +439,7 @@ export default function BubblesDiscovery({ onSelectCategory, onBack, selectedCit
                           '--ty': pos.y,
                           animation: 'particleBurstFly 0.4s cubic-bezier(0.1, 0.8, 0.2, 1) forwards',
                         }}
-                        className={`absolute w-2 h-2 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-md`}
+                        className={`absolute w-2.5 h-2.5 rounded-full bg-gradient-to-tr ${bubble.theme} shadow-md`}
                       />
                     ))}
                   </div>
