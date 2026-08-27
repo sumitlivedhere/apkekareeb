@@ -395,7 +395,7 @@ export default function App() {
       navigateTo({
         screen: 'surprise-feed',
         category: 'surprise',
-        subCategory: 'all',
+        subCategory: 'bubbles',
         searchQuery: '',
       });
       return;
@@ -577,6 +577,15 @@ export default function App() {
             <SurpriseFeed
               selectedCity={selectedCity}
               searchQuery={searchQuery}
+              selectedSubCategory={selectedSubCategory}
+              onSelectSubCategory={(subCatId) =>
+                navigateTo({
+                  screen: 'surprise-feed',
+                  category: 'surprise',
+                  subCategory: subCatId,
+                  searchQuery: '',
+                })
+              }
               onBack={goBack}
               onNewNotification={handleNewNotification}
             />
@@ -617,6 +626,7 @@ export default function App() {
             <MedicalHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('medical', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -625,6 +635,7 @@ export default function App() {
             <PropertyHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('property', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -633,6 +644,7 @@ export default function App() {
             <VehicleHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('vehicles', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -641,6 +653,7 @@ export default function App() {
             <ElectronicsHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('electronics', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -649,6 +662,7 @@ export default function App() {
             <FashionHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('fashion', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -657,6 +671,7 @@ export default function App() {
             <FurnitureHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('furniture', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -665,6 +680,7 @@ export default function App() {
             <KaarigarHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('kaarigar', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -673,6 +689,7 @@ export default function App() {
             <TransporterHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('transporters', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -681,6 +698,7 @@ export default function App() {
             <WhiteCollarHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('white-collar', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -689,6 +707,7 @@ export default function App() {
             <EducationHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('education', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -697,6 +716,7 @@ export default function App() {
             <RestaurantsHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('restaurants', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -705,6 +725,7 @@ export default function App() {
             <MallsHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('malls', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -713,6 +734,7 @@ export default function App() {
             <ShaadiHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('shaadi', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -722,6 +744,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('festival', sub)}
               onSelectFestivalCategory={(sub) => handleOpenFeed('festival', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -730,6 +753,7 @@ export default function App() {
             <ConstructionHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('construction', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -738,6 +762,7 @@ export default function App() {
             <AdvertisingHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('advertising', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -746,6 +771,7 @@ export default function App() {
             <CommunityHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('community', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -754,6 +780,7 @@ export default function App() {
             <MarketHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('market', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -762,6 +789,7 @@ export default function App() {
             <ReCommerceHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('recommerce', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -770,6 +798,7 @@ export default function App() {
             <FitnessHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('fitness', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}
@@ -778,6 +807,7 @@ export default function App() {
             <CreatorsHub
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('creators', sub)}
+              onPostClick={handleOpenPostModal}
               onBack={goBack}
             />
           )}

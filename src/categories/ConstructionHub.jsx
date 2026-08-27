@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const CONSTRUCTION_STEPS = [
   {
@@ -48,6 +49,7 @@ export default function ConstructionHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectConstructionCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('construction');
@@ -227,17 +229,12 @@ export default function ConstructionHub({
         🌟 View All Construction Directory ({categoryConfig.subCategories.length} Specialties)
       </button>
 
-      {/* 🌟 5. CONTRACTOR & WORKER ONBOARDING BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border border-amber-700/40 rounded-2xl flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-3">
-          <span className="text-2xl p-2 bg-amber-500/20 border border-amber-400/30 rounded-xl">🚜</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Are you a Contractor, Supplier or Mistri?</div>
-            <div className="text-[10px] text-slate-300">List your machinery, building materials or labor team for local house owners.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-amber-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

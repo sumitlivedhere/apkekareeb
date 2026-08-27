@@ -1,6 +1,6 @@
 import React from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
-
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 const FITNESS_GOAL_SHORTCUTS = [
   { subId: 'gyms-crossfit', label: '🏋️ High-End Gyms & Weight Training', desc: 'Heavy dumbells, crossfit rigs & AC' },
   { subId: 'turf-badminton-courts', label: '🏏 Box Cricket Turf & Swimming', desc: 'Book hourly night slots with floodlights' },
@@ -12,6 +12,7 @@ export default function FitnessHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectFitnessCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('fitness');
@@ -167,17 +168,12 @@ export default function FitnessHub({
         </div>
       </section>
 
-      {/* 🌟 TRAINER / GYM OWNER BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-emerald-950/60 to-slate-900 border border-emerald-600/40 rounded-2xl flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">💪</span>
-          <div>
-            <div className="text-xs font-black text-emerald-300">Run a Gym, Turf, Yoga Studio or Coaching Academy?</div>
-            <div className="text-[10px] text-slate-300">List membership plans, hourly turf slot booking & direct WhatsApp queries in {selectedCity}. Zero fees.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-emerald-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

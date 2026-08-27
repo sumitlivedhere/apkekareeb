@@ -1,6 +1,6 @@
 import React from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
-
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 const CREATOR_POPULAR_TASKS = [
   { subId: 'reels-video-editors', label: '✂️ Instagram Reels & Short-Form Editors', desc: 'Viral hooks, captions, sound design & 24hr delivery' },
   { subId: 'cameramen-drone-pilots', label: '🎥 4K Cine Shoots & Drone Pilots', desc: 'Pre-weddings, showroom tours & brand reels' },
@@ -12,6 +12,7 @@ export default function CreatorsHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectCreatorsCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('creators');
@@ -167,17 +168,12 @@ export default function CreatorsHub({
         </div>
       </section>
 
-      {/* 🌟 CREATOR ONBOARDING BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-violet-950/60 to-slate-900 border border-violet-600/40 rounded-2xl flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">💻</span>
-          <div>
-            <div className="text-xs font-black text-fuchsia-300">Are you a Video Editor, Drone Pilot, Designer or Marketer?</div>
-            <div className="text-[10px] text-slate-300">Showcase your portfolio, pricing per reel & get direct freelance projects from local brands in {selectedCity}.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-violet-400 shrink-0 ml-2">List Portfolio ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

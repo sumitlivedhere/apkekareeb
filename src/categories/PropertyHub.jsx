@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const PROPERTY_GROUPS = [
   {
@@ -60,6 +61,7 @@ export default function PropertyHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectPropertyCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('property');
@@ -369,17 +371,13 @@ export default function PropertyHub({
         🌟 View All Real Estate Directory ({categoryConfig.subCategories.length} Categories)
       </button>
 
-      {/* 🌟 5. OWNER & DEALER ONBOARDING BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-emerald-950/60 to-slate-900 border border-emerald-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">🏡</span>
-          <div>
-            <div className="text-xs font-black text-emerald-300">Got Property to Rent, Sell or Finance?</div>
-            <div className="text-[10px] text-slate-300">Post in 60 seconds, reach direct tenants and buyers in {selectedCity} with zero platform fees.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-emerald-400 shrink-0 ml-2">Post Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }
+

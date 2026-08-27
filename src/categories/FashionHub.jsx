@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const GENDER_OPTIONS = [
   { id: 'all', label: 'All Genders' },
@@ -30,9 +31,11 @@ export default function FashionHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectFashionType,
+  onPostClick,
   onBack,
 }) {
-  const categoryConfig = getCategoryById('fashion');
+  const categoryConfig = getCategoryById('fashion') || {};
+  const subCategories = Array.isArray(categoryConfig.subCategories) ? categoryConfig.subCategories : [];
   const storeListings = useStoreSlice('listings');
 
   // Surprise Me Filter Matrix
@@ -93,9 +96,8 @@ export default function FashionHub({
   };
 
   return (
-    <div className="p-3.5 space-y-4 animate-fade-in text-slate-100 pb-10">
-      
-      {/* 🌟 1. EDITORIAL GLAMOUR HEADER */}
+    <div className="p-3.5 space-y-4 animate-fade-in text-slate-100 pb-20">
+      {/* 🌟 1. Editorial Glamour Header */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-rose-950 via-purple-950 to-slate-950 p-4 border border-pink-500/30 shadow-2xl">
         <div className="absolute -top-12 -right-12 w-40 h-40 bg-pink-500 rounded-full blur-3xl opacity-20 pointer-events-none"></div>
 
@@ -123,9 +125,8 @@ export default function FashionHub({
         </div>
       </div>
 
-      {/* 🌟 2. INTERACTIVE "SURPRISE ME" & STYLE ROULETTE ENGINE */}
+      {/* 🌟 2. Interactive "Surprise Me" & Style Matcher Engine */}
       <section className="bg-gradient-to-b from-slate-900 via-slate-900 to-purple-950/40 p-4 rounded-3xl border border-pink-500/30 shadow-xl space-y-3.5 relative overflow-hidden">
-        
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <span className="text-xl">🎲</span>
@@ -144,7 +145,7 @@ export default function FashionHub({
           </span>
         </div>
 
-        {/* --- FILTER 1: GENDER --- */}
+        {/* Filter 1: Gender */}
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
             1. Gender / Section
@@ -167,7 +168,7 @@ export default function FashionHub({
           </div>
         </div>
 
-        {/* --- FILTER 2: AGE GROUP --- */}
+        {/* Filter 2: Age Group */}
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
             2. Age Bracket
@@ -190,7 +191,7 @@ export default function FashionHub({
           </div>
         </div>
 
-        {/* --- FILTER 3: OCCASION & CLOTHING TYPE --- */}
+        {/* Filter 3: Occasion */}
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
             3. Occasion / Style Type
@@ -213,7 +214,7 @@ export default function FashionHub({
           </div>
         </div>
 
-        {/* --- BIG "SURPRISE ME" ACTION TRIGGER --- */}
+        {/* Big Action Trigger */}
         <button
           type="button"
           onClick={handleRollSurprise}
@@ -228,11 +229,10 @@ export default function FashionHub({
           <span>{isSpinning ? 'Finding Perfect Match...' : 'Surprise Me with an Outfit / Item!'}</span>
         </button>
 
-        {/* --- SURPRISE RESULT CARD --- */}
+        {/* Result Card */}
         {surpriseItem && (
           <div className="pt-2 animate-scale-up">
             <div className="bg-white rounded-2xl p-3 text-slate-900 shadow-2xl border-2 border-pink-500 relative space-y-2.5">
-              
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-pink-100 text-pink-900 uppercase">
                   🎉 Curated For You
@@ -268,7 +268,7 @@ export default function FashionHub({
               <ActionButtons
                 phone={surpriseItem.phone || '9876543210'}
                 whatsapp={surpriseItem.whatsapp || surpriseItem.phone || '919876543210'}
-                message={`Namaste, I found "${surpriseItem.title}" via TownHub Style Surprise. Is it still available?`}
+                message={`Namaste, I found "${surpriseItem.title}" via Aapke Kareeb Style Surprise. Is it still available?`}
               />
 
               <div className="flex items-center justify-between pt-1 border-t border-slate-100">
@@ -293,14 +293,14 @@ export default function FashionHub({
         )}
       </section>
 
-      {/* 🌟 3. SECTOR SUBCATEGORY TILES */}
+      {/* 🌟 3. Sector Subcategory Tiles */}
       <section className="space-y-2.5 pt-2">
         <div className="flex items-center justify-between px-1">
           <h3 className="text-xs font-black text-slate-100 uppercase tracking-wider flex items-center space-x-1.5">
             <span>✨</span>
             <span>Browse Full Wardrobe Collections</span>
           </h3>
-          <span className="text-[10px] text-pink-400 font-bold">10 Subcategories</span>
+          <span className="text-[10px] text-pink-400 font-bold">{subCategories.length} Subcategories</span>
         </div>
 
         <div className="grid grid-cols-2 gap-2.5">
@@ -316,31 +316,35 @@ export default function FashionHub({
             </div>
           </button>
 
-          {categoryConfig.subCategories.map((sub) => (
-            <button
-              key={sub.id}
-              type="button"
-              onClick={() => handleSelect(sub.id)}
-              className="p-3.5 bg-slate-900/90 hover:bg-slate-850 text-white rounded-2xl text-left font-bold shadow-sm hover:scale-[1.02] active:scale-95 transition cursor-pointer flex flex-col justify-between h-28 border border-slate-800 hover:border-pink-500/50"
-            >
-              <div className="flex items-center justify-between">
+          {subCategories.map((sub) => {
+            const rawName = String(sub.name || '');
+            const title = rawName.includes('(') ? rawName.split('(')[0].trim() : rawName;
+            const subtitle = rawName.match(/\((.*?)\)/)?.[1] || 'फैशन';
+
+            return (
+              <button
+                key={sub.id}
+                type="button"
+                onClick={() => handleSelect(sub.id)}
+                className="p-3.5 bg-slate-900/90 hover:bg-slate-850 text-white rounded-2xl text-left font-bold shadow-sm hover:scale-[1.02] active:scale-95 transition cursor-pointer flex flex-col justify-between h-28 border border-slate-800 hover:border-pink-500/50"
+              >
                 <span className="text-xl">{sub.icon || '👗'}</span>
-                {sub.tag && (
-                  <span className="text-[8px] font-black px-1.5 py-0.2 rounded-md bg-pink-500 text-white uppercase">
-                    {sub.tag}
-                  </span>
-                )}
-              </div>
-              <div>
-                <div className="text-xs font-black leading-tight text-slate-100">{sub.name.split('(')[0]}</div>
-                <div className="text-[9px] text-slate-400 font-semibold mt-0.5 truncate">
-                  {sub.name.match(/\((.*?)\)/)?.[1] || 'कलेक्शन'}
+                <div>
+                  <div className="text-xs font-black leading-tight">{title}</div>
+                  <div className="text-[9px] text-slate-400 font-normal mt-0.5">{subtitle}</div>
                 </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </section>
+
+      {/* 🌟 4. Interactive List Free Widget */}
+      <CategoryListFreeBanner
+        category="fashion"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const VIBE_FILTERS = [
   { id: 'all', label: 'All Food Spots' },
@@ -34,6 +35,7 @@ export default function RestaurantsHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectRestaurantCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('restaurants');
@@ -361,17 +363,12 @@ export default function RestaurantsHub({
         </div>
       </section>
 
-      {/* 🌟 4. RESTAURANT & TIFFIN OWNER ONBOARDING BANNER */}
-      <div className="p-3 bg-gradient-to-r from-slate-900 via-rose-950/60 to-slate-900 border border-amber-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-xl">👨‍🍳</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Run a Restaurant, Cafe, Dhaba or Tiffin Service?</div>
-            <div className="text-[10px] text-slate-300">List your menu and direct WhatsApp delivery with zero aggregator commissions in {selectedCity}.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-amber-400 shrink-0">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

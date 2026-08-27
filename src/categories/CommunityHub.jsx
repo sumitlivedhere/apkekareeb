@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const SEVA_CATEGORIES = [
   {
@@ -47,6 +48,7 @@ export default function CommunityHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectCommunityCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('community');
@@ -253,17 +255,12 @@ export default function CommunityHub({
         🌟 View All Community Seva Directory ({categoryConfig.subCategories.length} Categories)
       </button>
 
-      {/* 🌟 6. NGO & VOLUNTEER REGISTRATION BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-rose-950/60 to-slate-900 border border-rose-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">🚩</span>
-          <div>
-            <div className="text-xs font-black text-rose-300">Are you an NGO, Charitable Trust or Volunteer Group?</div>
-            <div className="text-[10px] text-slate-300">List your blood donation helpline, food drive, gaushala or free medical camps in {selectedCity} with zero fees.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-rose-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 6. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

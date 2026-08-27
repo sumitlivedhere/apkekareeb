@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
-
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 const LEARNING_CAREER_TRACKS = [
   {
     trackId: 'media-creator-training',
@@ -64,6 +64,7 @@ export default function EducationHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectEducationCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('education');
@@ -238,17 +239,12 @@ export default function EducationHub({
         🌟 View All Education & Vocational Directory ({categoryConfig.subCategories.length} Categories)
       </button>
 
-      {/* 🌟 5. TRAINER & INSTITUTE REGISTRATION BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-indigo-950/60 to-slate-900 border border-indigo-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">👩‍🏫</span>
-          <div>
-            <div className="text-xs font-black text-indigo-300">Are you a Vocational Trainer, Coach, CA, Advocate or Studio?</div>
-            <div className="text-[10px] text-slate-300">List your new batch timings, apprenticeships, editing workshops or academic classes with zero fees in {selectedCity}.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-indigo-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

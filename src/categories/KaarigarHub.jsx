@@ -1,5 +1,6 @@
 import React from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const EMERGENCY_SERVICES = [
   { subId: 'plumbers-water-motor', label: '💧 Water Pipe Leak / Motor Jam', desc: 'Plumber in 20-30 mins' },
@@ -12,6 +13,7 @@ export default function KaarigarHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectKaarigarCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('kaarigar') || {};
@@ -26,8 +28,8 @@ export default function KaarigarHub({
   };
 
   return (
-    <div className="p-3.5 space-y-4 animate-fade-in text-slate-100 pb-16">
-      {/* Header */}
+    <div className="p-3.5 space-y-4 animate-fade-in text-slate-100 pb-20">
+      {/* 🌟 1. Header */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-950 via-slate-900 to-cyan-950 p-4 border border-blue-500/40 shadow-2xl">
         <div className="relative z-10 flex items-start justify-between">
           <div>
@@ -72,7 +74,7 @@ export default function KaarigarHub({
         </div>
       </div>
 
-      {/* Emergency SOS Bar */}
+      {/* 🌟 2. Emergency SOS Bar */}
       <section className="bg-gradient-to-r from-red-950/60 via-slate-900 to-amber-950/60 p-3.5 rounded-3xl border border-red-500/40 shadow-lg space-y-2.5">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center space-x-1.5">
@@ -104,7 +106,7 @@ export default function KaarigarHub({
         </div>
       </section>
 
-      {/* Subcategories Grid */}
+      {/* 🌟 3. Subcategories Grid */}
       <section className="space-y-2.5">
         <div className="flex items-center justify-between px-1">
           <h3 className="text-xs font-black text-slate-100 uppercase tracking-wider flex items-center space-x-1.5">
@@ -149,26 +151,23 @@ export default function KaarigarHub({
                     {sub.icon || '🛠️'}
                   </span>
                   <div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-black text-slate-100">{title}</span>
-                      {sub.tag && (
-                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-blue-500/20 text-cyan-300 border border-blue-400/30">
-                          {sub.tag}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[9px] text-slate-400 font-semibold mt-0.5 truncate">
-                      {subtitle}
-                    </div>
+                    <div className="text-xs font-black">{title}</div>
+                    <div className="text-[9px] text-slate-400 font-normal">{subtitle}</div>
                   </div>
                 </div>
-
                 <span className="text-xs font-black text-blue-400 shrink-0 ml-2">➔</span>
               </button>
             );
           })}
         </div>
       </section>
+
+      {/* 🌟 4. Interactive List Free Widget */}
+      <CategoryListFreeBanner
+        category="kaarigar"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

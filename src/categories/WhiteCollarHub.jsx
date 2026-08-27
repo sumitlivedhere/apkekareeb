@@ -1,5 +1,6 @@
 import React from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const PROFESSIONAL_COUNCILS = [
   {
@@ -40,6 +41,8 @@ export default function WhiteCollarHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectWhiteCollarCategory,
+  onPostClick,
+  
   onBack,
 }) {
   const categoryConfig = getCategoryById('white-collar');
@@ -168,17 +171,12 @@ export default function WhiteCollarHub({
         🌟 View All Professionals Directory ({categoryConfig.subCategories.length} Specialties)
       </button>
 
-      {/* 🌟 4. PROFESSIONAL ONBOARDING BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-indigo-950/60 to-slate-900 border border-indigo-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">💼</span>
-          <div>
-            <div className="text-xs font-black text-indigo-300">Are you a Doctor, CA, Advocate, Architect or Consultant?</div>
-            <div className="text-[10px] text-slate-300">List your clinic/chamber address, qualifications, consultation hours & direct appointment number in {selectedCity}.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-indigo-400 shrink-0 ml-2">List Profile ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

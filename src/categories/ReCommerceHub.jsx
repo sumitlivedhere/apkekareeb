@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const ITEM_CATEGORY_FILTERS = [
   { id: 'all', label: 'All Pre-Loved Items' },
@@ -36,6 +37,7 @@ export default function ReCommerceHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('recommerce');
@@ -387,17 +389,12 @@ export default function ReCommerceHub({
         </div>
       </section>
 
-      {/* 🌟 5. CITIZEN "SELL OLD STUFF IN 60 SECONDS" BANNER */}
-      <div className="p-3 bg-gradient-to-r from-slate-900 via-teal-950/60 to-slate-900 border border-teal-800/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-xl">📸</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Got Unused Items at Home?</div>
-            <div className="text-[10px] text-slate-300">Snap a quick photo, post in 60 seconds, and sell to buyers near you with zero fees.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-teal-400 shrink-0">Sell Item ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

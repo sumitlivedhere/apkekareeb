@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
-
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 const FESTIVAL_SKINS = [
   {
     id: 'diwali',
@@ -100,6 +100,7 @@ export default function FestivalHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectFestivalCategory,
+  onPostClick,
   onBack,
 }) {
   const [activeSkin, setActiveSkin] = useState('diwali');
@@ -344,24 +345,12 @@ export default function FestivalHub({
           })}
         </div>
 
-        {/* Local Merchant Onboarding Banner */}
-        <div className="p-3.5 bg-gradient-to-r from-[#4d0914] via-[#2a040b] to-[#450711] border border-amber-400/40 rounded-2xl flex items-center justify-between shadow-[0_6px_20px_rgba(77,9,20,0.4)]">
-          <div className="space-y-0.5 pr-2">
-            <span className="text-[9px] font-black text-amber-400 block tracking-wider">
-              🏪 ALWAR FESTIVE MERCHANT REGISTRATION
-            </span>
-            <h4 className="text-xs font-black text-amber-50 leading-snug">
-              Running a Festive Offer or Event in Alwar?
-            </h4>
-            <p className="text-[9.5px] text-amber-200/75 leading-tight">
-              Broadcast your festive deals to thousands of families in {selectedCity}. Zero commission.
-            </p>
-          </div>
-
-          <span className="px-3.5 py-2 bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-500 text-[#3b000c] font-black text-[10px] rounded-xl whitespace-nowrap shadow-[0_0_15px_rgba(251,191,36,0.35)] active:scale-95 transition cursor-pointer">
-            Post Deal ➔
-          </span>
-        </div>
+        {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
 
       </div>
     </div>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const DEAL_TYPE_FILTERS = [
   { id: 'all', label: 'All Offers' },
@@ -32,6 +33,7 @@ export default function MarketHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectMarketCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('market');
@@ -364,17 +366,12 @@ export default function MarketHub({
         </div>
       </section>
 
-      {/* 🌟 4. MERCHANT ONBOARDING BANNER */}
-      <div className="p-3 bg-gradient-to-r from-slate-900 via-emerald-950/60 to-slate-900 border border-emerald-800/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-xl">📢</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Running a Sale or Opening a New Store?</div>
-            <div className="text-[10px] text-slate-300">Broadcast your promotions and offers directly to local town shoppers.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-emerald-400 shrink-0">Post Offer ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

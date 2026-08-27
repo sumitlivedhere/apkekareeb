@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
-
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 const ROOM_ZONE_FILTERS = [
   { id: 'all', label: 'All Spaces' },
   { id: 'living', label: '🛋️ Living Room' },
@@ -32,6 +32,7 @@ export default function FurnitureHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectFurnitureType,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('furniture');
@@ -374,17 +375,12 @@ export default function FurnitureHub({
         </div>
       </section>
 
-      {/* 🌟 4. CARPENTER / INTERIOR MERCHANT ONBOARDING BANNER */}
-      <div className="p-3 bg-gradient-to-r from-slate-900 via-amber-950/60 to-slate-900 border border-amber-800/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-xl">🪵</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Are you a Furniture Maker or Interior Studio?</div>
-            <div className="text-[10px] text-slate-300">Showcase your woodwork, modular setups, and custom furniture directly to homeowners.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-amber-400 shrink-0">List Work ➔</span>
-      </div>
+     {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

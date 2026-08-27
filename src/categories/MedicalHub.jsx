@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const DOCTOR_SPECIALTIES_GROUP = [
   { subId: 'doc-ortho-bones', label: '🦴 Bone & Fracture (हड्डी/जोड़)', docType: 'Orthopaedic' },
@@ -29,6 +30,7 @@ export default function MedicalHub({
   onSelectSubCategory,
   onSelectMedicalCategory,
   onBack,
+  onPostClick,
 }) {
   const categoryConfig = getCategoryById('medical');
   const [activeTab, setActiveTab] = useState('doctors'); // 'doctors' | 'hospitals' | 'all'
@@ -235,17 +237,12 @@ export default function MedicalHub({
         </div>
       </div>
 
-      {/* 🌟 5. DOCTOR & CLINIC OWNER BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-red-950/60 to-slate-900 border border-red-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">👨‍⚕️</span>
-          <div>
-            <div className="text-xs font-black text-red-300">Are you a Doctor, Clinic Owner or Surgeon?</div>
-            <div className="text-[10px] text-slate-300">List your private clinic OPD timings, degrees, consultation fee & direct booking in {selectedCity}. Zero fees.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-red-400 shrink-0 ml-2">List Clinic ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

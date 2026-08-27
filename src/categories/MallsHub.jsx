@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ActionButtons from '../components/common/ActionButtons';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const VIBE_FILTERS = [
   { id: 'all', label: 'All Showrooms' },
@@ -35,6 +36,7 @@ export default function MallsHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectMallsCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('malls');
@@ -362,17 +364,12 @@ export default function MallsHub({
         </div>
       </section>
 
-      {/* 🌟 4. SHOWROOM & BOUTIQUE ONBOARDING BANNER */}
-      <div className="p-3 bg-gradient-to-r from-slate-900 via-purple-950/60 to-slate-900 border border-purple-700/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-xl">🏢</span>
-          <div>
-            <div className="text-xs font-black text-pink-300">Run a Flagship Showroom or Concept Boutique?</div>
-            <div className="text-[10px] text-slate-300">Showcase your store ambiance, VIP lounges & exclusive collection to modern shoppers in {selectedCity}.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-pink-400 shrink-0">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

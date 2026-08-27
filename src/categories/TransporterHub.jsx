@@ -1,5 +1,6 @@
 import React from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const QUICK_DISPATCH_NEEDS = [
   { subId: 'tata-ace-chota-hathi', label: '📦 Local Goods & Box Delivery', icon: '🚐', desc: 'Tata Ace in 15-25 mins' },
@@ -12,6 +13,7 @@ export default function TransporterHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectTransporterCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('transporters');
@@ -167,17 +169,12 @@ export default function TransporterHub({
         </div>
       </section>
 
-      {/* 🌟 4. DRIVER ONBOARDING BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-cyan-950/60 to-slate-900 border border-cyan-600/40 rounded-2xl flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">🛻</span>
-          <div>
-            <div className="text-xs font-black text-cyan-300">Own a Pickup, Tata Ace, Truck or Auto?</div>
-            <div className="text-[10px] text-slate-300">List your vehicle, location & direct mobile number for local loading trips in {selectedCity}. Zero commission.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-cyan-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }

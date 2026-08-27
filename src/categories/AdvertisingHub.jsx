@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getCategoryById } from '../data/taxonomyRegistry';
+import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
 
 const ADVERTISING_TRACKS = [
   {
@@ -43,6 +44,7 @@ export default function AdvertisingHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectAdvertisingCategory,
+  onPostClick,
   onBack,
 }) {
   const categoryConfig = getCategoryById('advertising');
@@ -249,17 +251,12 @@ export default function AdvertisingHub({
         🌟 View All Advertising Directory ({categoryConfig.subCategories.length} Categories)
       </button>
 
-      {/* 🌟 6. SPACE OWNER & AGENCY REGISTRATION BANNER */}
-      <div className="p-3.5 bg-gradient-to-r from-slate-900 via-amber-950/60 to-slate-900 border border-amber-600/40 rounded-2xl flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <span className="text-2xl">🏡</span>
-          <div>
-            <div className="text-xs font-black text-amber-300">Got a Roof, Wall or Ad Agency?</div>
-            <div className="text-[10px] text-slate-300">List your private space to earn monthly rent, or list your printing/newspaper agency in {selectedCity} with zero commission.</div>
-          </div>
-        </div>
-        <span className="text-xs font-bold text-amber-400 shrink-0 ml-2">List Free ➔</span>
-      </div>
+      {/* 🌟 6. INTERACTIVE LIST FREE WIDGET */}
+      <CategoryListFreeBanner
+        category="property"
+        selectedCity={selectedCity}
+        onPostClick={onPostClick}
+      />
     </div>
   );
 }
