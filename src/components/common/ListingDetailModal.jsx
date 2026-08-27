@@ -1,5 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useInterestSlice, useThreadSlice, hyperlocalStore } from '../../store/hyperlocalStore';
+import {
+  useInterestSlice,
+  useThreadSlice,
+  useListingRatingStats,
+  hyperlocalStore,
+} from '../../store/hyperlocalStore';
+import ProductReviewSection from './ProductReviewSection';
 import VoiceNotePlayer from './VoiceNotePlayer';
 import ContactSheetModal from './ContactSheetModal';
 import ShareSheetModal from './ShareSheetModal';
@@ -20,7 +26,7 @@ export default function ListingDetailModal({
 }) {
   if (!item) return null;
 
-  // 🛡️ Modal History & Swipe Gesture Tracking
+  // 🛡️ Modal History & Hardware Back Interception
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const isClosedByHistoryRef = useRef(false);
@@ -45,7 +51,7 @@ export default function ListingDetailModal({
     }
   };
 
-  // 🛡️ User Authentication & Modals State
+  // 🛡️ User Authentication & Sub-Modals State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -82,6 +88,18 @@ export default function ListingDetailModal({
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
+  // ⭐ Star Rating & Interest Stats
+  const ratingStats = useListingRatingStats(item.id, Number(item.rating || 4.8));
+  const interestCount = useInterestSlice(
+    item.id,
+    Number(item.interestCount || item.interest_count || 0)
+  );
+  const [isAlreadyInterested, setIsAlreadyInterested] = useState(() =>
+    hyperlocalStore.hasUserInterested(item.id)
+  );
+
+  const comments = useThreadSlice(item.id, []);
+
   // Gallery Resolution
   const gallery = (
     item.images && item.images.length > 0
@@ -116,23 +134,29 @@ export default function ListingDetailModal({
     }
   };
 
-  // Interest & Threads
-  const interestCount = useInterestSlice(
-    item.id,
-    Number(item.interestCount || item.interest_count || 0)
-  );
-  const comments = useThreadSlice(item.id, []);
+  // 🌟 1-Tap Single Interest Handler
+  const handleInterestClick = (e) => {
+    e?.stopPropagation();
+    if (isAlreadyInterested) {
+      alert('You have already registered your interest for this listing.');
+      return;
+    }
 
-  const handleIncrementInterest = () => {
-    hyperlocalStore.incrementInterest(
+    const res = hyperlocalStore.toggleInterestOnce(
       item.id,
       interestCount,
       item.title || item.name,
       item.sellerName || item.driverName || 'Verified Member'
     );
+
+    if (res.success) {
+      setIsAlreadyInterested(true);
+    } else {
+      alert(res.message);
+    }
   };
 
-  // Voice Inquiries
+  // 🎙️ Voice Note Recording Handlers
   const handleStartVoiceRecording = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -283,7 +307,7 @@ export default function ListingDetailModal({
     setActiveReplyId(null);
   };
 
-  // Contacts
+  // Contacts & Social
   const rawPhone = item.phone || item.whatsapp || '9876543201';
   const cleanPhone = String(rawPhone).replace(/\D/g, '');
   const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
@@ -293,8 +317,6 @@ export default function ListingDetailModal({
   const rawInsta = item.instagram || item.insta || item.instagram_handle || '';
   const cleanInsta = rawInsta.replace('@', '').trim();
   const instaUrl = cleanInsta.startsWith('http') ? cleanInsta : `https://instagram.com/${cleanInsta}`;
-
-  
 
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
     `Namaste ${sellerDisplayName}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
@@ -338,7 +360,7 @@ export default function ListingDetailModal({
         data-modal-open="true"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden select-none"
+        className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden select-none font-sans"
       >
         {/* Top App Bar */}
         <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md px-4 py-3 border-b border-slate-800 flex items-center justify-between shadow-md">
@@ -369,7 +391,7 @@ export default function ListingDetailModal({
               type="button"
               onClick={() => setIsReportModalOpen(true)}
               className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800 p-1.5 rounded-xl font-bold flex items-center justify-center cursor-pointer active:scale-95 transition"
-              title="Report Spam"
+              title="Report Listing"
             >
               <span>🚩</span>
             </button>
@@ -378,6 +400,7 @@ export default function ListingDetailModal({
 
         {/* Scrollable Body */}
         <main className="flex-1 overflow-y-auto pb-32 space-y-4">
+          
           {/* Media Switcher Tabs */}
           {videos.length > 0 && (
             <div className="px-4 pt-2">
@@ -411,9 +434,17 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Photo Carousel View */}
+          {/* Photo Carousel with Top-Right Floating Star Rating Badge */}
           {activeMediaTab === 'photos' && (
             <div className="relative h-80 w-full bg-slate-950 overflow-hidden group">
+              
+              {/* 🌟 Top-Right Floating Star Rating Badge */}
+              <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl text-slate-100 font-black text-xs border border-amber-400/40 shadow-xl flex items-center space-x-1 z-20 pointer-events-none">
+                <span className="text-amber-400">★</span>
+                <span className="text-slate-100 text-xs font-bold">{ratingStats.averageRating}</span>
+                <span className="text-slate-400 text-[10px]">({ratingStats.totalReviews})</span>
+              </div>
+
               <div
                 ref={carouselRef}
                 onScroll={handleScroll}
@@ -522,7 +553,7 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Listing Info & Badges */}
+          {/* Listing Header Details */}
           <div className="px-4 space-y-3.5">
             <div className="space-y-1">
               <div className="flex items-start justify-between">
@@ -552,29 +583,34 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* Hyperlocal Interest Score */}
-            <div className="flex items-center justify-between p-3 bg-slate-900/90 border border-slate-800 rounded-2xl">
+            {/* 🌟 Hyperlocal Interest Score (1-Tap Locked) */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl">
               <div>
                 <div className="text-xs font-black text-white flex items-center space-x-1">
                   <span>⭐</span>
                   <span>Hyperlocal Interest Score</span>
                 </div>
-                <p className="text-[10px] text-slate-400">
-                  {interestCount} people in {selectedCity} showed interest
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {interestCount} {interestCount === 1 ? 'person' : 'people'} in {selectedCity} showed interest
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={handleIncrementInterest}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center space-x-1"
+                onClick={handleInterestClick}
+                disabled={isAlreadyInterested}
+                className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95 flex items-center space-x-1 ${
+                  isAlreadyInterested
+                    ? 'bg-emerald-500 text-slate-950 border border-emerald-400 cursor-default opacity-95'
+                    : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950'
+                }`}
               >
-                <span>⭐</span>
-                <span>Interest ({interestCount})</span>
+                <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
+                <span>({interestCount})</span>
               </button>
             </div>
 
-            {/* Verified Seller Profile & Social Connect */}
+            {/* Verified Seller Profile & Direct Connects */}
             <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3 shadow-md">
               <div className="flex items-center space-x-3">
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
@@ -634,7 +670,7 @@ export default function ListingDetailModal({
                     type="button"
                     disabled
                     className="py-2.5 px-1 bg-slate-950/60 text-slate-500 border border-slate-800 rounded-xl flex items-center justify-center space-x-1 text-xs font-bold opacity-50 cursor-not-allowed select-none"
-                    title="Seller has not linked an Instagram handle"
+                    title="No Instagram handle"
                   >
                     <span>📸</span>
                     <span className="truncate text-[10px]">No Insta</span>
@@ -664,7 +700,7 @@ export default function ListingDetailModal({
               </div>
             )}
 
-            {/* Location & Google Maps */}
+            {/* Location & Google Maps Navigation */}
             <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center space-x-1">
@@ -702,7 +738,7 @@ export default function ListingDetailModal({
                     <span>Questions & Inquiries ({comments.length})</span>
                   </h3>
                   <p className="text-[10px] text-slate-400">
-                    Speak via 🎙️ or type.
+                    Speak via 🎙️ or type questions.
                   </p>
                 </div>
 
@@ -719,11 +755,11 @@ export default function ListingDetailModal({
                 </button>
               </div>
 
-              {/* Complete Q&A Thread List */}
+              {/* Q&A Thread List */}
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {comments.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs font-medium">
-                    No questions asked yet. Tap the 🎙️ mic or type below to ask!
+                    No questions asked yet. Tap 🎙️ mic or type below to ask!
                   </div>
                 ) : (
                   comments.map((c, idx) => {
@@ -794,7 +830,7 @@ export default function ListingDetailModal({
                           </div>
                         )}
 
-                        {/* Inline Seller Reply Input */}
+                        {/* Inline Seller Reply Box */}
                         {isSellerMode && activeReplyId === c.id && !c.sellerReply && (
                           <div className="ml-8 pt-1 flex items-center space-x-1.5">
                             <input
@@ -803,7 +839,7 @@ export default function ListingDetailModal({
                               placeholder={`Reply as ${sellerDisplayName}...`}
                               value={sellerReplyText}
                               onChange={(e) => setSellerReplyText(e.target.value)}
-                              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-amber-400"
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
                             />
                             <button
                               type="button"
@@ -827,7 +863,7 @@ export default function ListingDetailModal({
                   placeholder="Your Name (Optional)"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-400"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                 />
 
                 {isRecording ? (
@@ -867,7 +903,7 @@ export default function ListingDetailModal({
                       placeholder="Type query or tap 🎙️ mic..."
                       value={userQuery}
                       onChange={(e) => setUserQuery(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-400"
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                     />
 
                     <button
@@ -881,6 +917,14 @@ export default function ListingDetailModal({
                 )}
               </div>
             </div>
+
+            {/* 🌟 PRODUCT RATINGS & MULTIMEDIA REVIEWS SECTION (Amazon / Flipkart Style) */}
+            <ProductReviewSection
+              listingId={item.id}
+              listingTitle={item.title || item.name}
+              sellerName={sellerDisplayName}
+            />
+
           </div>
         </main>
 
@@ -907,7 +951,7 @@ export default function ListingDetailModal({
 
         {/* Full-Screen Photo Lightbox */}
         {isLightboxOpen && (
-          <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between animate-fade-in p-4">
+          <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between animate-fade-in p-4 font-sans">
             <div className="flex items-center justify-between text-white pb-2">
               <span className="text-xs font-black">
                 {activeImgIndex + 1} / {totalImages}

@@ -12,7 +12,14 @@ import {
   saveNotificationToDB,
   deleteListingFromDB,
 } from '../../services/listingService';
-import { logoutAdmin, isAdminAuthorized } from '../../services/authService';
+import {
+  logoutAdmin,
+  isAdminAuthorized,
+  adminToggleBanUser,
+  adminDeleteUser,
+  adminDeleteAllSellerListings,
+  adminDemoteMerchant,
+} from '../../services/authService';
 import { TAXONOMY_REGISTRY, getCategoryById } from '../../data/taxonomyRegistry';
 import {
   getOptimizedVoiceStream,
@@ -26,6 +33,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminAuth, setIsAdminAuth] = useState(() => isAdminAuthorized());
   const [enteredKey, setEnteredKey] = useState('');
   const [keyError, setKeyError] = useState('');
+  const [dashboardNotice, setDashboardNotice] = useState('');
 
   const allListings = useAllListingsSlice();
   const [activeTab, setActiveTab] = useState('pending'); // 'pending' | 'approved' | 'all' | 'users'
@@ -34,15 +42,15 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState(null);
 
-  // ⏱️ Time Filter States
+  // ⏱️ Timeline Filter States
   const [timeFilterType, setTimeFilterType] = useState('all'); // 'all' | 'hours' | 'days' | 'last_week' | 'last_month' | 'this_year'
-  const [timeValue, setTimeValue] = useState(1); // 1-24 for hours, 1-7 for days
+  const [timeValue, setTimeValue] = useState(1);
 
-  // 👤 1-Tap Merchant Portfolio Dossier State
+  // 👤 Seller Dossier Modal State
   const [selectedSeller, setSelectedSeller] = useState(null); // { phone, name }
   const [sellerPortfolioTab, setSellerPortfolioTab] = useState('all'); // 'all' | 'approved' | 'pending' | 'feedback'
 
-  // 🔍 Interactive Review Studio Modal & Admin Correction State
+  // 🔍 Review Studio & Full Correction State
   const [inspectingItem, setInspectingItem] = useState(null);
   const [isAdminEditing, setIsAdminEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({
@@ -75,9 +83,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   // 📷 Fullscreen Lightbox State
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [lightboxType, setLightboxType] = useState('photos'); // 'photos' | 'videos'
+  const [lightboxType, setLightboxType] = useState('photos');
 
-  // 🎙️ Admin Voice Recording & Feedback State
+  // 🎙️ Voice Feedback Recording State
   const [feedbackText, setFeedbackText] = useState('');
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -95,7 +103,13 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   }, [isAdminAuth]);
 
-  // Authenticate Master Secret Key
+  const showNotice = (msg) => {
+    setDashboardNotice(msg);
+    if (msg) {
+      setTimeout(() => setDashboardNotice(''), 4000);
+    }
+  };
+
   const handleVerifyAdminKey = (e) => {
     e.preventDefault();
     if (enteredKey.trim() === MASTER_ADMIN_SECRET) {
@@ -107,7 +121,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🚪 Lock & Exit
   const handleAdminLogout = () => {
     if (window.confirm('Lock and exit Master Admin Control?')) {
       logoutAdmin();
@@ -121,9 +134,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     setIsRefreshing(true);
     await hydrateFromDB();
     setIsRefreshing(false);
+    showNotice('Registry and feeds refreshed.');
   };
 
-  // ⏱️ Time Filter Calculator
   const applyTimeFilter = (timestamp) => {
     if (timeFilterType === 'all') return true;
     if (!timestamp) return true;
@@ -131,26 +144,17 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const itemTime = new Date(timestamp).getTime();
     const now = Date.now();
 
-    if (timeFilterType === 'hours') {
-      return now - itemTime <= timeValue * 60 * 60 * 1000;
-    }
-    if (timeFilterType === 'days') {
-      return now - itemTime <= timeValue * 24 * 60 * 60 * 1000;
-    }
-    if (timeFilterType === 'last_week') {
-      return now - itemTime <= 7 * 24 * 60 * 60 * 1000;
-    }
-    if (timeFilterType === 'last_month') {
-      return now - itemTime <= 30 * 24 * 60 * 60 * 1000;
-    }
+    if (timeFilterType === 'hours') return now - itemTime <= timeValue * 60 * 60 * 1000;
+    if (timeFilterType === 'days') return now - itemTime <= timeValue * 24 * 60 * 60 * 1000;
+    if (timeFilterType === 'last_week') return now - itemTime <= 7 * 24 * 60 * 60 * 1000;
+    if (timeFilterType === 'last_month') return now - itemTime <= 30 * 24 * 60 * 60 * 1000;
     if (timeFilterType === 'this_year') {
-      const currentYear = new Date().getFullYear();
-      return new Date(itemTime).getFullYear() === currentYear;
+      return new Date(itemTime).getFullYear() === new Date().getFullYear();
     }
     return true;
   };
 
-  // 1. Pending Approvals Filter
+  // 1. Pending Approvals
   const pendingApprovals = useMemo(() => {
     return allListings.filter((item) => {
       const isPending =
@@ -171,7 +175,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 2. Approved & Live Listings Filter
+  // 2. Approved Listings
   const approvedListings = useMemo(() => {
     return allListings.filter((item) => {
       const isApproved = item.is_active === true && !item.has_pending_approval;
@@ -187,7 +191,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 3. All Listings Filter
+  // 3. All Listings
   const allFilteredListings = useMemo(() => {
     return allListings.filter((item) => {
       const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
@@ -202,7 +206,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 👤 Specific Selected Seller's Listings
+  // 👤 Selected Seller Listings
   const sellerListings = useMemo(() => {
     if (!selectedSeller?.phone) return [];
     const cleanTargetPhone = String(selectedSeller.phone).replace(/\D/g, '').slice(-10);
@@ -214,26 +218,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedSeller]);
 
-  const sellerApproved = useMemo(() => {
-    return sellerListings.filter((i) => i.is_active === true && !i.has_pending_approval);
-  }, [sellerListings]);
-
-  const sellerPending = useMemo(() => {
-    return sellerListings.filter(
-      (i) =>
-        (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) &&
-        !i.admin_feedback &&
-        !i.seller_feedback_reply
-    );
-  }, [sellerListings]);
-
-  const sellerFeedbackActive = useMemo(() => {
-    return sellerListings.filter(
-      (i) =>
-        (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) &&
-        (Boolean(i.admin_feedback) || Boolean(i.seller_feedback_reply))
-    );
-  }, [sellerListings]);
+  const sellerApproved = useMemo(() => sellerListings.filter((i) => i.is_active === true && !i.has_pending_approval), [sellerListings]);
+  const sellerPending = useMemo(() => sellerListings.filter((i) => (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) && !i.admin_feedback && !i.seller_feedback_reply), [sellerListings]);
+  const sellerFeedbackActive = useMemo(() => sellerListings.filter((i) => (i.has_pending_approval || !i.is_active || Boolean(i.pending_changes)) && (Boolean(i.admin_feedback) || Boolean(i.seller_feedback_reply))), [sellerListings]);
 
   const displayedSellerListings = useMemo(() => {
     if (sellerPortfolioTab === 'approved') return sellerApproved;
@@ -241,6 +228,72 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     if (sellerPortfolioTab === 'feedback') return sellerFeedbackActive;
     return sellerListings;
   }, [sellerPortfolioTab, sellerListings, sellerApproved, sellerPending, sellerFeedbackActive]);
+
+  // 🛑 MASTER ADMIN DIRECT FULL-CONTROL ACTIONS
+  const handleDirectDeleteListing = async (listingId, title = 'Listing') => {
+    if (!window.confirm(`⚠️ PERMANENT DELETE: Are you sure you want to delete "${title}"?`)) return;
+    try {
+      await deleteListingFromDB(listingId);
+      hyperlocalStore.removeListing(listingId);
+      showNotice(`🗑️ Deleted "${title}"`);
+      if (inspectingItem?.id === listingId) setInspectingItem(null);
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Failed to delete listing.');
+    }
+  };
+
+  const handleDirectBanPoster = async (phone, name = 'User') => {
+    if (!phone) return;
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    if (!window.confirm(`⛔ BLOCK & BAN: Block phone number +91 ${cleanPhone} (${name}) and deactivate all their listings?`)) {
+      return;
+    }
+    await adminToggleBanUser(cleanPhone, true);
+    await hydrateFromDB();
+    showNotice(`⛔ Blocked and banned +91 ${cleanPhone}`);
+  };
+
+  const handleDirectPurgeSellerAll = async (phone, name = 'Seller') => {
+    if (!phone) return;
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    if (!window.confirm(`🧹 PURGE ALL: Delete ALL listings and trade offers posted by ${name} (+91 ${cleanPhone})?`)) {
+      return;
+    }
+    await adminDeleteAllSellerListings(cleanPhone);
+    await hydrateFromDB();
+    showNotice(`🧹 Purged all listings of +91 ${cleanPhone}`);
+    if (selectedSeller?.phone === cleanPhone) setSelectedSeller(null);
+    if (inspectingItem && String(inspectingItem.phone).slice(-10) === cleanPhone) {
+      setInspectingItem(null);
+    }
+  };
+
+  const handleDirectDeleteSellerAccount = async (phone, name = 'Seller') => {
+    if (!phone) return;
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    if (!window.confirm(`🗑️ DELETE ACCOUNT: Permanently delete profile +91 ${cleanPhone} (${name}) and purge listings?`)) {
+      return;
+    }
+    await adminDeleteAllSellerListings(cleanPhone);
+    await adminDeleteUser(null, cleanPhone);
+    await hydrateFromDB();
+    showNotice(`🗑️ Completely deleted ${name} (+91 ${cleanPhone})`);
+    if (selectedSeller?.phone === cleanPhone) setSelectedSeller(null);
+    if (inspectingItem && String(inspectingItem.phone).slice(-10) === cleanPhone) {
+      setInspectingItem(null);
+    }
+  };
+
+  const handleDirectDemoteSeller = async (phone, name = 'Seller') => {
+    if (!phone) return;
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    if (!window.confirm(`⬇️ DEMOTE: Revert ${name} (+91 ${cleanPhone}) from Verified Merchant back to Basic Resident?`)) {
+      return;
+    }
+    await adminDemoteMerchant(cleanPhone);
+    showNotice(`⬇️ Demoted ${name} to Basic Resident`);
+  };
 
   // Populate Admin Correction Form & Media State
   const handleOpenInspector = (item) => {
@@ -430,13 +483,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
 
+      showNotice(`✓ Published "${finalChanges.title || item.title}"`);
       if (inspectingItem?.id === item.id) {
         setInspectingItem(null);
         setIsAdminEditing(false);
       }
     } catch (err) {
       console.error('Approve error:', err);
-      alert('Failed to approve listing. Please check your network connection.');
+      alert('Failed to approve listing. Please check network.');
     } finally {
       setActionInProgressId(null);
     }
@@ -468,6 +522,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
 
+      showNotice(`Rejected changes for "${item.title}"`);
       if (inspectingItem?.id === item.id) {
         setInspectingItem(null);
         setIsAdminEditing(false);
@@ -569,7 +624,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       };
       hyperlocalStore.insertListing(item.category, updatedItem);
 
-      alert(`Feedback note sent directly to merchant (${sellerPhone}).`);
+      showNotice(`Feedback sent to ${sellerPhone}`);
       setFeedbackText('');
       setRecordedVoiceNote(null);
       if (inspectingItem?.id === item.id) setInspectingItem(null);
@@ -577,18 +632,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       alert('Failed to send feedback note.');
     } finally {
       setIsSendingFeedback(false);
-    }
-  };
-
-  // 🗑️ Delete Listing Permanently
-  const handleDelete = async (item) => {
-    if (!window.confirm(`Permanently delete listing "${item.title || item.name}"?`)) return;
-    try {
-      await deleteListingFromDB(item.id);
-      hyperlocalStore.removeListing(item.id);
-      showNotice('Listing deleted.');
-    } catch (err) {
-      console.error('Delete failed:', err);
     }
   };
 
@@ -605,7 +648,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
             <h2 className="text-sm font-black text-slate-100">Master Admin Control</h2>
             <p className="text-[10px] text-slate-400">
-              Enter your Master Secret Key to access the content moderation queue.
+              Enter Master Secret Key to access moderation and control systems.
             </p>
           </div>
 
@@ -635,7 +678,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               type="submit"
               className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer"
             >
-              Unlock Moderation Queue ➔
+              Unlock Moderation Console ➔
             </button>
           </form>
 
@@ -654,7 +697,24 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-28 select-none">
       
-      {/* Sticky Header */}
+      {/* Hidden File Upload Inputs for Admin Edit Mode */}
+      <input
+        type="file"
+        ref={adminPhotoInputRef}
+        onChange={handleAdminAddPhoto}
+        multiple
+        accept="image/*"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={adminVideoInputRef}
+        onChange={handleAdminAddVideo}
+        accept="video/*"
+        className="hidden"
+      />
+
+      {/* Sticky Top Header */}
       <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-2.5">
           <button
@@ -671,7 +731,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               <span className="text-slate-400">{selectedCity.toUpperCase()}</span>
             </div>
             <h2 className="text-xs font-black text-slate-100">
-              Content & Seller Moderation Queue
+              Content & User Moderation Console
             </h2>
           </div>
         </div>
@@ -701,6 +761,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       <div className="max-w-md mx-auto p-3.5 space-y-3.5">
         
+        {dashboardNotice && (
+          <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold text-center animate-fade-in shadow-md">
+            {dashboardNotice}
+          </div>
+        )}
+
         {/* Metric Cards */}
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-900 border border-amber-500/40 p-2.5 rounded-2xl text-center shadow-xs">
@@ -717,7 +783,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         </div>
 
-        {/* 🌟 4-Way Tab Switcher with Resident CRM */}
+        {/* 🌟 4-Way Tab Switcher */}
         <div className="grid grid-cols-4 gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[9.5px]">
           <button
             type="button"
@@ -762,7 +828,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             }`}
           >
             <span>👥</span>
-            <span>Users</span>
+            <span>Users & CRM</span>
           </button>
         </div>
 
@@ -922,7 +988,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                               <span>•</span>
                               <span className="font-mono">📞 {sellerPhone}</span>
                               <span className="text-[8px] bg-amber-400/20 px-1 py-0.2 rounded text-amber-300 font-bold">
-                                View All ({allListings.filter(l => String(l.phone || l.pending_changes?.phone).slice(-10) === String(sellerPhone).slice(-10)).length}) ➔
+                                Dossier ➔
                               </span>
                             </button>
                           </div>
@@ -968,31 +1034,52 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           )}
                         </div>
 
-                        {/* Action Controls */}
-                        <div className="flex items-center space-x-2 pt-1">
+                        {/* Action Controls & Full Control Delete / Ban Buttons */}
+                        <div className="flex items-center space-x-1.5 pt-1">
                           <button
                             type="button"
                             onClick={() => handleOpenInspector(item)}
-                            className="flex-1 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1"
+                            className="flex-1 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1"
                           >
                             <span>🔍</span>
-                            <span>Review & Inspect Deal</span>
+                            <span>Inspect Deal</span>
                           </button>
+                          
                           <button
                             type="button"
                             onClick={() => handleApprove(item)}
                             disabled={actionInProgressId === item.id}
-                            className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
                           >
                             {actionInProgressId === item.id ? '...' : '✓ Approve'}
                           </button>
+                          
                           <button
                             type="button"
                             onClick={() => handleReject(item)}
                             disabled={actionInProgressId === item.id}
-                            className="px-3 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10.5px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            className="px-2.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            title="Reject pending changes"
                           >
                             ✕
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDirectDeleteListing(item.id, changes.title || item.title)}
+                            className="px-2.5 py-2 bg-slate-950 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 border border-slate-800 rounded-xl font-bold text-[10px] transition cursor-pointer"
+                            title="Permanently delete this listing"
+                          >
+                            🗑️
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDirectBanPoster(sellerPhone, sellerName)}
+                            className="px-2 py-2 bg-rose-950/40 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-xl font-black text-[10px] transition cursor-pointer"
+                            title="Block and ban this seller"
+                          >
+                            ⛔
                           </button>
                         </div>
                       </div>
@@ -1040,13 +1127,24 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenInspector(item)}
-                        className="px-2.5 py-1 bg-slate-800 text-slate-300 font-bold text-[9px] rounded-lg border border-slate-700 hover:text-white shrink-0"
-                      >
-                        Inspect ➔
-                      </button>
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInspector(item)}
+                          className="px-2 py-1 bg-slate-800 text-slate-300 font-bold text-[9px] rounded-lg border border-slate-700 hover:text-white cursor-pointer"
+                        >
+                          Inspect ➔
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDirectDeleteListing(item.id, item.title)}
+                          className="p-1 bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 border border-slate-700 rounded-lg text-[9px] cursor-pointer"
+                          title="Delete Listing"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1081,9 +1179,21 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         👤 {item.sellerName} • 📞 {item.phone} • <span className="text-amber-400 font-bold">{item.price}</span>
                       </button>
                     </div>
-                    <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0 uppercase">
-                      {item.category}
-                    </span>
+
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleDirectDeleteListing(item.id, item.title)}
+                        className="p-1 bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 border border-slate-700 rounded-lg text-[9px] cursor-pointer"
+                        title="Delete Listing"
+                      >
+                        🗑️
+                      </button>
+
+                      <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 uppercase">
+                        {item.category}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1094,7 +1204,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL                               */}
+      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL WITH FULL CONTROLS            */}
       {/* ========================================================================= */}
       {selectedSeller && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -1105,12 +1215,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               <div className="flex items-center justify-between pb-2 border-b border-slate-900">
                 <div>
                   <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
-                    👑 MERCHANT DOSSIER & PORTFOLIO
+                    👑 MERCHANT DOSSIER & FULL CONTROL
                   </span>
                   <h3 className="text-sm font-black text-slate-100 flex items-center space-x-1.5 mt-0.5">
                     <span>👤 {selectedSeller.name}</span>
                   </h3>
-                  <span className="text-cyan-300 font-mono text-[11px] block">📞 {selectedSeller.phone}</span>
+                  <span className="text-cyan-300 font-mono text-[11px] block">📞 +91 {selectedSeller.phone}</span>
                 </div>
 
                 <button
@@ -1122,30 +1232,39 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </button>
               </div>
 
-              {/* Instant WhatsApp & Phone Actions */}
-              <div className="flex items-center justify-between pt-2.5">
-                <span className="text-[9.5px] text-slate-400 font-bold">
-                  Total Listings: <span className="text-amber-400">{sellerListings.length}</span>
-                </span>
-                
-                <div className="flex items-center space-x-2">
-                  <a
-                    href={`https://wa.me/91${String(selectedSeller.phone).slice(-10)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px] flex items-center space-x-1"
-                  >
-                    <span>💬</span>
-                    <span>WhatsApp</span>
-                  </a>
-                  <a
-                    href={`tel:+91${String(selectedSeller.phone).slice(-10)}`}
-                    className="px-2.5 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-lg font-bold text-[9.5px] flex items-center space-x-1"
-                  >
-                    <span>📞</span>
-                    <span>Call</span>
-                  </a>
-                </div>
+              {/* 👑 Master Admin Dangerous Controls for Seller */}
+              <div className="grid grid-cols-4 gap-1.5 pt-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleDirectBanPoster(selectedSeller.phone, selectedSeller.name)}
+                  className="px-2 py-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                >
+                  ⛔ Ban Number
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDirectPurgeSellerAll(selectedSeller.phone, selectedSeller.name)}
+                  className="px-2 py-1.5 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                >
+                  🧹 Purge Deals
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDirectDemoteSeller(selectedSeller.phone, selectedSeller.name)}
+                  className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                >
+                  ⬇️ Demote
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDirectDeleteSellerAccount(selectedSeller.phone, selectedSeller.name)}
+                  className="px-2 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                >
+                  🗑️ Delete User
+                </button>
               </div>
             </div>
 
@@ -1188,7 +1307,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   sellerPortfolioTab === 'feedback' ? 'bg-cyan-400 text-slate-950 font-black' : 'bg-slate-900 text-cyan-300'
                 }`}
               >
-                💬 Replied/Notes ({sellerFeedbackActive.length})
+                💬 Notes ({sellerFeedbackActive.length})
               </button>
             </div>
 
@@ -1199,47 +1318,22 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   No listings in this category.
                 </div>
               ) : (
-                displayedSellerListings.map((item) => {
-                  const isPending = item.has_pending_approval || !item.is_active || Boolean(item.pending_changes);
-                  const hasFeedback = Boolean(item.admin_feedback) || Boolean(item.seller_feedback_reply);
-                  const dealBadge = item.pending_changes?.deal_badge || item.deal_badge;
+                displayedSellerListings.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-2xl border bg-slate-950 border-slate-800 space-y-2"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 pr-2">
+                        <h4 className="text-xs font-black text-slate-100 truncate">
+                          {item.pending_changes?.title || item.title}
+                        </h4>
+                        <span className="text-emerald-400 font-bold text-[10px]">
+                          {item.pending_changes?.price || item.price}
+                        </span>
+                      </div>
 
-                  return (
-                    <div
-                      key={item.id}
-                      className={`p-3 rounded-2xl border bg-slate-950 space-y-2 ${
-                        hasFeedback
-                          ? 'border-cyan-500/40 bg-cyan-950/20'
-                          : isPending
-                          ? 'border-amber-500/40'
-                          : 'border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0 pr-2">
-                          <div className="flex items-center space-x-1.5 mb-1 flex-wrap gap-y-1">
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 uppercase">
-                              {item.category}
-                            </span>
-                            {isPending && (
-                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                                ⏳ PENDING
-                              </span>
-                            )}
-                            {dealBadge && (
-                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
-                                {dealBadge}
-                              </span>
-                            )}
-                          </div>
-                          <h4 className="text-xs font-black text-slate-100 truncate">
-                            {item.pending_changes?.title || item.title}
-                          </h4>
-                          <span className="text-emerald-400 font-bold text-[10px]">
-                            {item.pending_changes?.price || item.price}
-                          </span>
-                        </div>
-
+                      <div className="flex items-center space-x-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleOpenInspector(item)}
@@ -1247,22 +1341,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         >
                           🔍 Inspect
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDirectDeleteListing(item.id, item.title)}
+                          className="p-1 bg-slate-900 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 border border-slate-800 rounded-lg text-[9px] cursor-pointer"
+                          title="Delete Listing"
+                        >
+                          🗑️
+                        </button>
                       </div>
-
-                      {item.admin_feedback && (
-                        <div className="p-2 rounded-xl bg-amber-950/40 border border-amber-500/30 text-[9px] text-amber-200">
-                          👑 <strong>Your Note:</strong> "{item.admin_feedback}"
-                        </div>
-                      )}
-
-                      {item.seller_feedback_reply && (
-                        <div className="p-2 rounded-xl bg-cyan-950/40 border border-cyan-400/30 text-[9px] text-cyan-200">
-                          👤 <strong>Merchant Reply:</strong> "{item.seller_feedback_reply}"
-                        </div>
-                      )}
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
             </div>
 
@@ -1323,7 +1414,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               )}
 
-              {/* Media Player Box */}
+              {/* Media Player & Edit Gallery Box */}
               {(() => {
                 const photos = editFormData.images || [];
                 const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
@@ -1391,6 +1482,59 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         🔍 Fullscreen
                       </button>
                     </div>
+
+                    {/* Admin Media Correction Strip in Edit Mode */}
+                    {isAdminEditing && (
+                      <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9.5px] font-bold text-slate-300">
+                            {activeMediaTab === 'photos' ? 'Manage Attached Photos:' : 'Manage Attached Videos:'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeMediaTab === 'photos') adminPhotoInputRef.current?.click();
+                              else adminVideoInputRef.current?.click();
+                            }}
+                            className="px-2 py-1 bg-amber-400 text-slate-950 font-black text-[9px] rounded-lg cursor-pointer active:scale-95 transition"
+                          >
+                            + Add {activeMediaTab === 'photos' ? 'Photo' : 'Video'}
+                          </button>
+                        </div>
+
+                        {activeMediaTab === 'photos' ? (
+                          <div className="flex items-center space-x-2 overflow-x-auto py-1">
+                            {cleanPhotos.map((url, idx) => (
+                              <div key={idx} className="relative w-12 h-12 rounded-lg border border-slate-700 shrink-0 overflow-hidden group">
+                                <img src={url} alt={`Thumb ${idx}`} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdminRemovePhoto(idx)}
+                                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 overflow-x-auto py-1">
+                            {videos.map((vid, idx) => (
+                              <div key={idx} className="relative w-14 h-12 rounded-lg bg-slate-900 border border-slate-700 shrink-0 p-1 flex items-center justify-center">
+                                <span className="text-[9px] text-cyan-300 font-mono truncate">Vid #{idx + 1}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdminRemoveVideo(idx)}
+                                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1524,6 +1668,25 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
                   </div>
 
+                  {/* Bullet Highlights Inputs */}
+                  <div className="space-y-1.5">
+                    <label className="text-[8.5px] font-bold text-slate-400 block">4 Key Highlights (मुख्य विशेषताएं):</label>
+                    {[0, 1, 2, 3].map((idx) => (
+                      <input
+                        key={idx}
+                        type="text"
+                        placeholder={`Point ${idx + 1}`}
+                        value={editFormData.descPoints[idx] || ''}
+                        onChange={(e) => {
+                          const pts = [...editFormData.descPoints];
+                          pts[idx] = e.target.value;
+                          setEditFormData({ ...editFormData, descPoints: pts });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 text-[10px]"
+                      />
+                    ))}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Active Hours</label>
@@ -1560,7 +1723,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   return (
                     <div className="space-y-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-[10.5px]">
                       
-                      {/* Merchant Contact Bar */}
+                      {/* Merchant Contact Bar & Dangerous Actions */}
                       <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                         <div>
                           <span className="text-[8.5px] text-slate-400 uppercase block">Merchant Contact</span>
@@ -1574,24 +1737,25 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           >
                             👤 {sellerName} <span className="text-amber-400 text-[9px] underline ml-1 font-normal">(View Portfolio ➔)</span>
                           </button>
-                          <span className="text-cyan-300 font-mono block">📞 {sellerPhone}</span>
+                          <span className="text-cyan-300 font-mono block">📞 +91 {sellerPhone}</span>
                         </div>
 
+                        {/* Inspector Direct Action Buttons */}
                         <div className="flex items-center space-x-1.5">
-                          <a
-                            href={`https://wa.me/91${String(sellerPhone).slice(-10)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-2 py-1 bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px]"
+                          <button
+                            type="button"
+                            onClick={() => handleDirectBanPoster(sellerPhone, sellerName)}
+                            className="px-2 py-1 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-lg text-[9px] font-black cursor-pointer active:scale-95 transition"
                           >
-                            💬 WhatsApp
-                          </a>
-                          <a
-                            href={`tel:+91${String(sellerPhone).slice(-10)}`}
-                            className="px-2 py-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 rounded-lg font-bold text-[9.5px]"
+                            ⛔ Ban Seller
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDirectDeleteListing(inspectingItem.id, changes.title || inspectingItem.title)}
+                            className="px-2 py-1 bg-slate-900 hover:bg-rose-900 text-rose-300 border border-slate-800 rounded-lg text-[9px] font-bold cursor-pointer"
                           >
-                            📞 Call
-                          </a>
+                            🗑️ Delete Deal
+                          </button>
                         </div>
                       </div>
 
@@ -1703,7 +1867,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               )}
 
-              {/* 🎙️ Admin Voice & Text Feedback to Merchant */}
+              {/* 🎙️ Admin Voice & Text Feedback Note */}
               <div className="p-3.5 bg-slate-950 rounded-2xl border border-amber-500/30 space-y-2.5">
                 <label className="text-[10px] font-black text-amber-300 flex items-center justify-between">
                   <span>🎙️ Voice Note & Text Review to Merchant:</span>
@@ -1749,7 +1913,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   rows={2}
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="Or type notes: e.g. Please update with a clearer front photo..."
+                  placeholder="Or type notes: e.g. Please update with a clearer photo..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-hidden"
                 />
 
@@ -1759,7 +1923,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   disabled={isSendingFeedback || (!feedbackText.trim() && !recordedVoiceNote)}
                   className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-black transition cursor-pointer active:scale-95 disabled:opacity-40"
                 >
-                  {isSendingFeedback ? 'Sending Voice Feedback...' : '📩 Send Feedback Note (Keep Pending)'}
+                  {isSendingFeedback ? 'Sending Feedback...' : '📩 Send Feedback Note'}
                 </button>
               </div>
 

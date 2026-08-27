@@ -82,16 +82,19 @@ export const saveCurrentUserProfile = setLocalUserProfile;
 /* ========================================================================= */
 
 /**
- * Check if mobile number already has an account
+ * Check if mobile number already has an account & enforce ban guard
  */
 export async function checkUserExistence(phone) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
   if (!supabase) {
     const cached = getCurrentUserProfile();
     if (cached && cached.phone === cleanPhone) {
-      return { exists: true, hasPin: Boolean(cached.resident_pin_hash), profile: cached };
+      if (cached.is_banned) {
+        return { exists: true, hasPin: false, isBanned: true, profile: cached };
+      }
+      return { exists: true, hasPin: Boolean(cached.resident_pin_hash), isBanned: false, profile: cached };
     }
-    return { exists: false, hasPin: false, profile: null };
+    return { exists: false, hasPin: false, isBanned: false, profile: null };
   }
 
   try {
@@ -105,13 +108,18 @@ export async function checkUserExistence(phone) {
       console.error('Error checking user existence:', error);
     }
 
+    if (data?.is_banned) {
+      return { exists: true, hasPin: false, isBanned: true, profile: data };
+    }
+
     return {
       exists: Boolean(data),
       hasPin: Boolean(data?.resident_pin_hash),
+      isBanned: false,
       profile: data || null,
     };
   } catch {
-    return { exists: false, hasPin: false, profile: null };
+    return { exists: false, hasPin: false, isBanned: false, profile: null };
   }
 }
 
@@ -128,9 +136,10 @@ export async function registerTier1User({ phone, fullName, areaName = 'Town Cent
     area_name: areaName.trim() || 'Town Center',
     city: city || 'Alwar',
     resident_pin_hash: pinHash,
-    verification_tier: 'resident', // Tier 1
+    verification_tier: 'resident',
     is_merchant: false,
     is_verified: true,
+    is_banned: false,
     trust_score: 100,
     status: 'active',
     last_login_at: new Date().toISOString(),
@@ -162,7 +171,7 @@ export async function registerTier1User({ phone, fullName, areaName = 'Town Cent
 }
 
 /**
- * Log in Tier 1 Resident with 4-Digit MPIN
+ * Log in Tier 1 Resident with 4-Digit MPIN (Guarded against banned users)
  */
 export async function loginWith4DigitPin(phone, pin) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
@@ -171,6 +180,9 @@ export async function loginWith4DigitPin(phone, pin) {
   if (!supabase) {
     const cached = getCurrentUserProfile();
     if (cached && cached.phone === cleanPhone) {
+      if (cached.is_banned) {
+        return { success: false, error: '⛔ This mobile number has been blocked by Admin.' };
+      }
       return { success: true, profile: cached };
     }
     return { success: false, error: 'User not found in offline session.' };
@@ -185,6 +197,10 @@ export async function loginWith4DigitPin(phone, pin) {
 
     if (error || !data) {
       return { success: false, error: 'User account not found. Please register first.' };
+    }
+
+    if (data.is_banned) {
+      return { success: false, error: '⛔ This mobile number has been blocked by Admin for policy violations.' };
     }
 
     if (data.resident_pin_hash && data.resident_pin_hash !== pinHash) {
@@ -235,6 +251,10 @@ export async function verifyTier2WhatsAppPin(phone, sixDigitPin) {
 
     if (fetchErr || !user) {
       return { success: false, error: 'User account not found.' };
+    }
+
+    if (user.is_banned) {
+      return { success: false, error: '⛔ Account is blocked by Admin.' };
     }
 
     if (!user.admin_activation_pin || String(user.admin_activation_pin).trim() !== cleanPin) {
@@ -340,11 +360,11 @@ export async function completeTier3MerchantKyc({
 export const upgradeToMerchant = completeTier3MerchantKyc;
 
 /* ========================================================================= */
-/* 🛡️ 4. ADMIN CRM & MODERATION UTILITIES                                    */
+/* 👑 4. FULL MASTER ADMIN CONTROL ENGINE (BAN / DELETE / PURGE / OVERRIDE)  */
 /* ========================================================================= */
 
 /**
- * Fetch all users from public.user_profiles for Admin CRM
+ * Fetch all users with full metadata for Master Admin CRM
  */
 export async function getAllUsersForAdmin() {
   let dbUsers = [];
@@ -374,12 +394,138 @@ export async function getAllUsersForAdmin() {
   const allUsers = Array.from(mergedMap.values());
 
   return {
-    tier1Users: allUsers.filter((u) => u.verification_tier === 'resident' || !u.verification_tier),
-    tier2Users: allUsers.filter((u) => u.verification_tier === 'verified_resident'),
-    tier3Merchants: allUsers.filter((u) => u.is_merchant || u.verification_tier === 'verified_merchant'),
+    tier1Users: allUsers.filter((u) => !u.is_banned && (u.verification_tier === 'resident' || !u.verification_tier)),
+    tier2Users: allUsers.filter((u) => !u.is_banned && u.verification_tier === 'verified_resident'),
+    tier3Merchants: allUsers.filter((u) => !u.is_banned && (u.is_merchant || u.verification_tier === 'verified_merchant')),
+    bannedUsers: allUsers.filter((u) => u.is_banned === true),
     totalCount: allUsers.length,
     allUsers,
   };
+}
+
+/**
+ * 🚫 Admin: 1-Tap Ban/Block or Unban User Profile & Mobile Number
+ */
+export async function adminToggleBanUser(phone, shouldBan = true) {
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  if (supabase) {
+    try {
+      // 1. Update user profile state
+      await supabase
+        .from('user_profiles')
+        .update({
+          is_banned: shouldBan,
+          status: shouldBan ? 'banned' : 'active',
+        })
+        .eq('phone', cleanPhone);
+
+      // 2. If banning, deactivate all active listings posted by this phone
+      if (shouldBan) {
+        await supabase
+          .from('listings')
+          .update({ is_active: false })
+          .eq('phone', cleanPhone);
+      }
+    } catch (err) {
+      console.error('Failed to toggle ban in Supabase:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Sync active local session if matches
+  const cached = getCurrentUserProfile();
+  if (cached && cached.phone === cleanPhone) {
+    cached.is_banned = shouldBan;
+    cached.status = shouldBan ? 'banned' : 'active';
+    setLocalUserProfile(cached);
+  }
+
+  return { success: true };
+}
+
+/**
+ * 🗑️ Admin: Permanently Delete Any User / Seller Profile & Associated Records
+ */
+export async function adminDeleteUser(userId, phone) {
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  if (supabase) {
+    try {
+      if (userId) {
+        await supabase.from('listing_reports').delete().eq('reporter_id', userId).catch(() => {});
+      }
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .delete()
+        .eq('phone', cleanPhone);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to delete user in Supabase:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const cached = getCurrentUserProfile();
+  if (cached && cached.phone === cleanPhone) {
+    setLocalUserProfile(null);
+  }
+
+  return { success: true };
+}
+
+/**
+ * 🧹 Admin: Delete All Listings of a Specific Seller / Mobile Number
+ */
+export async function adminDeleteAllSellerListings(phone) {
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  if (supabase) {
+    try {
+      const { data: listings } = await supabase
+        .from('listings')
+        .select('id')
+        .eq('phone', cleanPhone);
+
+      if (listings && listings.length > 0) {
+        const ids = listings.map((l) => l.id);
+        await supabase.from('listing_threads').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listing_reports').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listing_interests').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listings').delete().in('id', ids);
+      }
+    } catch (err) {
+      console.error('Failed to purge seller listings:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  return { success: true };
+}
+
+/**
+ * ⬇️ Admin: Demote Merchant Back to Basic Resident Tier
+ */
+export async function adminDemoteMerchant(phone) {
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  if (supabase) {
+    try {
+      await supabase
+        .from('user_profiles')
+        .update({
+          is_merchant: false,
+          verification_tier: 'resident',
+        })
+        .eq('phone', cleanPhone);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  return { success: true };
 }
 
 /**
