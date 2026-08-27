@@ -294,11 +294,7 @@ export default function ListingDetailModal({
   const cleanInsta = rawInsta.replace('@', '').trim();
   const instaUrl = cleanInsta.startsWith('http') ? cleanInsta : `https://instagram.com/${cleanInsta}`;
 
-  const telegramUrl = item.telegram
-    ? String(item.telegram).startsWith('http')
-      ? item.telegram
-      : `https://t.me/${String(item.telegram).replace('@', '')}`
-    : `https://t.me/+${formattedPhone}`;
+  
 
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
     `Namaste ${sellerDisplayName}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
@@ -631,18 +627,18 @@ export default function ListingDetailModal({
                     className="py-2.5 px-1 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
                   >
                     <span>📸</span>
-                    <span className="truncate">Insta</span>
+                    <span className="truncate">Instagram</span>
                   </a>
                 ) : (
-                  <a
-                    href={telegramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-2.5 px-1 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
+                  <button
+                    type="button"
+                    disabled
+                    className="py-2.5 px-1 bg-slate-950/60 text-slate-500 border border-slate-800 rounded-xl flex items-center justify-center space-x-1 text-xs font-bold opacity-50 cursor-not-allowed select-none"
+                    title="Seller has not linked an Instagram handle"
                   >
-                    <span>✈️</span>
-                    <span className="truncate">Telegram</span>
-                  </a>
+                    <span>📸</span>
+                    <span className="truncate text-[10px]">No Insta</span>
+                  </button>
                 )}
 
                 <button

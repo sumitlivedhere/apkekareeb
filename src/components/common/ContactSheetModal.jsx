@@ -92,8 +92,8 @@ export default function ContactSheetModal({
             <span className="text-xs font-black text-amber-400">➔</span>
           </a>
 
-          {/* 3. Instagram Profile */}
-          {cleanInsta && (
+          {/* 3. Instagram Profile / Fallback */}
+          {cleanInsta ? (
             <a
               href={instaUrl}
               target="_blank"
@@ -112,6 +112,19 @@ export default function ContactSheetModal({
               </div>
               <span className="text-xs font-black text-pink-400">➔</span>
             </a>
+          ) : (
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/50 border border-slate-800 opacity-50 select-none cursor-not-allowed">
+              <div className="flex items-center space-x-3">
+                <span className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-lg text-slate-500">
+                  📸
+                </span>
+                <div>
+                  <div className="text-xs font-bold text-slate-400">No Instagram Available</div>
+                  <div className="text-[9.5px] text-slate-500">Seller has not provided an Instagram profile</div>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-slate-600">✕</span>
+            </div>
           )}
         </div>
 

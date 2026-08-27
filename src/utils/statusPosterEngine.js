@@ -1,29 +1,32 @@
-// 🎨 Multi-Theme High-Resolution WhatsApp Story Canvas Generator
+// src/utils/statusPosterEngine.js
 
 const THEMES = {
   dhamaka: {
-    bg1: '#1e1b4b',
-    bg2: '#0f172a',
+    bg1: '#180e29',
+    bg2: '#090514',
     accent: '#f59e0b',
     badgeBg: '#dc2626',
-    badgeText: '🔥 DHAMAKA LOCAL DEAL',
+    badgeText: '🔥 DHAMAKA LOCAL OFFER',
     tagColor: '#fbbf24',
+    textColor: '#ffffff',
   },
   royal: {
-    bg1: '#31102f',
-    bg2: '#020617',
+    bg1: '#260b24',
+    bg2: '#080108',
     accent: '#ec4899',
-    badgeBg: '#9333ea',
-    badgeText: '👑 EXCLUSIVE BOUTIQUE PICK',
+    badgeBg: '#7e22ce',
+    badgeText: '👑 EXCLUSIVE TOWN PICK',
     tagColor: '#f472b6',
+    textColor: '#ffffff',
   },
   verified: {
-    bg1: '#062d29',
-    bg2: '#020617',
+    bg1: '#04231e',
+    bg2: '#010c0a',
     accent: '#10b981',
-    badgeBg: '#059669',
-    badgeText: '✓ 100% VERIFIED TOWN SERVICE',
+    badgeBg: '#047857',
+    badgeText: '✓ 100% VERIFIED MERCHANT',
     tagColor: '#34d399',
+    textColor: '#ffffff',
   },
 };
 
@@ -32,50 +35,50 @@ export function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selected
     const theme = THEMES[themeKey] || THEMES.dhamaka;
     const canvas = document.createElement('canvas');
     canvas.width = 1080;
-    canvas.height = 1920;
+    canvas.height = 1920; // 9:16 vertical HD
     const ctx = canvas.getContext('2d');
 
-    // 1. Background Gradient
-    const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
+    // 1. Dark Gradient Background
+    const bg = ctx.createLinearGradient(0, 0, 0, 1920);
     bg.addColorStop(0, theme.bg1);
-    bg.addColorStop(0.45, theme.bg2);
+    bg.addColorStop(0.5, theme.bg2);
     bg.addColorStop(1, '#000000');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 1080, 1920);
 
-    // 2. Ambient Glow Orbs
+    // 2. Ambient Color Aura
     ctx.save();
-    const glow = ctx.createRadialGradient(540, 200, 50, 540, 200, 600);
-    glow.addColorStop(0, `${theme.accent}33`);
-    glow.addColorStop(1, 'transparent');
-    ctx.fillStyle = glow;
+    const aura = ctx.createRadialGradient(540, 320, 50, 540, 320, 700);
+    aura.addColorStop(0, `${theme.accent}30`);
+    aura.addColorStop(1, 'transparent');
+    ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(540, 200, 600, 0, Math.PI * 2);
+    ctx.arc(540, 320, 700, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
     // 3. Top Banner
     ctx.fillStyle = theme.badgeBg;
-    drawRoundedRect(ctx, 90, 80, 900, 70, 24, true);
+    drawRoundedRect(ctx, 120, 90, 840, 68, 20, true);
     ctx.fillStyle = '#ffffff';
     ctx.font = '900 30px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(theme.badgeText, 540, 126);
+    ctx.fillText(theme.badgeText, 540, 136);
 
-    // 4. Town Branding
+    // 4. App Branding
     ctx.fillStyle = '#ffffff';
-    ctx.font = '900 44px sans-serif';
-    ctx.fillText('AAPKE KAREEB • आपके करीब', 540, 200);
+    ctx.font = '900 46px sans-serif';
+    ctx.fillText('AAPKE KAREEB • आपके करीब', 540, 215);
 
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '600 26px sans-serif';
-    ctx.fillText(`📍 ${selectedCity} का अपना डिजिटल बाज़ार • No Middlemen`, 540, 245);
+    ctx.font = '700 28px sans-serif';
+    ctx.fillText(`📍 ${selectedCity} का अपना डिजिटल बाज़ार`, 540, 262);
 
     // 5. Product Image Card
     const rawImg =
-      (Array.isArray(item.images) && item.images[0]) ||
-      (Array.isArray(item.image_urls) && item.image_urls[0]) ||
-      item.image ||
+      (Array.isArray(item?.images) && item?.images[0]) ||
+      (Array.isArray(item?.image_urls) && item?.image_urls[0]) ||
+      item?.image ||
       'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
 
     const imgSrc = typeof rawImg === 'string' ? rawImg : rawImg?.url || '';
@@ -83,36 +86,36 @@ export function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selected
     img.crossOrigin = 'anonymous';
     img.src = imgSrc;
 
-    const renderCard = () => {
+    const renderPosterBody = () => {
       // Category Tag
-      const cat = String(item.subCategory || item.category || 'SPECIAL OFFER').toUpperCase();
+      const cat = String(item?.subCategory || item?.category || 'SPECIAL DEAL').toUpperCase();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      drawRoundedRect(ctx, 90, 1140, 900, 56, 16, true);
+      drawRoundedRect(ctx, 100, 1140, 880, 56, 16, true);
       ctx.fillStyle = theme.tagColor;
       ctx.font = '900 24px sans-serif';
       ctx.fillText(`⚡ ${cat}`, 540, 1177);
 
-      // Title (Auto-wrapped)
+      // Main Title
       ctx.fillStyle = '#ffffff';
       ctx.font = '900 52px sans-serif';
-      const lines = wrapText(ctx, item.title || item.name || 'Special Listing', 880);
-      let textY = 1270;
+      const lines = wrapText(ctx, item?.title || item?.name || 'Special Listing', 860);
+      let textY = 1265;
       lines.slice(0, 2).forEach((line) => {
         ctx.fillText(line, 540, textY);
-        textY += 64;
+        textY += 66;
       });
 
-      // Price Banner
-      const priceStr = String(item.price || item.deal_price || item.rent || 'Best Price');
+      // Price Tag Banner
+      const priceStr = String(item?.price || item?.deal_price || item?.rent || 'Best Rate');
       ctx.fillStyle = theme.accent;
-      drawRoundedRect(ctx, 240, textY + 20, 600, 100, 28, true);
+      drawRoundedRect(ctx, 220, textY + 20, 640, 105, 30, true);
       ctx.fillStyle = '#020617';
       ctx.font = '900 54px sans-serif';
-      ctx.fillText(priceStr, 540, textY + 88);
+      ctx.fillText(priceStr, 540, textY + 92);
 
-      // Contact & Merchant Box
-      const seller = item.sellerName || item.provider_name || 'Verified Member';
-      const phone = String(item.phone || item.contact || '9876543210').replace(/\D/g, '').slice(-10);
+      // Contact Details Card
+      const seller = item?.sellerName || item?.provider_name || 'Verified Merchant';
+      const phone = String(item?.phone || item?.contact || '9876543210').replace(/\D/g, '').slice(-10);
 
       const boxY = 1530;
       ctx.fillStyle = '#0f172a';
@@ -120,20 +123,20 @@ export function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selected
 
       ctx.fillStyle = '#38bdf8';
       ctx.font = '800 30px sans-serif';
-      ctx.fillText(`👤 ${seller} • Direct Deal`, 540, boxY + 60);
+      ctx.fillText(`👤 ${seller} • डायरेक्ट डील`, 540, boxY + 62);
 
       ctx.fillStyle = '#10b981';
-      ctx.font = '900 46px sans-serif';
+      ctx.font = '900 48px sans-serif';
       ctx.fillText(`📞 WhatsApp / Call: +91 ${phone}`, 540, boxY + 135);
 
       ctx.fillStyle = '#94a3b8';
       ctx.font = '700 24px sans-serif';
-      ctx.fillText(`📍 ${item.location || selectedCity}`, 540, boxY + 180);
+      ctx.fillText(`📍 ${item?.location || selectedCity} • 0% कमिशन`, 540, boxY + 182);
 
-      // Footer Call to Action
+      // Footer Watermark
       ctx.fillStyle = '#64748b';
-      ctx.font = '700 24px sans-serif';
-      ctx.fillText('🔗 Aapke Kareeb पर पूरा कैटलॉग देखें • लोकल दुकानदारों का समर्थन करें', 540, 1830);
+      ctx.font = '700 26px sans-serif';
+      ctx.fillText('🔗 Aapke Kareeb ऐप पर पूरा कैटलॉग देखें • लोकल दुकानदारों का समर्थन करें', 540, 1835);
 
       canvas.toBlob((blob) => {
         resolve({ blob, dataUrl: canvas.toDataURL('image/png') });
@@ -142,22 +145,22 @@ export function generateDynamicStatusPoster(item, themeKey = 'dhamaka', selected
 
     img.onload = () => {
       ctx.save();
-      drawRoundedRect(ctx, 90, 290, 900, 810, 36, false);
+      drawRoundedRect(ctx, 100, 300, 880, 800, 36, false);
       ctx.clip();
-      ctx.drawImage(img, 90, 290, 900, 810);
+      ctx.drawImage(img, 100, 300, 880, 800);
       ctx.restore();
 
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 6;
-      drawRoundedRect(ctx, 90, 290, 900, 810, 36, false, true);
+      drawRoundedRect(ctx, 100, 300, 880, 800, 36, false, true);
 
-      renderCard();
+      renderPosterBody();
     };
 
     img.onerror = () => {
       ctx.fillStyle = '#1e293b';
-      drawRoundedRect(ctx, 90, 290, 900, 810, 36, true);
-      renderCard();
+      drawRoundedRect(ctx, 100, 300, 880, 800, 36, true);
+      renderPosterBody();
     };
   });
 }
