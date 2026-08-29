@@ -25,7 +25,7 @@ const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice
 
 /**
  * Universal In-App & Supabase Notification Dispatcher
- * Normalizes phone numbers, persists to Supabase & updates in-memory store[cite: 2, 3]
+ * Normalizes phone numbers, persists to Supabase & updates in-memory store
  */
 export async function saveNotificationToDB(notif) {
   const cleanRecipientPhone = sanitizePhone(notif.recipient_phone);
@@ -84,7 +84,7 @@ export async function notifyAdminPendingApproval({ listingId, listingTitle, sell
     : `New Listing: "${listingTitle}"`;
 
   return saveNotificationToDB({
-    tag: isEdit ? 'EDIT_PROPOSAL' : 'NEW ENLISTMENT',
+    tag: isEdit ? 'EDIT PROPOSAL' : 'NEW ENLISTMENT',
     title: titleText,
     message: `${sellerName || 'Merchant'} (+91 ${cleanSellerPhone || ''}) submitted ${dealBadge ? `a deal (${dealBadge})` : 'an offering'} in ${category}. Review required.`,
     targetId: listingId,
@@ -125,7 +125,7 @@ export async function notifySellerComment({ sellerPhone, listingId, listingTitle
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const hasAudio = Boolean(audioUrl);
   return saveNotificationToDB({
-    tag: hasAudio ? 'VOICE_INQUIRY' : 'USER_COMMENT',
+    tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
     title: `Inquiry on "${listingTitle}"`,
     message: `${commenterName || 'A resident'} sent a ${hasAudio ? `voice note (${duration || '0:15'})` : `message: "${(commentText || '').slice(0, 70)}..."`}`,
     targetId: listingId,
@@ -142,7 +142,7 @@ export async function notifySellerListingStatus({ sellerPhone, listingId, listin
     : `Your listing "${listingTitle}" is now verified and live across the town feed.`;
 
   return saveNotificationToDB({
-    tag: isApproved ? 'APPROVED' : 'ADMIN_FEEDBACK',
+    tag: isApproved ? 'APPROVED' : 'ADMIN FEEDBACK',
     title: isApproved ? `Listing Verified Live: "${listingTitle}"` : `Review Action Needed: "${listingTitle}"`,
     message: isApproved ? approvalMsg : (feedbackText || `Listing could not be approved. Tap to view admin correction notes.`),
     targetId: listingId,
@@ -156,7 +156,7 @@ export async function notifySellerListingStatus({ sellerPhone, listingId, listin
 export async function notifySellerInterest({ sellerPhone, listingId, listingTitle, newCount }) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   return saveNotificationToDB({
-    tag: 'INTEREST_REGISTERED',
+    tag: 'INTEREST REGISTERED',
     title: `New Interest on "${listingTitle}"`,
     message: `A local resident saved your listing. Total saves: ${newCount} ⭐`,
     targetId: listingId,
@@ -171,7 +171,7 @@ export async function notifyUserSellerReply({ userPhone, listingId, listingTitle
   const cleanUserPhone = sanitizePhone(userPhone);
   const isAudio = Boolean(audioUrl);
   return saveNotificationToDB({
-    tag: 'SELLER_REPLY',
+    tag: 'SELLER REPLIED',
     title: `${sellerName || 'Merchant'} replied to your inquiry!`,
     message: `On "${listingTitle}": ${isAudio ? `🎤 Voice note reply (${duration || '0:15'})` : `"${(replyText || '').slice(0, 80)}..."`}`,
     targetId: listingId,
@@ -360,7 +360,7 @@ export async function uploadVoiceNoteToStorage(audioBlobOrFile) {
 /* ========================================================================= */
 
 /**
- * Submit Seller Edit Proposal (Staged changes in pending_changes while live listing stays active)[cite: 2, 3]
+ * Submit Seller Edit Proposal (Staged changes in pending_changes while live listing stays active)
  */
 export async function submitSellerEditProposal(listingId, proposedData) {
   if (!supabase) return { success: true };
@@ -424,7 +424,7 @@ export async function submitSellerEditProposal(listingId, proposedData) {
 }
 
 /**
- * Create New Listing Draft (Default is_active: false for Admin Moderation)[cite: 2, 3]
+ * Create New Listing Draft (Default is_active: false for Admin Moderation)
  */
 export async function createListingInDB(listingData) {
   const cleanSellerPhone = sanitizePhone(listingData.phone);
@@ -513,7 +513,7 @@ export async function createListingInDB(listingData) {
 }
 
 /**
- * Admin Approves Listing / Changes (Sets is_active: true & notifies seller)[cite: 2, 3]
+ * Admin Approves Listing / Changes (Sets is_active: true & notifies seller)
  */
 export async function approveListingChanges(listingId, approvedData) {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
@@ -537,7 +537,7 @@ export async function approveListingChanges(listingId, approvedData) {
       image_urls: approvedData.images || approvedData.image_urls || [],
       video_urls: approvedData.video_urls || (approvedData.videos || []).map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean),
       videos: approvedData.videos || [],
-      is_active: true, // 🟢 NOW ACTIVE IN TOWN FEED[cite: 2, 3]
+      is_active: true, // 🟢 NOW ACTIVE IN TOWN FEED
       has_pending_approval: false,
       pending_changes: null,
       admin_feedback: null,
@@ -574,7 +574,7 @@ export async function approveListingChanges(listingId, approvedData) {
 }
 
 /**
- * Admin Rejects Changes with Feedback Reason[cite: 2, 3]
+ * Admin Rejects Changes with Feedback Reason
  */
 export async function rejectListingChanges(listingId, rejectionReason = '', sellerPhone = '') {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
@@ -613,7 +613,7 @@ export async function rejectListingChanges(listingId, rejectionReason = '', sell
 }
 
 /**
- * Dismiss ONLY Admin Pending Review Notifications for a Listing (Preserves Seller Alerts)[cite: 2, 3]
+ * Dismiss ONLY Admin Pending Review Notifications for a Listing (Preserves Seller Alerts)
  */
 export async function dismissAdminNotificationsForListing(listingId) {
   if (!listingId) return;
@@ -639,7 +639,7 @@ export async function dismissAdminNotificationsForListing(listingId) {
 }
 
 /**
- * Admin Sends Direct Feedback Note (Text or Voice) to Seller[cite: 2, 3]
+ * Admin Sends Direct Feedback Note (Text or Voice) to Seller
  */
 export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedbackPayload) {
   if (!supabase || !listingId) return { success: true };
@@ -682,7 +682,7 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
 }
 
 /**
- * Seller Replies Back to Admin (Text or Voice)[cite: 2, 3]
+ * Seller Replies Back to Admin (Text or Voice)
  */
 export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayload) {
   if (!supabase || !listingId) return { success: true };
@@ -709,7 +709,7 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
     }
 
     await saveNotificationToDB({
-      tag: replyAudioUrl ? 'SELLER_VOICE_REPLY' : 'SELLER_FEEDBACK_REPLY',
+      tag: replyAudioUrl ? 'SELLER VOICE REPLY' : 'SELLER FEEDBACK REPLY',
       title: `Merchant Reply (+91 ${cleanSellerPhone})`,
       message: replyText,
       targetId: listingId,
@@ -735,7 +735,7 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
 /* ========================================================================= */
 
 /**
- * Save Buyer Comment / Voice Note to DB & Alert Merchant[cite: 2, 3]
+ * Save Buyer Comment / Voice Note to DB & Alert Merchant
  */
 export async function saveCommentToDB(listingId, comment, listingTitle = '', sellerPhone = '') {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return null;
@@ -782,7 +782,7 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
 }
 
 /**
- * Save Seller Reply to DB & Alert Resident[cite: 2, 3]
+ * Save Seller Reply to DB & Alert Resident
  */
 export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buyerPhone = '') {
   if (!supabase || !commentId || !isValidDatabaseId(commentId)) return null;
@@ -830,7 +830,7 @@ export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buye
 }
 
 /**
- * Update Interest Counter & Alert Seller[cite: 2, 3]
+ * Update Interest Counter & Alert Seller
  */
 export async function updateInterestCountInDB(listingId, newCount, listingTitle = '', sellerPhone = '') {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return;
@@ -856,7 +856,7 @@ export async function updateInterestCountInDB(listingId, newCount, listingTitle 
 }
 
 /**
- * Report a Listing & Alert Admin[cite: 2, 3]
+ * Report a Listing & Alert Admin
  */
 export async function reportListing(listingId, reporterPhone, reason, listingTitle = '') {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
@@ -890,7 +890,7 @@ export async function reportListing(listingId, reporterPhone, reason, listingTit
 /* ========================================================================= */
 
 /**
- * Fetch Live Listings (Active Approved Listings ONLY for Public Town Feed)[cite: 2, 3]
+ * Fetch Live Listings (Active Approved Listings ONLY for Public Town Feed)
  */
 export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
   if (!supabase) return null;
@@ -964,7 +964,7 @@ export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
 }
 
 /**
- * Universal Listing Publisher (Submits to DB with is_active: false for Admin Moderation)[cite: 2, 3]
+ * Universal Listing Publisher (Submits to DB with is_active: false for Admin Moderation)
  */
 export async function publishHyperlocalListing(category, payload) {
   const finalCategory = (category || payload.category || 'market').toLowerCase();
@@ -1000,7 +1000,7 @@ export async function publishHyperlocalListing(category, payload) {
     condition: payload.condition || 'Brand New',
     interestCount: 0,
     interest_count: 0,
-    is_active: false, // 🔒 HELD AS FALSE UNTIL MASTER ADMIN APPROVES[cite: 2, 3]
+    is_active: false, // 🔒 HELD AS FALSE UNTIL MASTER ADMIN APPROVES
     has_pending_approval: true,
     verification_badge: '⏳ Pending Approval',
     createdAt: new Date().toISOString(),
@@ -1045,7 +1045,7 @@ export function getCategoryFallback(catId) {
 }
 
 /**
- * Delete Listing & Associated Threads/Notifications from DB[cite: 2, 3]
+ * Delete Listing & Associated Threads/Notifications from DB
  */
 export async function deleteListingFromDB(listingId) {
   if (!supabase || !listingId) return { success: false };
@@ -1064,7 +1064,7 @@ export async function deleteListingFromDB(listingId) {
 }
 
 /**
- * Fetch all cart items for a specific onboarded user's phone number[cite: 2, 3]
+ * Fetch all cart items for a specific onboarded user's phone number
  */
 export async function fetchUserCartFromDB(phone) {
   if (!supabase || !phone) return [];
@@ -1085,7 +1085,7 @@ export async function fetchUserCartFromDB(phone) {
 }
 
 /**
- * Upsert a single cart item for a specific user[cite: 2, 3]
+ * Upsert a single cart item for a specific user
  */
 export async function syncCartItemToDB(phone, listingId, quantity) {
   if (!supabase || !phone || !listingId) return null;
@@ -1124,7 +1124,7 @@ export async function syncCartItemToDB(phone, listingId, quantity) {
 }
 
 /**
- * Clear all cart items for a specific user in DB[cite: 2, 3]
+ * Clear all cart items for a specific user in DB
  */
 export async function clearUserCartInDB(phone) {
   if (!supabase || !phone) return;

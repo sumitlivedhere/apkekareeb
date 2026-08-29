@@ -74,14 +74,10 @@ export default function TownHubView({
     }
   };
 
-  // ➕ Handlers for Post Modal Gating
+  // ➕ Handlers for Post Modal Gating with Auth Trigger
   const handleOpenPostModal = () => {
     const user = getCurrentUserProfile();
-    if (!user) {
-      if (onOpenAuth) onOpenAuth();
-      return;
-    }
-    if (!isBusinessAuthorized()) {
+    if (!user || !isBusinessAuthorized()) {
       if (onOpenAuth) onOpenAuth();
       return;
     }
@@ -138,7 +134,7 @@ export default function TownHubView({
               placeholder={`Search in ${activeCategoryData.name}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none font-semibold"
+              className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-hidden font-semibold"
             />
             {searchQuery && (
               <button
@@ -153,25 +149,27 @@ export default function TownHubView({
         </div>
       </div>
 
-      {/* 🌟 2. Scoped Utility Bar with Post Here Button */}
+      {/* 🌟 2. Quick Enlistment Banner */}
       <div
-        className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm ${
-          isDark ? 'bg-slate-900/90 border-slate-800 text-slate-200' : 'bg-amber-50/70 border-amber-200/80 text-slate-900'
+        className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-sm ${
+          isDark
+            ? 'bg-slate-900/90 border-slate-800 text-slate-200'
+            : 'bg-amber-50/70 border-amber-200/80 text-slate-900'
         }`}
       >
-        <div>
+        <div className="min-w-0 pr-2">
           <span className="text-[9.5px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
             Merchant Action
           </span>
-          <p className="text-xs font-black">
-            Have items or services in {activeCategoryData.name}?
+          <p className="text-xs font-black truncate">
+            Enlist new {activeCategoryData.name} offering?
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleOpenPostModal}
-          className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
+          className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5 shrink-0"
         >
           <span>➕</span>
           <span>Post Here</span>

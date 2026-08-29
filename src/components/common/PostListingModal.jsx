@@ -4,16 +4,19 @@ import {
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
   createListingInDB,
+  submitSellerEditProposal,
   saveNotificationToDB,
+  getCategoryFallback,
 } from '../../services/listingService';
 import { hyperlocalStore } from '../../store/hyperlocalStore';
 import { getCurrentUserProfile } from '../../services/authService';
 import { TOWN_CENTERS } from '../../utils/geoFence';
+import { CITY_ZONES } from '../../data/cityZones';
 import { supabase } from '../../services/supabaseClient';
 
 const HOURS_LIST = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
-// Service & Hire categories that switch to service-specific fields
+// Service categories that switch to service-specific pricing and operations
 const SERVICE_CATEGORIES = new Set([
   'kaarigar',
   'transporters',
@@ -26,8 +29,11 @@ const SERVICE_CATEGORIES = new Set([
   'advertising',
 ]);
 
+const sanitizePhone = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
+
 export default function PostListingModal({
   isOpen = true,
+  initialData = null, // Set when editing an existing listing
   defaultCategory,
   initialCategory = 'market',
   initialSubCategory = 'all',
@@ -38,46 +44,86 @@ export default function PostListingModal({
 }) {
   if (isOpen === false) return null;
 
+  const isEditMode = Boolean(initialData && initialData.id);
   const currentUser = getCurrentUserProfile();
-  const cleanUserPhone = String(currentUser?.phone || '').replace(/\D/g, '').slice(-10);
+  const cleanUserPhone = sanitizePhone(currentUser?.phone);
   const defaultSellerName = currentUser?.business_name || currentUser?.full_name || 'Verified Merchant';
 
-  // 3-Step Guided Wizard: 1 (Basics) -> 2 (Pricing & Operations) -> 3 (Media & Geolocation)
+  // 3-Step Wizard: 1 (Basics) -> 2 (Pricing & Operations) -> 3 (Media & Geolocation)
   const [currentStep, setCurrentStep] = useState(1);
 
   // Form State
-  const [category, setCategory] = useState(defaultCategory || initialCategory || 'market');
-  const [subCategory, setSubCategory] = useState(initialSubCategory || 'all');
-  const [title, setTitle] = useState('');
-  const [sellerName, setSellerName] = useState(defaultSellerName);
-  const [phone, setPhone] = useState(cleanUserPhone || '');
-  const [whatsapp, setWhatsapp] = useState(cleanUserPhone || '');
-  const [locationName, setLocationName] = useState(currentUser?.area_name || `${selectedCity} Market`);
-  const [targetCity, setTargetCity] = useState(selectedCity || 'Alwar');
+  const [category, setCategory] = useState(() => initialData?.category || defaultCategory || initialCategory || 'market');
+  const [subCategory, setSubCategory] = useState(() => initialData?.sub_category || initialData?.subCategory || initialSubCategory || 'all');
+  const [title, setTitle] = useState(() => initialData?.title || initialData?.name || '');
+  const [sellerName, setSellerName] = useState(() => initialData?.seller_name || initialData?.sellerName || defaultSellerName);
+  const [phone, setPhone] = useState(() => sanitizePhone(initialData?.phone) || cleanUserPhone || '');
+  const [whatsapp, setWhatsapp] = useState(() => sanitizePhone(initialData?.whatsapp) || cleanUserPhone || '');
+  const [locationName, setLocationName] = useState(() => initialData?.location_name || initialData?.location || currentUser?.area_name || `${selectedCity} Market`);
+  const [targetCity, setTargetCity] = useState(() => initialData?.city || selectedCity || 'Alwar');
 
-  // Pricing & Operational Metrics
-  const [priceNumber, setPriceNumber] = useState('');
-  const [priceUnit, setPriceUnit] = useState('');
-  const [stockCount, setStockCount] = useState('');
-  const [capacity, setCapacity] = useState('Ready Stock');
-  const [condition, setCondition] = useState('Brand New');
-  const [experience, setExperience] = useState('5+ Years Exp');
-  const [visitingCharge, setVisitingCharge] = useState('');
-  const [descPoints, setDescPoints] = useState(['', '', '', '']);
+  // Pricing & Metrics
+  const [priceNumber, setPriceNumber] = useState(() => {
+    if (!initialData?.price) return '';
+    const num = String(initialData.price).replace(/\D/g, '');
+    return num || '';
+  });
+  const [priceUnit, setPriceUnit] = useState(() => initialData?.priceUnit || '');
+  const [originalPriceNumber, setOriginalPriceNumber] = useState(() => {
+    const orig = initialData?.original_price || initialData?.originalPrice;
+    return orig ? String(orig).replace(/\D/g, '') : '';
+  });
+  const [stockCount, setStockCount] = useState(() => {
+    const stock = initialData?.stock_count || initialData?.stockCount;
+    return stock ? String(stock).replace(/\D/g, '') : '';
+  });
+  const [capacity, setCapacity] = useState(() => initialData?.capacity || 'Ready Stock');
+  const [condition, setCondition] = useState(() => initialData?.condition || 'Brand New');
+  const [experience, setExperience] = useState(() => initialData?.experience || '5+ Years Exp');
+  const [visitingCharge, setVisitingCharge] = useState(() => {
+    const vc = initialData?.visitingCharge || initialData?.visiting_charge;
+    return vc ? String(vc).replace(/\D/g, '') : '';
+  });
+
+  // 4 Bullet Highlights
+  const [descPoints, setDescPoints] = useState(() => {
+    if (initialData?.description) {
+      const lines = initialData.description.split('\n').map((l) => l.replace(/^[•\-\d.\s]+/, '').trim()).filter(Boolean);
+      return [lines[0] || '', lines[1] || '', lines[2] || '', lines[3] || ''];
+    }
+    return ['', '', '', ''];
+  });
 
   // 12-Hour AM/PM Time Picker State
-  const [timePicker, setTimePicker] = useState({
-    startHour: '09',
-    startPeriod: 'AM',
-    endHour: '09',
-    endPeriod: 'PM',
+  const [timePicker, setTimePicker] = useState(() => {
+    const timingStr = initialData?.timing || initialData?.activeHours || '09:00 AM - 09:00 PM';
+    const match = timingStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)\s*-\s*(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
+    if (match) {
+      return {
+        startHour: match[1].padStart(2, '0'),
+        startPeriod: match[3].toUpperCase(),
+        endHour: match[4].padStart(2, '0'),
+        endPeriod: match[6].toUpperCase(),
+      };
+    }
+    return { startHour: '09', startPeriod: 'AM', endHour: '09', endPeriod: 'PM' };
   });
 
   // Media & GPS Geolocation State
-  const [images, setImages] = useState([]); // Array of { file, preview }
-  const [videos, setVideos] = useState([]); // Array of { file, preview, name, duration }
-  const [lat, setLat] = useState(null);
-  const [lng, setLng] = useState(null);
+  const [images, setImages] = useState(() => {
+    const rawImages = initialData?.images || initialData?.image_urls || (initialData?.image ? [initialData.image] : []);
+    return rawImages.map((img) => (typeof img === 'string' ? { preview: img, url: img, isExisting: true } : img));
+  });
+  const [videos, setVideos] = useState(() => {
+    const rawVideos = initialData?.videos || initialData?.video_urls || [];
+    return rawVideos.map((v) =>
+      typeof v === 'string'
+        ? { preview: v, url: v, name: 'Attached Video', duration: 30, isExisting: true }
+        : { ...v, preview: v.url, isExisting: true }
+    );
+  });
+  const [lat, setLat] = useState(() => initialData?.lat || null);
+  const [lng, setLng] = useState(() => initialData?.lng || null);
   const [isLocating, setIsLocating] = useState(false);
   const [gpsStatus, setGpsStatus] = useState('');
 
@@ -100,22 +146,21 @@ export default function PostListingModal({
   const activeCategoryConfig = getCategoryById(category) || (TAXONOMY_REGISTRY && TAXONOMY_REGISTRY[category]) || {};
   const availableSubCategories = activeCategoryConfig?.subCategories || [];
 
-  // Synchronize subcategory options on category change
+  // Update subcategory if category changes and current subcategory is not valid
   useEffect(() => {
     if (availableSubCategories.length > 0 && subCategory === 'all') {
-      // Keep 'all' or default to first subcategory if mandatory
+      // Keep 'all' or default to first subcategory
     }
   }, [category, availableSubCategories]);
 
-  // 🛰️ 3-Tier Geolocation Strategy
+  // 🛰️ 3-Tier Geolocation Resolution
   const handleDetectGPS = () => {
     setIsLocating(true);
-    setGpsStatus('Accessing GPS satellite coordinates...');
+    setGpsStatus('🛰️ Contacting GPS satellites...');
     setErrorMsg('');
 
     if (!navigator.geolocation) {
-      setGpsStatus(`GPS not supported. Anchored to ${targetCity} Town Center.`);
-      applyCityFallback();
+      applyLocalityOrCityFallback('GPS not supported on device. Locality/City Center anchored.');
       setIsLocating(false);
       return;
     }
@@ -130,22 +175,43 @@ export default function PostListingModal({
         setIsLocating(false);
       },
       (err) => {
-        console.warn('GPS location timeout or denied, using city fallback:', err.message);
-        setGpsStatus(`GPS unavailable. Anchored to ${targetCity} Town Center.`);
-        applyCityFallback();
+        console.warn('GPS location timeout or denied, using locality/town center fallback:', err.message);
+        applyLocalityOrCityFallback('GPS signal unavailable. Locality/City Center anchored.');
         setIsLocating(false);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
     );
   };
 
-  const applyCityFallback = () => {
+  const applyLocalityOrCityFallback = (statusMsg = '') => {
+    // Tier 2: Check locality match in cityZones.js
+    const matchedZone = findZoneCoordinates(targetCity, locationName);
+    if (matchedZone) {
+      setLat(matchedZone.lat);
+      setLng(matchedZone.lng);
+      setGpsStatus(`📍 Locality Matched (${matchedZone.name}): ${matchedZone.lat}, ${matchedZone.lng}`);
+      return;
+    }
+
+    // Tier 3: Town center anchor
     const center = (TOWN_CENTERS && TOWN_CENTERS[targetCity]) || (TOWN_CENTERS && TOWN_CENTERS['Alwar']) || { lat: 27.5530, lng: 76.6346 };
     setLat(center.lat);
     setLng(center.lng);
+    setGpsStatus(statusMsg || `📍 Anchored to ${targetCity} Town Center: ${center.lat}, ${center.lng}`);
   };
 
-  // 📷 Photo Selection (Up to 10 photos)
+  const findZoneCoordinates = (city, query) => {
+    if (!CITY_ZONES || !CITY_ZONES[city] || !query) return null;
+    const zones = Array.isArray(CITY_ZONES[city]) ? CITY_ZONES[city] : Object.values(CITY_ZONES[city] || {});
+    const q = query.toLowerCase().trim();
+    const match = zones.find((z) => (z.name && z.name.toLowerCase().includes(q)) || (z.id && z.id.toLowerCase().includes(q)));
+    if (match && match.lat && match.lng) {
+      return { lat: match.lat, lng: match.lng, name: match.name || match.id };
+    }
+    return null;
+  };
+
+  // 📷 Photo Selection
   const handlePhotoUpload = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -157,6 +223,7 @@ export default function PostListingModal({
     const newItems = files.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
+      isExisting: false,
     }));
 
     setImages((prev) => [...prev, ...newItems]);
@@ -167,7 +234,7 @@ export default function PostListingModal({
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // 🎥 Video Selection & Length Check (Up to 2 videos, max 60s each)
+  // 🎥 Video Selection
   const handleVideoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -231,6 +298,7 @@ export default function PostListingModal({
                 preview: tempUrl,
                 name: file.name,
                 duration,
+                isExisting: false,
               },
             ]);
             setVideoUploadState({ isProcessing: false, progress: 0, fileName: '', status: '' });
@@ -251,7 +319,7 @@ export default function PostListingModal({
     setVideos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // 🚀 Submit Listing
+  // 🚀 Submit Pipeline (Handles both New Enlistment and Staged Edit Proposal)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -261,7 +329,7 @@ export default function PostListingModal({
       return;
     }
 
-    const cleanSellerPhone = phone.replace(/\D/g, '').slice(-10);
+    const cleanSellerPhone = sanitizePhone(phone);
     if (cleanSellerPhone.length !== 10) {
       setErrorMsg('Please enter a valid 10-digit mobile number.');
       return;
@@ -279,10 +347,18 @@ export default function PostListingModal({
     setIsSubmitting(true);
 
     try {
-      // 1. Upload Media
-      const rawImageFiles = images.map((img) => img.file).filter(Boolean);
-      const uploadedImageUrls = await uploadListingImagesToStorage(rawImageFiles);
-      const uploadedVideos = await uploadListingVideosToStorage(videos);
+      // 1. Upload new media files
+      const existingImageUrls = images
+        .map((img) => img.url || (typeof img === 'string' && img.startsWith('http') ? img : null))
+        .filter(Boolean);
+      const newImageFiles = images.filter((img) => img.file instanceof File || img.file instanceof Blob).map((img) => img.file);
+      const uploadedNewImageUrls = newImageFiles.length > 0 ? await uploadListingImagesToStorage(newImageFiles) : [];
+      const finalImageUrls = [...existingImageUrls, ...uploadedNewImageUrls];
+
+      const existingVideos = videos.filter((v) => !v.file && (v.url || typeof v === 'string'));
+      const newVideoObjects = videos.filter((v) => v.file instanceof File || v.file instanceof Blob);
+      const uploadedNewVideos = newVideoObjects.length > 0 ? await uploadListingVideosToStorage(newVideoObjects) : [];
+      const finalVideos = [...existingVideos, ...uploadedNewVideos];
 
       // 2. Format Descriptions & Pricing
       const validPoints = descPoints.filter((p) => p && p.trim().length > 0);
@@ -297,10 +373,8 @@ export default function PostListingModal({
         ? `₹ ${visitingCharge.trim()} / Visit`
         : 'Contact for Price';
 
-      const formattedStock = stockCount
-        ? `${stockCount} Units Available`
-        : capacity;
-
+      const formattedOrigPrice = originalPriceNumber ? `₹ ${originalPriceNumber.trim()}` : null;
+      const formattedStock = stockCount ? `${stockCount} Units Available` : capacity;
       const formattedActiveHours = `${timePicker.startHour}:00 ${timePicker.startPeriod} - ${timePicker.endHour}:00 ${timePicker.endPeriod}`;
 
       const payload = {
@@ -312,6 +386,8 @@ export default function PostListingModal({
         price: formattedPrice,
         rates: formattedPrice,
         startingPackage: formattedPrice,
+        original_price: formattedOrigPrice,
+        originalPrice: formattedOrigPrice,
         description: combinedDescription,
         location: locationName.trim(),
         location_name: locationName.trim(),
@@ -321,84 +397,132 @@ export default function PostListingModal({
         timing: formattedActiveHours,
         activeHours: formattedActiveHours,
         capacity: isService ? formattedActiveHours : formattedStock,
+        stockCount: isService ? formattedActiveHours : formattedStock,
         stock_count: stockCount ? parseInt(stockCount, 10) : null,
         condition: isService ? 'Verified Service' : condition,
         experience: isService ? experience : undefined,
-        image: uploadedImageUrls[0] || 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=600',
-        image_url: uploadedImageUrls[0] || 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=600',
-        images: uploadedImageUrls,
-        image_urls: uploadedImageUrls,
-        videos: uploadedVideos,
-        video_urls: uploadedVideos.map((v) => (typeof v === 'string' ? v : v.url)),
+        image: finalImageUrls[0] || getCategoryFallback(category),
+        image_url: finalImageUrls[0] || getCategoryFallback(category),
+        images: finalImageUrls,
+        image_urls: finalImageUrls,
+        videos: finalVideos,
+        video_urls: finalVideos.map((v) => (typeof v === 'string' ? v : v.url)),
         seller_name: sellerName.trim(),
         sellerName: sellerName.trim(),
         phone: cleanSellerPhone,
-        whatsapp: (whatsapp || phone).replace(/\D/g, '').slice(-10),
-        has_pending_approval: true,
-        is_active: false,
-        isNew: true,
-        verification_badge: '⏳ Pending Approval',
-        badge: '⏳ Pending Admin Approval',
+        whatsapp: sanitizePhone(whatsapp || phone) || cleanSellerPhone,
         user_id: currentUser?.id || null,
       };
 
-      // 3. Database Insertion
-      const { data: dbData } = await createListingInDB(payload);
-      const finalItem = dbData || { id: `draft-${Date.now()}`, ...payload };
+      if (isEditMode) {
+        // 3A. STAGED PROPOSAL PIPELINE FOR EXISTING LISTING
+        const editPayload = {
+          ...initialData,
+          ...payload,
+          has_pending_approval: true,
+          admin_feedback: null,
+          seller_feedback_reply: null,
+        };
 
-      // 4. Client Store Hydration
-      hyperlocalStore.insertListing(category, finalItem);
+        const { data: dbProposal } = await submitSellerEditProposal(initialData.id, editPayload);
+        const updatedItem = {
+          ...initialData,
+          id: dbProposal?.id || initialData.id,
+          pending_changes: payload,
+          has_pending_approval: true,
+          admin_feedback: null,
+          seller_feedback_reply: null,
+        };
 
-      // 5. Admin & Seller Telemetry Notifications
-      const adminNotif = {
-        tag: 'NEW ENLISTMENT',
-        title: `🏪 New Listing: "${payload.title}"`,
-        message: `${payload.seller_name} (+91 ${cleanSellerPhone}) submitted an offering in ${category}, ${targetCity}.`,
-        targetId: finalItem.id,
-        category: payload.category,
-        recipient_role: 'admin',
-        recipient_phone: null,
-        metadata: {
-          listingId: finalItem.id,
-          sellerPhone: cleanSellerPhone,
+        hyperlocalStore.insertListing(initialData.category, updatedItem);
+
+        const notifObj = {
+          tag: 'EDIT PROPOSAL',
+          title: `Edit Request: "${payload.title}"`,
+          message: `${payload.seller_name} (+91 ${cleanSellerPhone}) submitted updates for approval.`,
+          targetId: updatedItem.id,
           category: payload.category,
-          city: targetCity,
-        },
-      };
-
-      await saveNotificationToDB(adminNotif);
-      hyperlocalStore.addNotification(adminNotif);
-
-      const sellerNotif = {
-        tag: 'APPROVED',
-        title: `⏳ "${payload.title}" Submitted for Review`,
-        message: `Your listing in ${activeCategoryConfig.name || category} has been submitted to Master Admin for approval.`,
-        targetId: finalItem.id,
-        category: payload.category,
-        recipient_role: 'seller',
-        recipient_phone: cleanSellerPhone,
-        metadata: {
-          listingId: finalItem.id,
-        },
-      };
-
-      if (supabase && cleanSellerPhone) {
-        await supabase.from('notifications').insert([
-          {
-            tag: sellerNotif.tag,
-            title: sellerNotif.title,
-            message: sellerNotif.message,
-            recipient_role: 'seller',
-            recipient_phone: cleanSellerPhone,
-            metadata: sellerNotif.metadata,
+          recipient_role: 'admin',
+          recipient_phone: null,
+          metadata: {
+            listingId: updatedItem.id,
+            sellerPhone: cleanSellerPhone,
+            category: payload.category,
           },
-        ]);
-      }
-      hyperlocalStore.addNotification(sellerNotif);
+        };
+        await saveNotificationToDB(notifObj);
+        hyperlocalStore.addNotification(notifObj);
 
-      if (onSuccess) onSuccess(finalItem);
-      if (onListingCreated) onListingCreated(finalItem);
-      if (onClose) onClose();
+        if (onSuccess) onSuccess(updatedItem);
+        if (onListingCreated) onListingCreated(updatedItem);
+        if (onClose) onClose();
+      } else {
+        // 3B. NEW ENLISTMENT PIPELINE
+        const newDraft = {
+          ...payload,
+          is_active: false,
+          has_pending_approval: true,
+          isNew: true,
+          badge: '⏳ Pending Admin Approval',
+          verification_badge: '⏳ Pending Approval',
+          created_at: new Date().toISOString(),
+        };
+
+        const { data: dbData } = await createListingInDB(newDraft);
+        const finalItem = dbData || { id: `draft-${Date.now()}`, ...newDraft };
+
+        hyperlocalStore.insertListing(category, finalItem);
+
+        // Notifications
+        const adminNotif = {
+          tag: 'NEW ENLISTMENT',
+          title: `🏪 New Listing: "${payload.title}"`,
+          message: `${payload.seller_name} (+91 ${cleanSellerPhone}) submitted an offering in ${category}, ${targetCity}.`,
+          targetId: finalItem.id,
+          category: payload.category,
+          recipient_role: 'admin',
+          recipient_phone: null,
+          metadata: {
+            listingId: finalItem.id,
+            sellerPhone: cleanSellerPhone,
+            category: payload.category,
+            city: targetCity,
+          },
+        };
+        await saveNotificationToDB(adminNotif);
+        hyperlocalStore.addNotification(adminNotif);
+
+        const sellerNotif = {
+          tag: 'APPROVED',
+          title: `⏳ "${payload.title}" Submitted for Review`,
+          message: `Your listing in ${activeCategoryConfig.name || category} has been submitted to Master Admin for approval.`,
+          targetId: finalItem.id,
+          category: payload.category,
+          recipient_role: 'seller',
+          recipient_phone: cleanSellerPhone,
+          metadata: {
+            listingId: finalItem.id,
+          },
+        };
+
+        if (supabase && cleanSellerPhone) {
+          await supabase.from('notifications').insert([
+            {
+              tag: sellerNotif.tag,
+              title: sellerNotif.title,
+              message: sellerNotif.message,
+              recipient_role: 'seller',
+              recipient_phone: cleanSellerPhone,
+              metadata: sellerNotif.metadata,
+            },
+          ]);
+        }
+        hyperlocalStore.addNotification(sellerNotif);
+
+        if (onSuccess) onSuccess(finalItem);
+        if (onListingCreated) onListingCreated(finalItem);
+        if (onClose) onClose();
+      }
     } catch (err) {
       console.error('Submit listing error:', err);
       setErrorMsg('Could not submit listing. Please check your network connection.');
@@ -419,7 +543,11 @@ export default function PostListingModal({
             <div className="flex items-center space-x-2">
               <span className="text-base">{isService ? '🛠️' : '🏪'}</span>
               <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
-                {isService ? 'SERVICE & KAARIGAR ENLISTMENT' : 'PRODUCT & DEAL ENLISTMENT'}
+                {isEditMode
+                  ? 'EDIT LISTING & PROPOSE CHANGES'
+                  : isService
+                  ? 'SERVICE & KAARIGAR ENLISTMENT'
+                  : 'PRODUCT & DEAL ENLISTMENT'}
               </span>
             </div>
             <h3 className="text-sm font-black text-slate-100 mt-0.5">
@@ -600,6 +728,21 @@ export default function PostListingModal({
                       placeholder="e.g. / Pair"
                       className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2 py-2.5 text-slate-300 text-center text-xs focus:outline-hidden focus:border-amber-400"
                     />
+                  </div>
+
+                  <div className="mt-2">
+                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Original Strike Price (कटौती दिखाने के लिए)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-500">₹</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={originalPriceNumber}
+                        onChange={(e) => setOriginalPriceNumber(e.target.value.replace(/\D/g, ''))}
+                        placeholder="2499"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-7 pr-3 py-2 text-slate-400 font-mono text-xs focus:border-amber-400 outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -822,7 +965,7 @@ export default function PostListingModal({
                   <div className="grid grid-cols-5 gap-1.5 pt-1">
                     {images.map((img, idx) => (
                       <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700">
-                        <img src={img.preview} alt="Thumb" className="w-full h-full object-cover" />
+                        <img src={img.preview || img.url} alt="Thumb" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => handleRemovePhoto(idx)}
@@ -877,7 +1020,7 @@ export default function PostListingModal({
 
                 {videos.map((vid, idx) => (
                   <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-700 text-[10px]">
-                    <span className="truncate text-slate-200">🎬 {vid.name} ({vid.duration}s)</span>
+                    <span className="truncate text-slate-200">🎬 {vid.name || `Video ${idx + 1}`} ({vid.duration || 30}s)</span>
                     <button type="button" onClick={() => handleRemoveVideo(idx)} className="text-rose-400 font-black cursor-pointer">✕</button>
                   </div>
                 ))}
@@ -897,7 +1040,13 @@ export default function PostListingModal({
                   disabled={isSubmitting || videoUploadState.isProcessing}
                   className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition disabled:opacity-50 flex items-center justify-center space-x-1.5"
                 >
-                  <span>{isSubmitting ? 'Submitting Listing... ⏳' : '🚀 Publish & Go Live'}</span>
+                  <span>
+                    {isSubmitting
+                      ? 'Submitting Changes... ⏳'
+                      : isEditMode
+                      ? '✓ Submit Edit Proposal'
+                      : '🚀 Publish & Go Live'}
+                  </span>
                 </button>
               </div>
             </div>

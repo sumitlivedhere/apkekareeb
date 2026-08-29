@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { hyperlocalStore, useAllListingsSlice } from './store/hyperlocalStore';
-import { getCategoryById } from './data/taxonomyRegistry';
 import VoiceNotePlayer from './components/common/VoiceNotePlayer';
 import PostListingModal from './components/common/PostListingModal';
 import {
@@ -67,8 +66,9 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
 
-  // Post Listing Wizard Trigger State
+  // 📝 Unified Post / Edit Listing Modal State
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [editingListing, setEditingListing] = useState(null);
 
   // 🎁 Offer & Combo Studio State
   const [selectedListingForOffer, setSelectedListingForOffer] = useState(null);
@@ -321,6 +321,17 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const pendingInquiriesCount = useMemo(() => {
     return userInquiries.filter((q) => !q.sellerReply).length;
   }, [userInquiries]);
+
+  // ✏️ Open Post Modal for Creation or Editing
+  const handleOpenCreateModal = () => {
+    setEditingListing(null);
+    setIsPostModalOpen(true);
+  };
+
+  const handleOpenEditModal = (item) => {
+    setEditingListing(item);
+    setIsPostModalOpen(true);
+  };
 
   // 🗑️ Delete Listing Handler
   const handleDeleteMerchantListing = async (listingId, title) => {
@@ -1091,7 +1102,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
             <button
               type="button"
-              onClick={() => setIsPostModalOpen(true)}
+              onClick={handleOpenCreateModal}
               className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer"
             >
               + Enlist New ➔
@@ -1271,6 +1282,16 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                       <span className="text-slate-500 font-semibold truncate max-w-[140px]">📍 {item.location || selectedCity}</span>
                       
                       <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(item)}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95 flex items-center space-x-1"
+                          title="Edit Listing Details"
+                        >
+                          <span>✏️</span>
+                          <span>Edit</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleOpenOfferStudio(item)}
@@ -1642,11 +1663,15 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         );
       })()}
 
-      {/* Unified Guided Post / Enlist Modal */}
+      {/* 📝 Unified Guided Post / Edit Listing Wizard Modal */}
       {isPostModalOpen && (
         <PostListingModal
           isOpen={isPostModalOpen}
-          onClose={() => setIsPostModalOpen(false)}
+          initialData={editingListing}
+          onClose={() => {
+            setIsPostModalOpen(false);
+            setEditingListing(null);
+          }}
           selectedCity={selectedCity}
         />
       )}

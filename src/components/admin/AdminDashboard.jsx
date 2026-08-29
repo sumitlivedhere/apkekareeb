@@ -9,7 +9,6 @@ import {
   uploadVoiceNoteToStorage,
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
-  saveNotificationToDB,
   deleteListingFromDB,
 } from '../../services/listingService';
 import {
@@ -67,6 +66,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     doorstep_trial: false,
     capacity: '',
     location: '',
+    lat: null,
+    lng: null,
     timing: '09:00 AM - 09:00 PM',
     description: '',
     descPoints: ['', '', '', ''],
@@ -324,6 +325,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const effectiveCat = changes.category || item.category || 'market';
     const effectiveSubCat = changes.subCategory || changes.sub_category || item.subCategory || item.sub_category || 'all';
     const effectiveDesc = changes.description || item.description || '';
+    const effectiveLat = changes.lat !== undefined ? changes.lat : item.lat;
+    const effectiveLng = changes.lng !== undefined ? changes.lng : item.lng;
 
     const photos = changes.images || changes.image_urls || item.images || (changes.image ? [changes.image] : [item.image]);
     const cleanPhotos = (photos || []).map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
@@ -348,6 +351,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       doorstep_trial: effectiveTrial,
       capacity: effectiveCap,
       location: effectiveLocation,
+      lat: effectiveLat,
+      lng: effectiveLng,
       timing: effectiveTiming,
       description: effectiveDesc,
       descPoints: parsedPoints,
@@ -447,6 +452,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           capacity: editFormData.capacity.trim(),
           stockCount: editFormData.capacity.trim(),
           location: editFormData.location.trim(),
+          lat: editFormData.lat !== undefined && editFormData.lat !== null ? Number(editFormData.lat) : item.lat,
+          lng: editFormData.lng !== undefined && editFormData.lng !== null ? Number(editFormData.lng) : item.lng,
           timing: editFormData.timing.trim(),
           activeHours: editFormData.timing.trim(),
           description: combinedDesc,
@@ -471,19 +478,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       await approveListingChanges(item.id, updatedPayload);
       hyperlocalStore.insertListing(updatedPayload.category || item.category, updatedPayload);
-
-      const notifObj = {
-        tag: 'APPROVED',
-        title: `Listing Approved: "${finalChanges.title || item.title}"`,
-        message: `Listing is verified and live across ${selectedCity}${finalChanges.deal_badge ? ` with deal "${finalChanges.deal_badge}".` : '.'}`,
-        targetId: item.id,
-        category: updatedPayload.category,
-        recipient_role: 'seller',
-        recipient_phone: sanitizePhone(finalChanges.phone || item.phone),
-        metadata: { dealBadge: finalChanges.deal_badge },
-      };
-      await saveNotificationToDB(notifObj);
-      hyperlocalStore.addNotification(notifObj);
 
       showNotice(`✓ Published "${finalChanges.title || item.title}"`);
       if (inspectingItem?.id === item.id) {
@@ -511,18 +505,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         admin_feedback: reason,
       };
       hyperlocalStore.insertListing(item.category, cleanedPayload);
-
-      const notifObj = {
-        tag: 'REJECTED',
-        title: `Changes Rejected: "${item.title}"`,
-        message: reason,
-        targetId: item.id,
-        category: item.category,
-        recipient_role: 'seller',
-        recipient_phone: sanitizePhone(item.phone),
-      };
-      await saveNotificationToDB(notifObj);
-      hyperlocalStore.addNotification(notifObj);
 
       showNotice(`Rejected changes for "${item.title}"`);
       if (inspectingItem?.id === item.id) {

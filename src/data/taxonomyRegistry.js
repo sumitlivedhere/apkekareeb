@@ -494,3 +494,5 @@ export function sanitizeSubCategoryId(catId, subCatId) {
   
   return match ? match.id : target;
 }
+
+export const TAXONOMY_TREE = Object.values(TAXONOMY_REGISTRY);

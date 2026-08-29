@@ -153,7 +153,7 @@ export function sanitizeImageUrl(url, category = 'property') {
 }
 
 /**
- * Normalizes DB rows, mock data, and custom user listings into a single uniform schema[cite: 2, 3]
+ * Normalizes DB rows, mock data, and custom user listings into a single uniform schema
  */
 export function normalizeDBListing(item) {
   if (!item) return null;
@@ -1610,13 +1610,14 @@ export function useNotificationSlice(explicitScope = null) {
       'INTEREST REGISTERED',
       'INTEREST_REGISTERED',
       'CART_ADDITION',
+      'NEW_USER_PIN',
     ];
 
     if (scope === 'admin') {
       return rawNotifs.filter(
         (n) =>
           n.recipient_role === 'admin' ||
-          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY'].includes(n.tag)
+          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN'].includes(n.tag)
       );
     }
 
