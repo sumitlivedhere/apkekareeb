@@ -2,25 +2,41 @@ import React, { useState } from 'react';
 import ActionButtons from './ActionButtons';
 import ListingDiscussionThread from './ListingDiscussionThread';
 import { useCartSlice, hyperlocalStore } from '../../store/hyperlocalStore';
+import { getCurrentUserProfile } from '../../services/authService';
 
 export default function ListingInteractiveCard({
   item,
   selectedCity = 'Alwar',
   badgeCategory = 'LISTING',
   onNewNotification,
+  onOpenAuth,
   onClick,
 }) {
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
 
-  // 🛒 Cart integration
+  // 🛒 User-Scoped Cart integration
+  const currentUser = getCurrentUserProfile();
   const cart = useCartSlice();
-  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id));
+  const cartItem = currentUser ? (cart || []).find((i) => String(i.id) === String(item.id)) : null;
   const cartQty = cartItem ? cartItem.quantity : 0;
 
   const handleAddToCart = (e) => {
     e.stopPropagation();
+    if (!currentUser) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
     hyperlocalStore.addToCart(item, 1);
+  };
+
+  const handleUpdateQuantity = (e, newQty) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    hyperlocalStore.updateCartQuantity(item.id, newQty);
   };
 
   // Gallery array resolution
@@ -257,10 +273,7 @@ export default function ListingInteractiveCard({
           <div className="w-full py-2 px-3 bg-slate-900 border border-amber-400 rounded-2xl flex items-center justify-between text-white shadow-xs">
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                hyperlocalStore.updateCartQuantity(item.id, cartQty - 1);
-              }}
+              onClick={(e) => handleUpdateQuantity(e, cartQty - 1)}
               className="w-7 h-7 flex items-center justify-center font-black text-base text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90"
             >
               -
@@ -271,10 +284,7 @@ export default function ListingInteractiveCard({
             </div>
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                hyperlocalStore.updateCartQuantity(item.id, cartQty + 1);
-              }}
+              onClick={(e) => handleUpdateQuantity(e, cartQty + 1)}
               className="w-7 h-7 flex items-center justify-center font-black text-base text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90"
             >
               +

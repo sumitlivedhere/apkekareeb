@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   useInterestSlice,
   useThreadSlice,
@@ -32,32 +32,13 @@ export default function ListingDetailModal({
   const touchStartY = useRef(0);
   const isClosedByHistoryRef = useRef(false);
 
-  useEffect(() => {
-    window.history.pushState({ modal: 'listing-detail' }, '');
-
-    const handlePopState = () => {
-      isClosedByHistoryRef.current = true;
-      onClose();
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [onClose]);
-
-  const handleModalClose = () => {
-    if (!isClosedByHistoryRef.current) {
-      window.history.back();
-    }
-  };
-
   // 🛡️ User Authentication & Sub-Modals State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const pendingCartAddRef = useRef(false);
 
   // 📷 Photo Carousel & Lightbox State
   const [activeImgIndex, setActiveImgIndex] = useState(0);
@@ -86,6 +67,7 @@ export default function ListingDetailModal({
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
 
   const mediaRecorderRef = useRef(null);
+  const audioStreamRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
@@ -99,12 +81,46 @@ export default function ListingDetailModal({
     hyperlocalStore.hasUserInterested(item.id)
   );
 
-  // 🛒 Universal Cart State
+  // 🛒 User-Specific Cart Hook
   const cart = useCartSlice();
-  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id));
-  const cartQty = cartItem ? cartItem.quantity : 0;
+  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id) || String(i.listingId) === String(item.id));
+  const cartQty = cartItem ? Number(cartItem.quantity) || 0 : 0;
 
   const comments = useThreadSlice(item.id, []);
+
+  // History & Escape Key Handling
+  const handleModalClose = useCallback(() => {
+    if (!isClosedByHistoryRef.current) {
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    window.history.pushState({ modal: 'listing-detail' }, '');
+
+    const handlePopState = () => {
+      isClosedByHistoryRef.current = true;
+      onClose();
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (isLightboxOpen) {
+          setIsLightboxOpen(false);
+        } else {
+          handleModalClose();
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose, isLightboxOpen, handleModalClose]);
 
   // Gallery Resolution
   const gallery = (
@@ -157,19 +173,46 @@ export default function ListingDetailModal({
 
     if (res.success) {
       setIsAlreadyInterested(true);
+      if ('vibrate' in navigator) navigator.vibrate(30);
     } else {
       alert(res.message);
     }
   };
 
-  // 🛒 Universal Add to Cart Handler (Placed Separately Below Interest Button)
+  // 🛒 User-Scoped Add to Cart Handler
   const handleAddToCart = (e) => {
     e?.stopPropagation();
-    const res = hyperlocalStore.addToCart(item, 1);
+    const user = getCurrentUserProfile();
+    if (!user) {
+      pendingCartAddRef.current = true;
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const res = hyperlocalStore.addToCart(item, 1, user.phone);
     if (res.requireAuth) {
+      pendingCartAddRef.current = true;
       setIsAuthModalOpen(true);
     } else if (res.success) {
       if ('vibrate' in navigator) navigator.vibrate(40);
+    }
+  };
+
+  const handleUpdateCartQty = (newQty) => {
+    const user = getCurrentUserProfile();
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    hyperlocalStore.updateCartQuantity(item.id, newQty, user.phone);
+    if ('vibrate' in navigator) navigator.vibrate(25);
+  };
+
+  // 🎙️ Audio Cleanup Helper
+  const stopMediaStream = () => {
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
     }
   };
 
@@ -177,6 +220,7 @@ export default function ListingDetailModal({
   const handleStartVoiceRecording = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
+      audioStreamRef.current = stream;
       audioChunksRef.current = [];
 
       const mediaRecorder = createOptimizedMediaRecorder(stream);
@@ -241,9 +285,7 @@ export default function ListingDetailModal({
       } catch (err) {
         console.error('Audio upload failed:', err);
       } finally {
-        if (mediaRecorder.stream) {
-          mediaRecorder.stream.getTracks().forEach((t) => t.stop());
-        }
+        stopMediaStream();
         setIsRecording(false);
         setRecordSeconds(0);
         setIsUploadingVoice(false);
@@ -254,23 +296,24 @@ export default function ListingDetailModal({
   };
 
   const handleCancelVoiceRecording = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (mediaRecorderRef.current) {
-      clearInterval(timerRef.current);
-      if (mediaRecorderRef.current.stream) {
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-      }
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {}
       mediaRecorderRef.current = null;
-      setIsRecording(false);
-      setRecordSeconds(0);
     }
+    stopMediaStream();
+    setIsRecording(false);
+    setRecordSeconds(0);
   };
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-      }
+      stopMediaStream();
     };
   }, []);
 
@@ -324,16 +367,12 @@ export default function ListingDetailModal({
     setActiveReplyId(null);
   };
 
-  // Contacts & Social
+  // Contacts & Metadata
   const rawPhone = item.phone || item.whatsapp || '9876543201';
   const cleanPhone = String(rawPhone).replace(/\D/g, '');
   const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
   const sellerDisplayName = item.sellerName || item.driverName || 'Verified Member';
   const sellerInitial = sellerDisplayName.charAt(0).toUpperCase();
-
-  const rawInsta = item.instagram || item.insta || item.instagram_handle || '';
-  const cleanInsta = rawInsta.replace('@', '').trim();
-  const instaUrl = cleanInsta.startsWith('http') ? cleanInsta : `https://instagram.com/${cleanInsta}`;
 
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
     `Namaste ${sellerDisplayName}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
@@ -361,12 +400,12 @@ export default function ListingDetailModal({
   const handleTouchEnd = (e) => {
     if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isRecording) return;
     const target = e.target;
-    if (target.closest('.overflow-x-auto, input, textarea, select, video')) return;
+    if (target.closest('.overflow-x-auto, .snap-x, input, textarea, select, video, button')) return;
 
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
 
-    if (deltaX > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+    if (deltaX > 75 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
       handleModalClose();
     }
   };
@@ -374,6 +413,9 @@ export default function ListingDetailModal({
   return (
     <>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-listing-title"
         data-modal-open="true"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
@@ -451,11 +493,9 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Photo Carousel with Floating Top-Right Star Rating Badge */}
+          {/* Photo Carousel */}
           {activeMediaTab === 'photos' && (
             <div className="relative h-80 w-full bg-slate-950 overflow-hidden group">
-              
-              {/* Floating Star Rating Badge */}
               <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl text-slate-100 font-black text-xs border border-amber-400/40 shadow-xl flex items-center space-x-1 z-20 pointer-events-none">
                 <span className="text-amber-400">★</span>
                 <span className="text-slate-100 text-xs font-bold">{ratingStats.averageRating}</span>
@@ -476,10 +516,10 @@ export default function ListingDetailModal({
                   >
                     <img
                       src={imgSrc}
-                      alt={`View ${idx + 1}`}
+                      alt={`${item.title || 'Listing'} - preview ${idx + 1}`}
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        e.target.src = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
+                        e.currentTarget.src = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
                       }}
                     />
                   </div>
@@ -570,11 +610,11 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Listing Header Details */}
+          {/* Listing Details Header */}
           <div className="px-4 space-y-3.5">
             <div className="space-y-1">
               <div className="flex items-start justify-between">
-                <h1 className="text-lg font-black text-white leading-snug">
+                <h1 id="modal-listing-title" className="text-lg font-black text-white leading-snug">
                   {item.title || item.name}
                 </h1>
                 <span className="text-[10px] font-black text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg shrink-0 ml-2">
@@ -600,80 +640,80 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* 🌟 1. Hyperlocal Interest Score Button Card */}
-<div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
-  <div>
-    <div className="text-xs font-black text-white flex items-center space-x-1">
-      <span>⭐</span>
-      <span>Hyperlocal Interest Score</span>
-    </div>
-    <p className="text-[10px] text-slate-400 mt-0.5">
-      {interestCount} {interestCount === 1 ? 'person' : 'people'} in {selectedCity} showed interest
-    </p>
-  </div>
+            {/* Hyperlocal Interest Button Card */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
+              <div>
+                <div className="text-xs font-black text-white flex items-center space-x-1">
+                  <span>⭐</span>
+                  <span>Hyperlocal Interest Score</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {interestCount} {interestCount === 1 ? 'person' : 'people'} in {selectedCity} showed interest
+                </p>
+              </div>
 
-  <button
-    type="button"
-    onClick={handleInterestClick}
-    disabled={isAlreadyInterested}
-    className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95 flex items-center space-x-1 ${
-      isAlreadyInterested
-        ? 'bg-emerald-500 text-slate-950 border border-emerald-400 cursor-default opacity-95'
-        : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950'
-    }`}
-  >
-    <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
-    <span>({interestCount})</span>
-  </button>
-</div>
+              <button
+                type="button"
+                onClick={handleInterestClick}
+                disabled={isAlreadyInterested}
+                className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95 flex items-center space-x-1 ${
+                  isAlreadyInterested
+                    ? 'bg-emerald-500 text-slate-950 border border-emerald-400 cursor-default opacity-95'
+                    : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950'
+                }`}
+              >
+                <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
+                <span>({interestCount})</span>
+              </button>
+            </div>
 
-{/* 🛒 2. SEPARATE ADD TO CART BUTTON (PLACED JUST BELOW THE INTEREST BUTTON) */}
-<div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
-  <div>
-    <div className="text-xs font-black text-white flex items-center space-x-1">
-      <span>🛒</span>
-      <span>Add to Personal Cart</span>
-    </div>
-    <p className="text-[10px] text-slate-400 mt-0.5">
-      {cartQty > 0
-        ? `${cartQty} unit(s) currently in your cart`
-        : 'Save & batch order directly from this seller'}
-    </p>
-  </div>
+            {/* 🛒 Personal Onboarded Cart Card */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
+              <div>
+                <div className="text-xs font-black text-white flex items-center space-x-1">
+                  <span>🛒</span>
+                  <span>Personal Cart</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {cartQty > 0
+                    ? `${cartQty} unit(s) saved in your verified cart`
+                    : 'Save & batch order directly from this seller'}
+                </p>
+              </div>
 
-  {cartQty > 0 ? (
-    <div className="flex items-center space-x-2 bg-slate-950 border border-amber-400/70 rounded-xl px-2.5 py-1.5 shadow-sm">
-      <button
-        type="button"
-        onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty - 1)}
-        className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
-      >
-        -
-      </button>
-      <span className="font-mono font-black text-xs text-amber-300 px-1">
-        {cartQty}
-      </span>
-      <button
-        type="button"
-        onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty + 1)}
-        className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
-      >
-        +
-      </button>
-    </div>
-  ) : (
-    <button
-      type="button"
-      onClick={handleAddToCart}
-      className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
-    >
-      <span>+ 🛒</span>
-      <span>Add to Cart</span>
-    </button>
-  )}
-</div>
+              {cartQty > 0 ? (
+                <div className="flex items-center space-x-2 bg-slate-950 border border-amber-400/70 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateCartQty(cartQty - 1)}
+                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-xs text-amber-300 px-1">
+                    {cartQty}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateCartQty(cartQty + 1)}
+                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+                  >
+                    +
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
+                >
+                  <span>+ 🛒</span>
+                  <span>Add to Cart</span>
+                </button>
+              )}
+            </div>
 
-            {/* Verified Seller Profile & Direct Connects */}
+            {/* Verified Seller Profile & Channels */}
             <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3 shadow-md">
               <div className="flex items-center space-x-3">
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
@@ -698,7 +738,7 @@ export default function ListingDetailModal({
                 </div>
               </div>
 
-              {/* Direct Channels Bar */}
+              {/* Direct Action Links */}
               <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
                 <a
                   href={whatsappUrl}
@@ -741,7 +781,7 @@ export default function ListingDetailModal({
               </div>
             )}
 
-            {/* Location & Google Maps Navigation */}
+            {/* Location & Navigation */}
             <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center space-x-1">
@@ -796,7 +836,7 @@ export default function ListingDetailModal({
                 </button>
               </div>
 
-              {/* Q&A Thread List */}
+              {/* Thread List */}
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {comments.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs font-medium">
@@ -910,7 +950,7 @@ export default function ListingDetailModal({
                 {isRecording ? (
                   <div className="flex items-center justify-between p-2.5 bg-rose-500/20 border border-rose-500/50 rounded-xl animate-pulse">
                     <span className="text-xs font-black text-rose-300">
-                      Recording: 0:{recordSeconds < 10 ? '0' : ''}${recordSeconds}
+                      Recording: {`0:${recordSeconds < 10 ? '0' : ''}${recordSeconds}`}
                     </span>
                     <div className="flex items-center space-x-2">
                       <button
@@ -923,9 +963,10 @@ export default function ListingDetailModal({
                       <button
                         type="button"
                         onClick={handleStopAndSendVoice}
-                        className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-lg shadow-md cursor-pointer active:scale-95"
+                        disabled={isUploadingVoice}
+                        className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-lg shadow-md cursor-pointer active:scale-95 disabled:opacity-50"
                       >
-                        Send Voice ➔
+                        {isUploadingVoice ? 'Uploading...' : 'Send Voice ➔'}
                       </button>
                     </div>
                   </div>
@@ -935,6 +976,7 @@ export default function ListingDetailModal({
                       type="button"
                       onClick={handleStartVoiceRecording}
                       className="w-9 h-9 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center font-black text-sm shrink-0 shadow-md active:scale-90 transition cursor-pointer"
+                      title="Record Voice Inquiry"
                     >
                       🎙️
                     </button>
@@ -969,7 +1011,7 @@ export default function ListingDetailModal({
           </div>
         </main>
 
-        {/* 🌟 Sticky Bottom Actions Footer */}
+        {/* Sticky Action Bar */}
         <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-2 gap-2.5">
           <button
             type="button"
@@ -992,7 +1034,11 @@ export default function ListingDetailModal({
 
         {/* Full-Screen Photo Lightbox */}
         {isLightboxOpen && (
-          <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between animate-fade-in p-4 font-sans">
+          <div 
+            role="dialog"
+            aria-label="Image Preview"
+            className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between animate-fade-in p-4 font-sans"
+          >
             <div className="flex items-center justify-between text-white pb-2">
               <span className="text-xs font-black">
                 {activeImgIndex + 1} / {totalImages}
@@ -1049,7 +1095,7 @@ export default function ListingDetailModal({
                   <img
                     key={idx}
                     src={thumb}
-                    alt={`Thumb ${idx + 1}`}
+                    alt={`Thumbnail ${idx + 1}`}
                     onClick={() => {
                       setActiveImgIndex(idx);
                       scrollToImage(idx);
@@ -1076,7 +1122,7 @@ export default function ListingDetailModal({
           />
         )}
 
-        {/* In-App Share & 4K Status Sheet Modal */}
+        {/* Share Modal */}
         {isShareModalOpen && (
           <ShareSheetModal
             item={item}
@@ -1095,15 +1141,26 @@ export default function ListingDetailModal({
         onSuccess={handleModalClose}
       />
 
-      {/* User Auth Modal */}
+      {/* User Auth Modal with Automatic Pending Cart Addition */}
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          pendingCartAddRef.current = false;
+        }}
         selectedCity={selectedCity}
         onSuccess={(profile) => {
           setCurrentUser(profile);
           setUserName(profile.full_name || userName);
           setIsAuthModalOpen(false);
+
+          // Frictionless Add-to-Cart Completion post-login
+          if (pendingCartAddRef.current && profile?.phone) {
+            hyperlocalStore.loadUserCart(profile.phone).then(() => {
+              hyperlocalStore.addToCart(item, 1, profile.phone);
+              pendingCartAddRef.current = false;
+            });
+          }
         }}
       />
     </>

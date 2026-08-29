@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/react';
 import {
   useRoleFilteredNotifications,
   useCartCount,
+  useAllListingsSlice,
   hyperlocalStore,
   hydrateFromDB,
   initRealtimeSubscriptions,
@@ -111,9 +112,10 @@ export default function App() {
   // 🏪 Prompt State for Non-Sellers Attempting to Post
   const [isBusinessPromptOpen, setIsBusinessPromptOpen] = useState(false);
 
-  // 🛒 Universal Cart & Notification Overlay State
+  // 🛒 User-Scoped Cart & Notification Overlay State
   const [isCartOpen, setIsCartOpen] = useState(false);
   const cartCount = useCartCount();
+  const allListings = useAllListingsSlice();
 
   const [isListingModalOpen, setIsListingModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -125,7 +127,7 @@ export default function App() {
   const touchStartY = useRef(0);
   const touchStartTime = useRef(0);
 
-  // 🕵️ Stealth Master Admin Access (5 Quick Taps on Logo)
+  // 🕵️ Master Admin Access (5 Quick Taps on Logo)
   const adminTapCountRef = useRef(0);
   const adminTapTimerRef = useRef(null);
 
@@ -146,6 +148,15 @@ export default function App() {
       }, 1500);
     }
   };
+
+  // 🛒 Synchronize User-Specific Cart whenever Auth changes
+  useEffect(() => {
+    if (currentUser?.phone) {
+      hyperlocalStore.loadUserCart(currentUser.phone);
+    } else {
+      hyperlocalStore.resetCartOnLogout();
+    }
+  }, [currentUser]);
 
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
@@ -183,7 +194,7 @@ export default function App() {
     isBusinessPromptOpen,
   ]);
 
-  // Set initial state index and hydrate store on boot
+  // Boot hydration & Realtime Socket listeners
   useEffect(() => {
     if (!window.history.state || typeof window.history.state.idx !== 'number') {
       window.history.replaceState({ idx: 0 }, '');
@@ -192,7 +203,7 @@ export default function App() {
     initRealtimeSubscriptions();
   }, []);
 
-  // 🔗 1-Tap WhatsApp Link Resolver: Opens listing directly when URL has ?id=...
+  // 🔗 1-Tap Deep Link URL Resolver
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const targetId = params.get('id') || params.get('listing');
@@ -239,14 +250,14 @@ export default function App() {
     searchQuery,
   } = currentNav;
 
-  // 🛡️ Strict Merchant & Admin Authorization Check
+  // 🛡️ Merchant & Admin Authorization Check
   const isSeller = Boolean(
     currentUser?.is_merchant === true ||
     currentUser?.verification_tier === 'verified_merchant'
   );
   const isAuthorizedToPost = Boolean(isAdminUnlocked || isSeller);
 
-  // 🔔 Calculate Unread Alerts exclusively for the active persona
+  // 🔔 Calculate Unread Alerts
   const roleFilteredAlerts = useRoleFilteredNotifications(
     currentUser,
     currentScreen,
@@ -338,7 +349,8 @@ export default function App() {
       notif.tag === 'PENDING_APPROVAL' ||
       notif.tag === 'EDIT_PROPOSAL' ||
       notif.tag === 'FLAGGED_REPORT' ||
-      notif.tag === 'NEW_USER_PIN'
+      notif.tag === 'SELLER_PIN_REQUEST' ||
+      notif.tag === 'USER_PIN_REQUEST'
     ) {
       navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
       return;
@@ -349,7 +361,8 @@ export default function App() {
         notif.tag === 'VOICE_INQUIRY' ||
         notif.tag === 'LISTING_APPROVED' ||
         notif.tag === 'LISTING_REJECTED' ||
-        notif.tag === 'INTEREST_ALERT') &&
+        notif.tag === 'INTEREST_ALERT' ||
+        notif.tag === 'CART_ADDITION') &&
       notif.targetId
     ) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
@@ -520,7 +533,7 @@ export default function App() {
             </span>
           </button>
 
-          {/* ☀️ / 🌙 Theme Toggle Button */}
+          {/* Theme Toggle Button */}
           <button
             type="button"
             onClick={toggleTheme}
@@ -535,7 +548,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Center: Brand Header (5 Quick Taps unlocks Secret Admin Modal) */}
+        {/* Center: Brand Header */}
         <div
           onClick={() => {
             handleSecretAdminTap();
@@ -569,7 +582,7 @@ export default function App() {
               </button>
             )}
 
-          {/* 🛒 Universal Shopping Cart Button */}
+          {/* 🛒 User-Scoped Shopping Cart Button */}
           <button
             type="button"
             onClick={() => setIsCartOpen(true)}
@@ -1084,7 +1097,6 @@ export default function App() {
 
       {/* 🌟 4. Modals & Drawers */}
       <Suspense fallback={null}>
-        {/* 🔗 1-Tap Deep-Linked Item (Direct WhatsApp Link Opener) */}
         {deepLinkedItem && (
           <ListingDetailModal
             item={deepLinkedItem}
@@ -1121,17 +1133,19 @@ export default function App() {
         )}
       </Suspense>
 
-      {/* 🛒 Universal Shopping Cart Drawer */}
+      {/* 🛒 User-Scoped Shopping Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
+        allListings={allListings}
         onClose={() => setIsCartOpen(false)}
         onOpenAuth={() => {
           setIsCartOpen(false);
+          setAuthActionTitle('Sign in to view your Cart');
           setIsAuthModalOpen(true);
         }}
       />
 
-      {/* 🏪 Business Side Onboarding Prompt for Non-Seller Residents */}
+      {/* 🏪 Business Side Onboarding Prompt */}
       {isBusinessPromptOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-slate-100 font-sans">
           <div className="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
@@ -1161,7 +1175,7 @@ export default function App() {
                 className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5"
               >
                 <span>🏪</span>
-                <span>Become a Seller / Complete KYC ➔</span>
+                <span>Become a Seller ➔</span>
               </button>
 
               <button
@@ -1200,7 +1214,7 @@ export default function App() {
         />
       )}
 
-      {/* Resident Staged Onboarding & Seller KYC Modal */}
+      {/* Resident Staged Onboarding Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         selectedCity={selectedCity}
@@ -1209,6 +1223,9 @@ export default function App() {
         onSuccess={(profile) => {
           setCurrentUser(profile);
           setIsAuthModalOpen(false);
+          if (profile?.phone) {
+            hyperlocalStore.loadUserCart(profile.phone);
+          }
           const upgradedSeller = Boolean(
             profile?.is_merchant === true ||
             profile?.verification_tier === 'verified_merchant'
@@ -1221,7 +1238,7 @@ export default function App() {
         }}
       />
 
-      {/* 📲 1-Tap Home Screen Install Prompt */}
+      {/* 📲 PWA Install Prompt */}
       <PWAInstallBanner />
 
       {/* 📈 Performance & Web Analytics Metrics */}

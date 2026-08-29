@@ -1086,3 +1086,77 @@ export async function deleteListingFromDB(listingId) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Fetch all cart items for a specific onboarded user's phone number
+ */
+export async function fetchUserCartFromDB(phone) {
+  if (!supabase || !phone) return [];
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  try {
+    const { data, error } = await supabase
+      .from('user_carts')
+      .select('listing_id, quantity')
+      .eq('phone', cleanPhone);
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.warn('Failed to fetch user cart from DB:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Upsert a single cart item for a specific user
+ */
+export async function syncCartItemToDB(phone, listingId, quantity) {
+  if (!supabase || !phone || !listingId) return null;
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  try {
+    if (quantity <= 0) {
+      await supabase
+        .from('user_carts')
+        .delete()
+        .eq('phone', cleanPhone)
+        .eq('listing_id', listingId);
+      return { action: 'deleted' };
+    }
+
+    const { data, error } = await supabase
+      .from('user_carts')
+      .upsert(
+        {
+          phone: cleanPhone,
+          listing_id: listingId,
+          quantity: Number(quantity),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'phone,listing_id' }
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.warn('Failed to sync cart item to DB:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Clear all cart items for a specific user in DB
+ */
+export async function clearUserCartInDB(phone) {
+  if (!supabase || !phone) return;
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+
+  try {
+    await supabase.from('user_carts').delete().eq('phone', cleanPhone);
+  } catch (err) {
+    console.warn('Failed to clear cart in DB:', err.message);
+  }
+}

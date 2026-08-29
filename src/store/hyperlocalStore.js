@@ -21,32 +21,42 @@ import { initialCreatorsListings } from '../data/creatorsData';
 import { supabase } from '../services/supabaseClient';
 import {
   getCategoryFallback,
-  createListingInDB,
   saveCommentToDB,
-  saveReplyToDB,
   updateInterestCountInDB,
 } from '../services/listingService';
 import { getCategoryById, sanitizeSubCategoryId } from '../data/taxonomyRegistry';
 import { getCurrentUserProfile } from '../services/authService';
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
-const USER_CART_STORAGE_KEY = 'aapkekareeb_cart_items';
 const USER_INTERESTS_STORAGE_KEY = 'aapkekareeb_user_interests';
 const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
 
-// Local storage helpers
-function getStoredCartItems() {
+/**
+ * Generates user-specific localStorage cart key based on mobile number
+ */
+function getUserCartStorageKey(phone) {
+  if (!phone) return null;
+  const clean = String(phone).replace(/\D/g, '').slice(-10);
+  return `aapkekareeb_cart_${clean}`;
+}
+
+// User-Specific Local Storage Helpers
+function getStoredCartForUser(phone) {
+  const key = getUserCartStorageKey(phone);
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(USER_CART_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveStoredCartItems(items) {
+function saveStoredCartForUser(phone, items) {
+  const key = getUserCartStorageKey(phone);
+  if (!key) return;
   try {
-    localStorage.setItem(USER_CART_STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(key, JSON.stringify(items));
   } catch {}
 }
 
@@ -119,7 +129,7 @@ export const CATEGORY_SLICE_MAP = {
 };
 
 /**
- * Sanitizes any raw image URL, fixing relative Unsplash IDs and filtering expired blob URLs
+ * Sanitizes image URLs and filters blob paths
  */
 export function sanitizeImageUrl(url, category = 'property') {
   if (!url || typeof url !== 'string') return getCategoryFallback(category);
@@ -265,6 +275,12 @@ export function normalizeDBListing(item) {
     consultationFee: priceVal,
     priceForTwo: priceVal,
     startingPackage: priceVal,
+    deal_type: item.deal_type || item.dealType || null,
+    deal_badge: item.deal_badge || item.dealBadge || null,
+    deal_details: item.deal_details || item.dealDetails || null,
+    original_price: item.original_price || item.originalPrice || null,
+    token_amount: item.token_amount || item.tokenAmount || null,
+    doorstep_trial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
     sellerName: personOrBiz,
     driverName: personOrBiz,
     trainerName: personOrBiz,
@@ -319,9 +335,6 @@ export function normalizeDBListing(item) {
   };
 }
 
-/**
- * Hook to filter notifications based on active role and phone
- */
 export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
   const allNotifications = useNotificationSlice();
 
@@ -362,6 +375,9 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
 
 class HyperlocalEngineStore {
   constructor() {
+    const initialUser = getCurrentUserProfile();
+    const initialPhone = initialUser?.phone ? String(initialUser.phone).replace(/\D/g, '').slice(-10) : null;
+
     this.state = {
       listings: (initialListings || []).map((i) => normalizeDBListing(i)),
       propertyListings: (initialPropertyListings || []).map((i) =>
@@ -422,10 +438,16 @@ class HyperlocalEngineStore {
       threads: {},
       interests: {},
       reviews: getStoredReviewsMap(),
-      cart: getStoredCartItems(),
+      // User-specific cart items array
+      cart: getStoredCartForUser(initialPhone),
+      activeUserPhone: initialPhone,
       notifications: [],
     };
     this.listeners = new Set();
+
+    if (initialPhone) {
+      this.loadUserCart(initialPhone);
+    }
   }
 
   getState(key) {
@@ -848,7 +870,7 @@ class HyperlocalEngineStore {
     }
 
     const newReview = {
-      id: `rev_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
       listingId: strId,
       userId: user?.id || null,
       phone: userPhone,
@@ -923,43 +945,121 @@ class HyperlocalEngineStore {
     };
   }
 
-  // 🛒 UNIVERSAL SHOPPING CART MANAGEMENT WITH ANONYMOUS SELLER ALERT
+  /* ========================================================================= */
+  /* 🛒 USER-SPECIFIC PERSISTENT CART ENGINE                                   */
+  /* ========================================================================= */
+
+  async loadUserCart(phone) {
+    if (!phone) {
+      this.state.cart = [];
+      this.state.activeUserPhone = null;
+      this.notify('cart');
+      return;
+    }
+
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    this.state.activeUserPhone = cleanPhone;
+
+    // 1. Load from Phone-Scoped LocalStorage
+    const localCart = getStoredCartForUser(cleanPhone);
+    this.state.cart = localCart;
+    this.notify('cart');
+
+    // 2. Fetch and Merge from Database (user_carts table)
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('user_carts')
+          .select('listing_id, quantity')
+          .eq('phone', cleanPhone);
+
+        if (!error && data && data.length > 0) {
+          const allListings = this.getAllListings();
+          const dbCart = [];
+
+          data.forEach((row) => {
+            const match = allListings.find((l) => String(l.id) === String(row.listing_id));
+            if (match && row.quantity > 0) {
+              dbCart.push({
+                id: String(match.id),
+                listingId: String(match.id),
+                title: match.title || match.name || 'Product',
+                price: match.price || match.rates || 'Contact for Price',
+                numericPrice: parseNumericPrice(match.price || match.rates),
+                image: match.image || match.image_url || (match.images && match.images[0]) || null,
+                sellerName: match.sellerName || match.providerName || 'Local Merchant',
+                phone: String(match.phone || match.whatsapp || '').replace(/\D/g, '').slice(-10),
+                whatsapp: String(match.whatsapp || match.phone || '').replace(/\D/g, '').slice(-10),
+                category: match.category || 'general',
+                subCategory: match.subCategory || 'all',
+                location: match.location || 'Town Center',
+                quantity: Number(row.quantity),
+                addedAt: new Date().toISOString(),
+              });
+            }
+          });
+
+          if (dbCart.length > 0) {
+            this.state.cart = dbCart;
+            saveStoredCartForUser(cleanPhone, dbCart);
+            this.notify('cart');
+          }
+        }
+      } catch (err) {
+        console.warn('Cart database hydration note:', err.message);
+      }
+    }
+  }
+
+  resetCartOnLogout() {
+    this.state.cart = [];
+    this.state.activeUserPhone = null;
+    this.notify('cart');
+  }
+
   getCartItems() {
     return this.state.cart || [];
   }
 
   getCartCount() {
-    return (this.state.cart || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+    return (this.state.cart || []).reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
   }
 
   getCartTotal() {
     return (this.state.cart || []).reduce((sum, item) => {
       const unit = parseNumericPrice(item.price);
-      return sum + unit * (item.quantity || 1);
+      return sum + unit * (Number(item.quantity) || 1);
     }, 0);
   }
 
-  addToCart(listingItem, quantity = 1) {
+  addToCart(listingItem, quantity = 1, explicitPhone = null) {
     if (!listingItem || !listingItem.id) return { success: false, message: 'Invalid listing' };
 
     const currentUser = getCurrentUserProfile();
-    if (!currentUser) {
+    const phone = explicitPhone || currentUser?.phone || this.state.activeUserPhone;
+
+    if (!phone) {
       return {
         success: false,
         requireAuth: true,
-        message: 'Please login or register to add items to your cart.',
+        message: 'Please sign in to add items to your personal cart.',
       };
     }
 
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    this.state.activeUserPhone = cleanPhone;
     const cart = [...(this.state.cart || [])];
-    const existingIndex = cart.findIndex((i) => String(i.id) === String(listingItem.id));
+    const targetId = String(listingItem.id);
+    const existingIndex = cart.findIndex((i) => String(i.id) === targetId);
+    let finalQuantity = quantity;
 
     if (existingIndex > -1) {
-      cart[existingIndex].quantity = (cart[existingIndex].quantity || 1) + quantity;
+      finalQuantity = (Number(cart[existingIndex].quantity) || 1) + Number(quantity);
+      cart[existingIndex].quantity = finalQuantity;
     } else {
       cart.push({
-        id: String(listingItem.id),
-        listingId: String(listingItem.id),
+        id: targetId,
+        listingId: targetId,
         title: listingItem.title || listingItem.name || 'Listing Item',
         price: listingItem.price || listingItem.rates || 'Contact for Price',
         numericPrice: parseNumericPrice(listingItem.price || listingItem.rates),
@@ -970,20 +1070,38 @@ class HyperlocalEngineStore {
         category: listingItem.category || 'general',
         subCategory: listingItem.subCategory || 'all',
         location: listingItem.location || 'Town Center',
-        quantity: Math.max(1, quantity),
+        quantity: Math.max(1, Number(quantity)),
         addedAt: new Date().toISOString(),
       });
     }
 
     this.state.cart = cart;
-    saveStoredCartItems(cart);
+    saveStoredCartForUser(cleanPhone, cart);
     this.notify('cart');
     this.notify('all');
 
-    // 🔔 Dispatch Anonymous Lead Notification to Seller (Zero Buyer Contact Leaks)
+    // 1. Sync Item to Supabase
+    if (supabase) {
+      supabase
+        .from('user_carts')
+        .upsert(
+          {
+            phone: cleanPhone,
+            listing_id: targetId,
+            quantity: finalQuantity,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'phone,listing_id' }
+        )
+        .then(({ error }) => {
+          if (error) console.warn('Supabase cart sync notice:', error.message);
+        });
+    }
+
+    // 2. Dispatch Anonymous Lead Alert to Seller
     const sellerPhone = String(listingItem.phone || listingItem.whatsapp || '').replace(/\D/g, '').slice(-10);
-    const buyerLocality = currentUser.area_name || currentUser.city || 'your area';
-    const residentTier = currentUser.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
+    const buyerLocality = currentUser?.area_name || currentUser?.city || 'your area';
+    const residentTier = currentUser?.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
     const listingTitle = listingItem.title || listingItem.name || 'Your Product';
 
     const sellerAlert = {
@@ -992,13 +1110,12 @@ class HyperlocalEngineStore {
       message: `${residentTier} in ${buyerLocality} added this listing to their shopping cart.`,
       time: 'Just now',
       type: 'cart',
-      targetId: String(listingItem.id),
+      targetId: targetId,
       recipient_role: 'seller',
       recipient_phone: sellerPhone,
       metadata: {
-        listingId: String(listingItem.id),
+        listingId: targetId,
         category: listingItem.category || 'general',
-        subCategory: listingItem.subCategory || 'all',
       },
     };
 
@@ -1022,37 +1139,74 @@ class HyperlocalEngineStore {
     return { success: true, count: this.getCartCount(), cart };
   }
 
-  updateCartQuantity(listingId, quantity) {
+  updateCartQuantity(listingId, quantity, explicitPhone = null) {
+    const currentUser = getCurrentUserProfile();
+    const phone = explicitPhone || currentUser?.phone || this.state.activeUserPhone;
+    if (!phone) return;
+
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
     let cart = [...(this.state.cart || [])];
     const targetId = String(listingId);
+    const numQty = Number(quantity);
 
-    if (quantity <= 0) {
+    if (numQty <= 0) {
       cart = cart.filter((i) => String(i.id) !== targetId);
     } else {
       const idx = cart.findIndex((i) => String(i.id) === targetId);
       if (idx > -1) {
-        cart[idx].quantity = quantity;
+        cart[idx].quantity = numQty;
       }
     }
 
     this.state.cart = cart;
-    saveStoredCartItems(cart);
+    saveStoredCartForUser(cleanPhone, cart);
     this.notify('cart');
     this.notify('all');
+
+    if (supabase) {
+      if (numQty <= 0) {
+        supabase
+          .from('user_carts')
+          .delete()
+          .eq('phone', cleanPhone)
+          .eq('listing_id', targetId)
+          .then();
+      } else {
+        supabase
+          .from('user_carts')
+          .upsert(
+            {
+              phone: cleanPhone,
+              listing_id: targetId,
+              quantity: numQty,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'phone,listing_id' }
+          )
+          .then();
+      }
+    }
   }
 
-  removeFromCart(listingId) {
-    const targetId = String(listingId);
-    const cart = (this.state.cart || []).filter((i) => String(i.id) !== targetId);
-    this.state.cart = cart;
-    saveStoredCartItems(cart);
-    this.notify('cart');
-    this.notify('all');
+  removeFromCart(listingId, explicitPhone = null) {
+    this.updateCartQuantity(listingId, 0, explicitPhone);
   }
 
-  clearCart() {
+  clearCart(explicitPhone = null) {
+    const currentUser = getCurrentUserProfile();
+    const phone = explicitPhone || currentUser?.phone || this.state.activeUserPhone;
+
+    if (phone) {
+      const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+      const key = getUserCartStorageKey(cleanPhone);
+      if (key) localStorage.removeItem(key);
+
+      if (supabase) {
+        supabase.from('user_carts').delete().eq('phone', cleanPhone).then();
+      }
+    }
+
     this.state.cart = [];
-    saveStoredCartItems([]);
     this.notify('cart');
     this.notify('all');
   }
@@ -1065,7 +1219,7 @@ class HyperlocalEngineStore {
   getCartItemQuantity(listingId) {
     const targetId = String(listingId);
     const match = (this.state.cart || []).find((i) => String(i.id) === targetId);
-    return match ? match.quantity : 0;
+    return match ? Number(match.quantity) || 0 : 0;
   }
 
   subscribe(listener) {
@@ -1080,7 +1234,6 @@ class HyperlocalEngineStore {
 
 export const hyperlocalStore = new HyperlocalEngineStore();
 
-// Wrapper export for custom component hook usage
 export const useHyperlocalStore = () => ({
   listings: hyperlocalStore.state.listings,
   interests: hyperlocalStore.state.interests,
@@ -1117,7 +1270,7 @@ export async function hydrateFromDB() {
 
   try {
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Hydration Timeout')), 3000)
+      setTimeout(() => reject(new Error('Hydration Timeout')), 3500)
     );
 
     // 1. Fetch Listings
@@ -1125,7 +1278,7 @@ export async function hydrateFromDB() {
       .from('listings')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(60);
+      .limit(80);
 
     const { data: listingsData } = await Promise.race([listingsFetch, timeoutPromise]);
     if (listingsData && listingsData.length > 0) {
@@ -1137,7 +1290,7 @@ export async function hydrateFromDB() {
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(40);
 
     const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]);
     if (notifsData) {
@@ -1166,6 +1319,12 @@ export async function hydrateFromDB() {
     const { data: reviewsData } = await Promise.race([reviewsFetch, timeoutPromise]).catch(() => ({ data: null }));
     if (reviewsData && reviewsData.length > 0) {
       hyperlocalStore.hydrateReviews(reviewsData);
+    }
+
+    // 4. Hydrate Active User's Cart
+    const activeUser = getCurrentUserProfile();
+    if (activeUser?.phone) {
+      hyperlocalStore.loadUserCart(activeUser.phone);
     }
   } catch (err) {
     console.warn('Fast hydration notice, continuing with local store:', err.message);
@@ -1262,6 +1421,19 @@ export function initRealtimeSubscriptions() {
         (payload) => {
           if (payload.new) {
             hyperlocalStore.hydrateReviews([payload.new]);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_carts' },
+        (payload) => {
+          const activeUser = getCurrentUserProfile();
+          const activePhone = activeUser?.phone ? String(activeUser.phone).replace(/\D/g, '').slice(-10) : null;
+          const rowPhone = payload.new?.phone || payload.old?.phone;
+
+          if (activePhone && rowPhone && String(rowPhone).replace(/\D/g, '').slice(-10) === activePhone) {
+            hyperlocalStore.loadUserCart(activePhone);
           }
         }
       )
@@ -1395,9 +1567,6 @@ export function useCartCount() {
   return count;
 }
 
-/**
- * Role-Scoped Notifications Hook
- */
 export function useNotificationSlice(explicitScope = null) {
   const [filteredNotifs, setFilteredNotifs] = useState(() => getScopedNotifications(explicitScope));
 
