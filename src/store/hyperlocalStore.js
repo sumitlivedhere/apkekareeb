@@ -27,7 +27,7 @@ import {
   updateInterestCountInDB,
 } from '../services/listingService';
 import { getCategoryById, sanitizeSubCategoryId } from '../data/taxonomyRegistry';
-import { getCurrentUserProfile, isAdminAuthorized } from '../services/authService';
+import { getCurrentUserProfile } from '../services/authService';
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 const USER_CART_STORAGE_KEY = 'aapkekareeb_cart_items';
@@ -842,7 +842,6 @@ class HyperlocalEngineStore {
     const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : reviewData.phone || 'guest';
     const currentReviews = this.getListingReviews(strId);
 
-    // Prevent duplicate reviews by the same phone number
     const existingIndex = currentReviews.findIndex((r) => r.phone === userPhone);
     if (existingIndex >= 0) {
       return { success: false, message: 'You have already reviewed this product.' };
@@ -872,7 +871,6 @@ class HyperlocalEngineStore {
     this.notify('reviews');
     this.notify('all');
 
-    // Sync review to Supabase
     if (supabase) {
       try {
         await supabase.from('listing_reviews').insert([
@@ -925,7 +923,7 @@ class HyperlocalEngineStore {
     };
   }
 
-  // 🛒 UNIVERSAL SHOPPING CART MANAGEMENT
+  // 🛒 UNIVERSAL SHOPPING CART MANAGEMENT WITH ANONYMOUS SELLER ALERT
   getCartItems() {
     return this.state.cart || [];
   }
@@ -943,6 +941,15 @@ class HyperlocalEngineStore {
 
   addToCart(listingItem, quantity = 1) {
     if (!listingItem || !listingItem.id) return { success: false, message: 'Invalid listing' };
+
+    const currentUser = getCurrentUserProfile();
+    if (!currentUser) {
+      return {
+        success: false,
+        requireAuth: true,
+        message: 'Please login or register to add items to your cart.',
+      };
+    }
 
     const cart = [...(this.state.cart || [])];
     const existingIndex = cart.findIndex((i) => String(i.id) === String(listingItem.id));
@@ -972,6 +979,45 @@ class HyperlocalEngineStore {
     saveStoredCartItems(cart);
     this.notify('cart');
     this.notify('all');
+
+    // 🔔 Dispatch Anonymous Lead Notification to Seller (Zero Buyer Contact Leaks)
+    const sellerPhone = String(listingItem.phone || listingItem.whatsapp || '').replace(/\D/g, '').slice(-10);
+    const buyerLocality = currentUser.area_name || currentUser.city || 'your area';
+    const residentTier = currentUser.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
+    const listingTitle = listingItem.title || listingItem.name || 'Your Product';
+
+    const sellerAlert = {
+      tag: 'CART_ADDITION',
+      title: `🛒 In Cart: "${listingTitle}"`,
+      message: `${residentTier} in ${buyerLocality} added this listing to their shopping cart.`,
+      time: 'Just now',
+      type: 'cart',
+      targetId: String(listingItem.id),
+      recipient_role: 'seller',
+      recipient_phone: sellerPhone,
+      metadata: {
+        listingId: String(listingItem.id),
+        category: listingItem.category || 'general',
+        subCategory: listingItem.subCategory || 'all',
+      },
+    };
+
+    this.addNotification(sellerAlert);
+
+    if (supabase && sellerPhone) {
+      supabase.from('notifications').insert([
+        {
+          tag: 'CART_ADDITION',
+          title: sellerAlert.title,
+          message: sellerAlert.message,
+          recipient_role: 'seller',
+          recipient_phone: sellerPhone,
+          metadata: sellerAlert.metadata,
+        },
+      ]).then(({ error }) => {
+        if (error) console.warn('Seller cart notification sync notice:', error.message);
+      });
+    }
 
     return { success: true, count: this.getCartCount(), cart };
   }

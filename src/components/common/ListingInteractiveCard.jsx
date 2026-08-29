@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ActionButtons from './ActionButtons';
 import ListingDiscussionThread from './ListingDiscussionThread';
+import { useCartSlice, hyperlocalStore } from '../../store/hyperlocalStore';
 
 export default function ListingInteractiveCard({
   item,
@@ -11,6 +12,16 @@ export default function ListingInteractiveCard({
 }) {
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
+
+  // 🛒 Cart integration
+  const cart = useCartSlice();
+  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id));
+  const cartQty = cartItem ? cartItem.quantity : 0;
+
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    hyperlocalStore.addToCart(item, 1);
+  };
 
   // Gallery array resolution
   const galleryImages =
@@ -57,7 +68,7 @@ export default function ListingInteractiveCard({
   return (
     <article
       onClick={() => onClick && onClick(item)}
-      className={`bg-white rounded-3xl overflow-hidden shadow-xs border transition p-3.5 space-y-3 relative ${
+      className={`bg-white rounded-3xl overflow-hidden shadow-xs border transition p-3.5 space-y-3 relative select-none font-sans ${
         dealBadge
           ? 'border-amber-400/80 ring-2 ring-amber-400/20 shadow-md'
           : item.isNew
@@ -238,6 +249,47 @@ export default function ListingInteractiveCard({
             </a>
           )}
         </div>
+      </div>
+
+      {/* 🛒 SEPARATE DIRECT ADD TO CART BUTTON ON THE CARD */}
+      <div className="pt-1">
+        {cartQty > 0 ? (
+          <div className="w-full py-2 px-3 bg-slate-900 border border-amber-400 rounded-2xl flex items-center justify-between text-white shadow-xs">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                hyperlocalStore.updateCartQuantity(item.id, cartQty - 1);
+              }}
+              className="w-7 h-7 flex items-center justify-center font-black text-base text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90"
+            >
+              -
+            </button>
+            <div className="text-center">
+              <span className="text-[9px] text-amber-400 font-bold block leading-none">In Cart</span>
+              <span className="font-mono font-black text-xs">{cartQty} Qty</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                hyperlocalStore.updateCartQuantity(item.id, cartQty + 1);
+              }}
+              className="w-7 h-7 flex items-center justify-center font-black text-base text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90"
+            >
+              +
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-2xl shadow-sm active:scale-98 transition flex items-center justify-center space-x-1.5 cursor-pointer"
+          >
+            <span>+ 🛒</span>
+            <span>Add to Cart</span>
+          </button>
+        )}
       </div>
 
       {/* Action Buttons with Deal Context Pre-filled */}

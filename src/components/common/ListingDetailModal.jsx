@@ -3,6 +3,7 @@ import {
   useInterestSlice,
   useThreadSlice,
   useListingRatingStats,
+  useCartSlice,
   hyperlocalStore,
 } from '../../store/hyperlocalStore';
 import ProductReviewSection from './ProductReviewSection';
@@ -98,6 +99,11 @@ export default function ListingDetailModal({
     hyperlocalStore.hasUserInterested(item.id)
   );
 
+  // 🛒 Universal Cart State
+  const cart = useCartSlice();
+  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id));
+  const cartQty = cartItem ? cartItem.quantity : 0;
+
   const comments = useThreadSlice(item.id, []);
 
   // Gallery Resolution
@@ -153,6 +159,17 @@ export default function ListingDetailModal({
       setIsAlreadyInterested(true);
     } else {
       alert(res.message);
+    }
+  };
+
+  // 🛒 Universal Add to Cart Handler (Placed Separately Below Interest Button)
+  const handleAddToCart = (e) => {
+    e?.stopPropagation();
+    const res = hyperlocalStore.addToCart(item, 1);
+    if (res.requireAuth) {
+      setIsAuthModalOpen(true);
+    } else if (res.success) {
+      if ('vibrate' in navigator) navigator.vibrate(40);
     }
   };
 
@@ -434,11 +451,11 @@ export default function ListingDetailModal({
             </div>
           )}
 
-          {/* Photo Carousel with Top-Right Floating Star Rating Badge */}
+          {/* Photo Carousel with Floating Top-Right Star Rating Badge */}
           {activeMediaTab === 'photos' && (
             <div className="relative h-80 w-full bg-slate-950 overflow-hidden group">
               
-              {/* 🌟 Top-Right Floating Star Rating Badge */}
+              {/* Floating Star Rating Badge */}
               <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl text-slate-100 font-black text-xs border border-amber-400/40 shadow-xl flex items-center space-x-1 z-20 pointer-events-none">
                 <span className="text-amber-400">★</span>
                 <span className="text-slate-100 text-xs font-bold">{ratingStats.averageRating}</span>
@@ -583,8 +600,8 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* 🌟 Hyperlocal Interest Score (1-Tap Locked) */}
-            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl">
+            {/* 🌟 1. Hyperlocal Interest Score Button Card */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
               <div>
                 <div className="text-xs font-black text-white flex items-center space-x-1">
                   <span>⭐</span>
@@ -608,6 +625,54 @@ export default function ListingDetailModal({
                 <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
                 <span>({interestCount})</span>
               </button>
+            </div>
+
+            {/* 🛒 2. SEPARATE ADD TO CART BUTTON (PLACED JUST BELOW THE INTEREST BUTTON) */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
+              <div>
+                <div className="text-xs font-black text-white flex items-center space-x-1">
+                  <span>🛒</span>
+                  <span>Add to Personal Cart</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {cartQty > 0
+                    ? `${cartQty} unit(s) currently in your cart`
+                    : 'Save & batch order directly from this seller'}
+                </p>
+              </div>
+
+              {cartQty > 0 ? (
+                <div className="flex items-center space-x-2 bg-slate-950 border border-amber-400/70 rounded-xl px-2.5 py-1.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty - 1)}
+                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+                    title="Decrease quantity"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-xs text-amber-300 px-1">
+                    {cartQty}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty + 1)}
+                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+                    title="Increase quantity"
+                  >
+                    +
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
+                >
+                  <span>+ 🛒</span>
+                  <span>Add to Cart</span>
+                </button>
+              )}
             </div>
 
             {/* Verified Seller Profile & Direct Connects */}
@@ -636,7 +701,7 @@ export default function ListingDetailModal({
               </div>
 
               {/* Direct Channels Bar */}
-              <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-800/80">
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
                 <a
                   href={whatsappUrl}
                   target="_blank"
@@ -654,28 +719,6 @@ export default function ListingDetailModal({
                   <span>📞</span>
                   <span className="truncate">Call</span>
                 </a>
-
-                {cleanInsta ? (
-                  <a
-                    href={instaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-2.5 px-1 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/40 rounded-xl flex items-center justify-center space-x-1 text-xs font-black transition active:scale-95 shadow-sm"
-                  >
-                    <span>📸</span>
-                    <span className="truncate">Instagram</span>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    disabled
-                    className="py-2.5 px-1 bg-slate-950/60 text-slate-500 border border-slate-800 rounded-xl flex items-center justify-center space-x-1 text-xs font-bold opacity-50 cursor-not-allowed select-none"
-                    title="No Instagram handle"
-                  >
-                    <span>📸</span>
-                    <span className="truncate text-[10px]">No Insta</span>
-                  </button>
-                )}
 
                 <button
                   type="button"
@@ -918,7 +961,7 @@ export default function ListingDetailModal({
               </div>
             </div>
 
-            {/* 🌟 PRODUCT RATINGS & MULTIMEDIA REVIEWS SECTION (Amazon / Flipkart Style) */}
+            {/* Product Reviews & Rating Section */}
             <ProductReviewSection
               listingId={item.id}
               listingTitle={item.title || item.name}
@@ -928,39 +971,24 @@ export default function ListingDetailModal({
           </div>
         </main>
 
-        {/* 🌟 Sticky Bottom Actions Footer with Universal Add-to-Cart Action */}
-        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-12 gap-2">
-          {/* Universal Add to Cart Button */}
-          <button
-            type="button"
-            onClick={() => {
-              const res = hyperlocalStore.addToCart(item, 1);
-              if (res.success) {
-                alert(`🛍️ Added "${item.title || item.name}" to your Cart!`);
-              }
-            }}
-            className="col-span-4 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1 cursor-pointer"
-          >
-            <span>+ 🛒</span>
-            <span>Add</span>
-          </button>
-
+        {/* 🌟 Sticky Bottom Actions Footer */}
+        <footer className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-950/95 backdrop-blur-md border-t border-slate-800 p-3 z-30 shadow-2xl grid grid-cols-2 gap-2.5">
           <button
             type="button"
             onClick={() => setIsContactModalOpen(true)}
-            className="col-span-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1.5 cursor-pointer"
+            className="py-3 px-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             <span>📞</span>
-            <span>Contact</span>
+            <span>Contact Merchant</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsShareModalOpen(true)}
-            className="col-span-3 py-3 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-1 cursor-pointer"
+            className="py-3 px-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 text-white font-black text-xs rounded-2xl shadow-lg active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             <span>🔗</span>
-            <span>Share</span>
+            <span>Share Listing</span>
           </button>
         </footer>
 
