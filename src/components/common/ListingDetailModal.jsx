@@ -601,79 +601,77 @@ export default function ListingDetailModal({
             </div>
 
             {/* 🌟 1. Hyperlocal Interest Score Button Card */}
-            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
-              <div>
-                <div className="text-xs font-black text-white flex items-center space-x-1">
-                  <span>⭐</span>
-                  <span>Hyperlocal Interest Score</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  {interestCount} {interestCount === 1 ? 'person' : 'people'} in {selectedCity} showed interest
-                </p>
-              </div>
+<div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
+  <div>
+    <div className="text-xs font-black text-white flex items-center space-x-1">
+      <span>⭐</span>
+      <span>Hyperlocal Interest Score</span>
+    </div>
+    <p className="text-[10px] text-slate-400 mt-0.5">
+      {interestCount} {interestCount === 1 ? 'person' : 'people'} in {selectedCity} showed interest
+    </p>
+  </div>
 
-              <button
-                type="button"
-                onClick={handleInterestClick}
-                disabled={isAlreadyInterested}
-                className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95 flex items-center space-x-1 ${
-                  isAlreadyInterested
-                    ? 'bg-emerald-500 text-slate-950 border border-emerald-400 cursor-default opacity-95'
-                    : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950'
-                }`}
-              >
-                <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
-                <span>({interestCount})</span>
-              </button>
-            </div>
+  <button
+    type="button"
+    onClick={handleInterestClick}
+    disabled={isAlreadyInterested}
+    className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95 flex items-center space-x-1 ${
+      isAlreadyInterested
+        ? 'bg-emerald-500 text-slate-950 border border-emerald-400 cursor-default opacity-95'
+        : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950'
+    }`}
+  >
+    <span>{isAlreadyInterested ? '✓ Interested' : '⭐ Interest'}</span>
+    <span>({interestCount})</span>
+  </button>
+</div>
 
-            {/* 🛒 2. SEPARATE ADD TO CART BUTTON (PLACED JUST BELOW THE INTEREST BUTTON) */}
-            <div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
-              <div>
-                <div className="text-xs font-black text-white flex items-center space-x-1">
-                  <span>🛒</span>
-                  <span>Add to Personal Cart</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  {cartQty > 0
-                    ? `${cartQty} unit(s) currently in your cart`
-                    : 'Save & batch order directly from this seller'}
-                </p>
-              </div>
+{/* 🛒 2. SEPARATE ADD TO CART BUTTON (PLACED JUST BELOW THE INTEREST BUTTON) */}
+<div className="flex items-center justify-between p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm">
+  <div>
+    <div className="text-xs font-black text-white flex items-center space-x-1">
+      <span>🛒</span>
+      <span>Add to Personal Cart</span>
+    </div>
+    <p className="text-[10px] text-slate-400 mt-0.5">
+      {cartQty > 0
+        ? `${cartQty} unit(s) currently in your cart`
+        : 'Save & batch order directly from this seller'}
+    </p>
+  </div>
 
-              {cartQty > 0 ? (
-                <div className="flex items-center space-x-2 bg-slate-950 border border-amber-400/70 rounded-xl px-2.5 py-1.5 shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty - 1)}
-                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
-                    title="Decrease quantity"
-                  >
-                    -
-                  </button>
-                  <span className="font-mono font-black text-xs text-amber-300 px-1">
-                    {cartQty}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty + 1)}
-                    className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
-                    title="Increase quantity"
-                  >
-                    +
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
-                >
-                  <span>+ 🛒</span>
-                  <span>Add to Cart</span>
-                </button>
-              )}
-            </div>
+  {cartQty > 0 ? (
+    <div className="flex items-center space-x-2 bg-slate-950 border border-amber-400/70 rounded-xl px-2.5 py-1.5 shadow-sm">
+      <button
+        type="button"
+        onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty - 1)}
+        className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+      >
+        -
+      </button>
+      <span className="font-mono font-black text-xs text-amber-300 px-1">
+        {cartQty}
+      </span>
+      <button
+        type="button"
+        onClick={() => hyperlocalStore.updateCartQuantity(item.id, cartQty + 1)}
+        className="w-6 h-6 flex items-center justify-center font-black text-sm text-slate-300 hover:text-amber-400 cursor-pointer active:scale-90 transition"
+      >
+        +
+      </button>
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={handleAddToCart}
+      className="px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
+    >
+      <span>+ 🛒</span>
+      <span>Add to Cart</span>
+    </button>
+  )}
+</div>
 
             {/* Verified Seller Profile & Direct Connects */}
             <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3 shadow-md">

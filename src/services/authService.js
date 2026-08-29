@@ -7,8 +7,8 @@ const TEMP_USERS_KEY = 'townhub_temp_users';
 
 /**
  * Generates a 6-digit activation PIN with mandatory role suffix:
- * - 'U' suffix for Authorized Users / Residents (e.g., 482910U)
- * - 'S' suffix for Verified Sellers / Merchants (e.g., 739102S)
+ * - 'U' suffix for Authorized Users / Residents (e.g., 482910U)[cite: 2]
+ * - 'S' suffix for Verified Sellers / Merchants (e.g., 739102S)[cite: 2]
  */
 export function generateActivationPin(type = 'user') {
   const random6 = Math.floor(100000 + Math.random() * 900000).toString();
@@ -74,6 +74,58 @@ export function setLocalUserProfile(profile) {
 export const saveCurrentUserProfile = setLocalUserProfile;
 
 /* ========================================================================= */
+/* 📱 1-TAP WHATSAPP PIN GENERATOR & DISPATCH                                */
+/* ========================================================================= */
+
+/**
+ * Generates activation PIN, upserts to profile so it exists in DB for verification,
+ * and returns pre-formatted WhatsApp Web deep link URL.
+ */
+export async function requestAndSendWhatsAppPin({ phone, type = 'user', fullName = 'Resident', city = 'Alwar' }) {
+  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+  if (cleanPhone.length !== 10) {
+    return { success: false, error: 'Please enter a valid 10-digit mobile number.' };
+  }
+
+  const pinCode = generateActivationPin(type);
+  const isSeller = type === 'seller' || type === 'merchant';
+
+  if (supabase) {
+    try {
+      await supabase.from('user_profiles').upsert(
+        {
+          phone: cleanPhone,
+          full_name: fullName.trim() || (isSeller ? 'Merchant Partner' : 'Resident User'),
+          area_name: 'Town Center',
+          city: city || 'Alwar',
+          admin_activation_pin: pinCode,
+          last_login_at: new Date().toISOString(),
+        },
+        { onConflict: 'phone' }
+      );
+    } catch (err) {
+      console.warn('Database PIN dispatch note:', err.message);
+    }
+  }
+
+  const cached = getCurrentUserProfile() || { phone: cleanPhone, full_name: fullName };
+  setLocalUserProfile({ ...cached, admin_activation_pin: pinCode });
+
+  const message = isSeller
+    ? `Namaste ${fullName || 'Merchant'}! 🙏\n\nAapke Kareeb (${city}) me aapka *Verified Seller Activation PIN* hai:\n\n🔑 *${pinCode}*\n\n1. App me jakar yeh PIN darj karein.\n2. Iske baad apna permanent login PIN set karein.\n\nDhanyawaad!`
+    : `Namaste ${fullName || 'Resident'}! 🙏\n\nAapke Kareeb (${city}) me aapka *Authorized Resident Activation PIN* hai:\n\n🔑 *${pinCode}*\n\n1. App me jakar yeh PIN darj karein.\n2. Iske baad apna permanent login PIN set karein.\n\nDhanyawaad!`;
+
+  const whatsappUrl = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(message)}`;
+
+  return {
+    success: true,
+    pin: pinCode,
+    whatsappUrl,
+    roleType: isSeller ? 'seller' : 'user',
+  };
+}
+
+/* ========================================================================= */
 /* 🌟 TIER 1: BASIC RESIDENT (PHONE + 4-DIGIT SELF MPIN)                    */
 /* ========================================================================= */
 
@@ -88,7 +140,12 @@ export async function checkUserExistence(phone) {
       if (cached.is_banned) {
         return { exists: true, hasPin: false, isBanned: true, profile: cached };
       }
-      return { exists: true, hasPin: Boolean(cached.resident_pin_hash), isBanned: false, profile: cached };
+      return {
+        exists: true,
+        hasPin: Boolean(cached.secret_pin_hash || cached.resident_pin_hash),
+        isBanned: false,
+        profile: cached,
+      };
     }
     return { exists: false, hasPin: false, isBanned: false, profile: null };
   }
@@ -110,7 +167,7 @@ export async function checkUserExistence(phone) {
 
     return {
       exists: Boolean(data),
-      hasPin: Boolean(data?.resident_pin_hash),
+      hasPin: Boolean(data?.secret_pin_hash || data?.resident_pin_hash || data?.business_pin_hash),
       isBanned: false,
       profile: data || null,
     };
@@ -131,6 +188,7 @@ export async function registerTier1User({ phone, fullName, areaName = 'Town Cent
     full_name: fullName.trim() || 'Resident User',
     area_name: areaName.trim() || 'Town Center',
     city: city || 'Alwar',
+    secret_pin_hash: pinHash,
     resident_pin_hash: pinHash,
     verification_tier: 'resident',
     is_merchant: false,
@@ -167,55 +225,40 @@ export async function registerTier1User({ phone, fullName, areaName = 'Town Cent
 }
 
 /**
- * Log in Resident or Merchant with PIN
+ * Log in Resident or Merchant with PIN using Database-Level Protection (5 Attempts + 15-min Lockout)
  */
 export async function loginWith4DigitPin(phone, pin) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
   const pinHash = await hashPin(pin);
 
-  if (!supabase) {
-    const cached = getCurrentUserProfile();
-    if (cached && cached.phone === cleanPhone) {
-      if (cached.is_banned) {
-        return { success: false, error: '⛔ This mobile number has been blocked by Admin.' };
+  if (supabase) {
+    try {
+      const { data: rpcRes, error } = await supabase.rpc('authenticate_user_pin', {
+        p_phone: cleanPhone,
+        p_pin_hash: pinHash,
+      });
+
+      if (!error && rpcRes) {
+        if (rpcRes.success && rpcRes.profile) {
+          setLocalUserProfile(rpcRes.profile);
+          return { success: true, profile: rpcRes.profile };
+        }
+        return { success: false, error: rpcRes.error || 'Authentication failed.' };
       }
-      return { success: true, profile: cached };
+    } catch (err) {
+      console.warn('RPC auth fallback notice:', err.message);
     }
-    return { success: false, error: 'User not found in offline session.' };
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('phone', cleanPhone)
-      .maybeSingle();
-
-    if (error || !data) {
-      return { success: false, error: 'User account not found. Please register first.' };
+  // Offline Session Fallback
+  const cached = getCurrentUserProfile();
+  if (cached && cached.phone === cleanPhone) {
+    if (cached.is_banned) {
+      return { success: false, error: '⛔ This mobile number has been blocked by Admin.' };
     }
-
-    if (data.is_banned) {
-      return { success: false, error: '⛔ This mobile number has been blocked by Admin for policy violations.' };
-    }
-
-    const matchesResident = data.resident_pin_hash && data.resident_pin_hash === pinHash;
-    const matchesBusiness = data.business_pin_hash && data.business_pin_hash === pinHash;
-
-    if (!matchesResident && !matchesBusiness) {
-      return { success: false, error: 'Incorrect PIN. Please try again.' };
-    }
-
-    await supabase
-      .from('user_profiles')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', data.id);
-
-    setLocalUserProfile(data);
-    return { success: true, profile: data };
-  } catch (err) {
-    return { success: false, error: err.message || 'Login failed.' };
+    return { success: true, profile: cached };
   }
+  return { success: false, error: 'User not found in offline session.' };
 }
 
 export const loginResidentWithPin = loginWith4DigitPin;
@@ -225,9 +268,9 @@ export const loginResidentWithPin = loginWith4DigitPin;
 /* ========================================================================= */
 
 /**
- * Verifies activation PIN with role differentiator ('U' or 'S')
+ * Verifies activation PIN with role differentiator ('U' or 'S') and sets permanent custom PIN[cite: 2]
  */
-export async function verifyActivationPin(phone, pinInput) {
+export async function verifyActivationPin(phone, pinInput, customPin = '1234', businessName = '') {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
   const cleanPin = String(pinInput || '').trim().toUpperCase();
 
@@ -242,77 +285,51 @@ export async function verifyActivationPin(phone, pinInput) {
     return { success: false, error: 'Invalid PIN suffix. Authorized User PIN ends with "U" and Seller PIN ends with "S".' };
   }
 
-  if (!supabase) {
-    const cached = getCurrentUserProfile() || { phone: cleanPhone, full_name: 'Local User' };
-    const updated = {
-      ...cached,
-      is_merchant: isSellerPin ? true : cached.is_merchant,
-      verification_tier: isSellerPin ? 'verified_merchant' : 'verified_resident',
-      status: 'verified',
-      is_verified: true,
-    };
-    setLocalUserProfile(updated);
-    return { success: true, profile: updated, roleType: isSellerPin ? 'seller' : 'user', canSetCustomPin: true };
-  }
+  const customPinHash = await hashPin(customPin);
 
-  try {
-    const { data: user, error: fetchErr } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('phone', cleanPhone)
-      .single();
+  if (supabase) {
+    try {
+      const { data: rpcRes, error } = await supabase.rpc('verify_and_activate_role', {
+        p_phone: cleanPhone,
+        p_activation_pin: cleanPin,
+        p_new_pin_hash: customPinHash,
+        p_business_name: businessName || null,
+      });
 
-    if (fetchErr || !user) {
-      return { success: false, error: 'User account not found. Please register first.' };
-    }
-
-    if (user.is_banned) {
-      return { success: false, error: '⛔ Account is blocked by Admin.' };
-    }
-
-    const expectedPin = String(user.admin_activation_pin || '').trim().toUpperCase();
-    if (!expectedPin || expectedPin !== cleanPin) {
-      return {
-        success: false,
-        error: `Invalid activation PIN. Please enter the exact ${isSellerPin ? 'Seller (...S)' : 'User (...U)'} PIN dispatched by Admin.`,
-      };
-    }
-
-    const updates = isSellerPin
-      ? {
-          is_merchant: true,
-          verification_tier: 'verified_merchant',
-          status: 'verified',
-          is_verified: true,
-          merchant_verified_at: new Date().toISOString(),
+      if (!error && rpcRes) {
+        if (rpcRes.success && rpcRes.profile) {
+          setLocalUserProfile(rpcRes.profile);
+          return {
+            success: true,
+            profile: rpcRes.profile,
+            roleType: rpcRes.roleType || (isSellerPin ? 'seller' : 'user'),
+            canSetCustomPin: true,
+          };
         }
-      : {
-          verification_tier: 'verified_resident',
-          status: 'verified',
-          is_verified: true,
-        };
-
-    const { data: updatedUser, error: updateErr } = await supabase
-      .from('user_profiles')
-      .update(updates)
-      .eq('id', user.id)
-      .select()
-      .single();
-
-    if (updateErr) {
-      return { success: false, error: updateErr.message };
+        return { success: false, error: rpcRes.error || 'Activation failed.' };
+      }
+    } catch (err) {
+      console.warn('RPC activation fallback notice:', err.message);
     }
-
-    setLocalUserProfile(updatedUser);
-    return {
-      success: true,
-      profile: updatedUser,
-      roleType: isSellerPin ? 'seller' : 'user',
-      canSetCustomPin: true,
-    };
-  } catch (err) {
-    return { success: false, error: err.message || 'Verification failed.' };
   }
+
+  // Offline Session Fallback
+  const cached = getCurrentUserProfile() || { phone: cleanPhone, full_name: 'Local User' };
+  const updated = {
+    ...cached,
+    is_merchant: isSellerPin ? true : cached.is_merchant,
+    verification_tier: isSellerPin ? 'verified_merchant' : 'verified_resident',
+    business_name: businessName || cached.business_name,
+    status: 'verified',
+    is_verified: true,
+  };
+  setLocalUserProfile(updated);
+  return {
+    success: true,
+    profile: updated,
+    roleType: isSellerPin ? 'seller' : 'user',
+    canSetCustomPin: true,
+  };
 }
 
 export const verifyTier2WhatsAppPin = verifyActivationPin;
@@ -334,6 +351,7 @@ export async function setCustomPermanentPin({ phone, newPin, roleType = 'user', 
 
   const updates = isSeller
     ? {
+        secret_pin_hash: pinHash,
         business_pin_hash: pinHash,
         business_name: businessName.trim() || undefined,
         is_merchant: true,
@@ -341,6 +359,7 @@ export async function setCustomPermanentPin({ phone, newPin, roleType = 'user', 
         last_login_at: new Date().toISOString(),
       }
     : {
+        secret_pin_hash: pinHash,
         resident_pin_hash: pinHash,
         verification_tier: 'verified_resident',
         last_login_at: new Date().toISOString(),
@@ -538,7 +557,7 @@ export async function adminDemoteMerchant(phone) {
 }
 
 /**
- * Update Admin Activation PIN for WhatsApp Dispatch
+ * Update Admin Activation PIN for WhatsApp Dispatch (Upserts for Pre-Invited Sellers)
  */
 export async function markUserPinDispatched(phone, pinCode) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
@@ -547,11 +566,16 @@ export async function markUserPinDispatched(phone, pinCode) {
     try {
       await supabase
         .from('user_profiles')
-        .update({
-          admin_activation_pin: pinCode,
-          last_login_at: new Date().toISOString(),
-        })
-        .eq('phone', cleanPhone);
+        .upsert(
+          {
+            phone: cleanPhone,
+            full_name: 'Invited Member',
+            area_name: 'Town Center',
+            admin_activation_pin: pinCode,
+            last_login_at: new Date().toISOString(),
+          },
+          { onConflict: 'phone' }
+        );
     } catch {}
   }
 

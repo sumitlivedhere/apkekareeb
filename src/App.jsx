@@ -1147,7 +1147,7 @@ export default function App() {
                 यह सुविधा केवल विक्रेताओं के लिए है — क्या आप विक्रेता बनकर जुड़ना चाहते हैं?
               </p>
               <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
-                Complete the KYC process (Login ➔ Profile ➔ 6-Digit WhatsApp PIN ➔ ₹1 UPI KYC) to list inventory across {selectedCity}.
+                Verify with your 6-digit WhatsApp Seller PIN (ending in <strong>...S</strong>) and set your custom PIN to start listing inventory in {selectedCity}.
               </p>
             </div>
 

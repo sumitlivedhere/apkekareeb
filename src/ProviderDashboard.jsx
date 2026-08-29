@@ -20,12 +20,13 @@ import {
   getCurrentUserProfile,
   isBusinessAuthorized,
   loginResidentWithPin,
+  requestAndSendWhatsAppPin,
+  verifyActivationPin,
+  setCustomPermanentPin,
   logoutUser,
 } from './services/authService';
 import {
   getTemplatesForCategory,
-  OFFER_CATEGORIES,
-  HYPERLOCAL_OFFER_TEMPLATES,
 } from './data/offerTemplatesRegistry';
 
 const QUICK_PRESETS = [
@@ -46,10 +47,17 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isAuthorized, setIsAuthorized] = useState(() => isBusinessAuthorized());
 
-  // 🔒 Login Gate State
+  // 🔒 Login & Activation Gate States ('login' | 'request_pin' | 'enter_pin' | 'set_custom_pin')
+  const [authTab, setAuthTab] = useState('login');
   const [loginPhone, setLoginPhone] = useState(currentUser?.phone || '');
   const [loginPin, setLoginPin] = useState('');
+  const [activationPin, setActivationPin] = useState('');
+  const [generatedPinNotice, setGeneratedPinNotice] = useState('');
+  const [whatsappLink, setWhatsappLink] = useState('');
+  const [customPin, setCustomPin] = useState('');
+  const [shopName, setShopName] = useState(() => currentUser?.business_name || '');
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Active Merchant Phone
@@ -131,11 +139,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     status: '',
   });
 
-  // 🎙️ Customer Inquiry Audio Recording State
-  const [recordingId, setRecordingId] = useState(null);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -164,10 +167,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     setTimeout(() => setActionNotice(''), 3500);
   };
 
-  // 🚪 Perform Login
+  // 🚪 1. Merchant PIN Login Handler
   const handlePerformLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
+    setAuthSuccess('');
     setIsAuthenticating(true);
 
     const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
@@ -186,15 +190,120 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
     try {
       const res = await loginResidentWithPin(clean, loginPin);
-      if (res.success) {
+      if (res.success && res.profile) {
+        if (!res.profile.is_merchant && res.profile.verification_tier !== 'verified_merchant') {
+          setAuthError('यह खाता सेलर के रूप में सक्रिय नहीं है। कृपया सेलर पिन (...S) से सक्रिय करें।');
+          setAuthTab('request_pin');
+          return;
+        }
         setCurrentUser(res.profile);
+        sessionStorage.setItem('townhub_business_auth', 'authorized');
         setIsAuthorized(true);
         setAuthError('');
       } else {
-        setAuthError(res.error || 'पिन अमान्य है (Incorrect PIN).');
+        setAuthError(res.error || 'पिन अमान्य है या खाता नहीं मिला (Incorrect PIN or account not found).');
       }
     } catch {
       setAuthError('Connection busy. Please try again.');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // 📱 2. Step 1: Send Seller PIN via WhatsApp
+  const handleSendSellerWhatsAppPin = async () => {
+    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
+    if (clean.length !== 10) {
+      setAuthError('कृपया 10-अंकीय मोबाइल नंबर दर्ज करें (Enter 10-digit mobile).');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    setAuthError('');
+    setAuthSuccess('');
+
+    try {
+      const res = await requestAndSendWhatsAppPin({
+        phone: clean,
+        type: 'seller',
+        fullName: shopName || 'Merchant Partner',
+        city: selectedCity,
+      });
+
+      if (res.success) {
+        setGeneratedPinNotice(res.pin);
+        setWhatsappLink(res.whatsappUrl);
+        setAuthTab('enter_pin');
+        setAuthSuccess(`📱 सेलर पिन (${res.pin}) जेनरेट हो गया है! WhatsApp खोलें या नीचे दर्ज करें।`);
+        window.open(res.whatsappUrl, '_blank');
+      } else {
+        setAuthError(res.error || 'WhatsApp पिन भेजने में असफल।');
+      }
+    } catch (err) {
+      setAuthError(err.message || 'Error dispatching PIN.');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // 🔑 3. Step 2: Verify Seller PIN ending with S
+  const handleVerifySellerPin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+
+    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
+    if (activationPin.trim().length < 7) {
+      setAuthError('सेलर पिन 6 अंक और अंत में S होना चाहिए (e.g. 739102S).');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    try {
+      const res = await verifyActivationPin(clean, activationPin);
+      if (res.success) {
+        setAuthTab('set_custom_pin');
+        setAuthSuccess('✓ सेलर पिन सत्यापित हो गया! अब अपना स्थायी 4-अंकीय पिन सेट करें।');
+      } else {
+        setAuthError(res.error || 'अमान्य सेलर पिन (Invalid Seller PIN).');
+      }
+    } catch (err) {
+      setAuthError(err.message || 'सत्यापन विफल रहा (Verification failed).');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // 🔒 4. Step 3: Set Permanent PIN for Seller
+  const handleSavePermanentPin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthSuccess('');
+
+    if (customPin.length < 4) {
+      setAuthError('पिन कम से कम 4 अंकों का होना चाहिए (PIN must be at least 4 digits).');
+      return;
+    }
+
+    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
+    setIsAuthenticating(true);
+    try {
+      const res = await setCustomPermanentPin({
+        phone: clean,
+        newPin: customPin,
+        roleType: 'seller',
+        businessName: shopName,
+      });
+
+      if (res.success && res.profile) {
+        setCurrentUser(res.profile);
+        sessionStorage.setItem('townhub_business_auth', 'authorized');
+        setIsAuthorized(true);
+      } else {
+        setAuthError(res.error || 'पिन सेट करने में त्रुटि (Failed to save PIN).');
+      }
+    } catch (err) {
+      setAuthError(err.message || 'Error saving PIN.');
     } finally {
       setIsAuthenticating(false);
     }
@@ -207,6 +316,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       setCurrentUser(null);
       setIsAuthorized(false);
       setLoginPin('');
+      setAuthTab('login');
     }
   };
 
@@ -261,14 +371,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [myListings, threadUpdateTick, selectedListingFilter, onlyUnanswered, isAuthorized]);
 
-  const totalInterests = useMemo(() => {
-    const interestMap = hyperlocalStore.state.interests || {};
-    return myListings.reduce(
-      (sum, item) => sum + (interestMap[item.id] || Number(item.interestCount || item.interest_count) || 0),
-      0
-    );
-  }, [myListings, threadUpdateTick]);
-
   const pendingInquiriesCount = useMemo(() => {
     return userInquiries.filter((q) => !q.sellerReply).length;
   }, [userInquiries]);
@@ -289,7 +391,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎁 1. Open Offer Studio Modal (Context-Aware for this specific listing's category)
+  // 🎁 1. Open Offer Studio Modal
   const handleOpenOfferStudio = (listing) => {
     const changes = listing.pending_changes || {};
     const currentCat = listing.category || 'market';
@@ -815,67 +917,259 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   };
 
   // =========================================================================
-  // 🔒 AUTH GUARD VIEW
+  // 🔒 AUTH GUARD VIEW: LOGIN & SELLER PIN ACTIVATION (...S)
   // =========================================================================
   if (!isAuthorized) {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 font-sans select-none">
-        <div className="w-full max-w-sm bg-slate-900 border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+        <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+          
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 rounded-2xl bg-amber-400 text-slate-950 text-2xl flex items-center justify-center mx-auto shadow-md">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-500 text-slate-950 text-2xl flex items-center justify-center mx-auto shadow-md font-black">
               🏪
             </div>
             <h2 className="text-sm font-black text-slate-100">Business Hub (सुरक्षित लॉगिन)</h2>
-            <p className="text-[10px] text-slate-400">
-              अपनी लिस्टिंग्स व ग्राहक बातचीत देखने के लिए रजिस्टर्ड मोबाइल नंबर व पिन दर्ज करें।
+            <p className="text-[10.5px] text-slate-400 leading-relaxed">
+              अपनी लिस्टिंग्स, ऑर्डर्स व ग्राहक बातचीत देखने के लिए लॉगिन या सेलर पिन से एक्टिवेट करें।
             </p>
           </div>
 
-          <form onSubmit={handlePerformLogin} className="space-y-3 text-xs">
-            <div>
-              <label className="text-[9.5px] font-bold text-slate-300 block mb-1">
-                Merchant Mobile Number (मोबाइल नंबर) *
-              </label>
-              <input
-                type="tel"
-                required
-                maxLength={10}
-                value={loginPhone}
-                onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, ''))}
-                placeholder="9876543210"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold focus:border-amber-400 focus:outline-hidden tracking-wider"
-              />
-            </div>
-
-            <div>
-              <label className="text-[9.5px] font-bold text-slate-300 block mb-1">
-                4-Digit Security PIN (4-अंकीय पिन) *
-              </label>
-              <input
-                type="password"
-                required
-                maxLength={4}
-                value={loginPin}
-                onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="••••"
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold text-center text-lg tracking-widest focus:border-amber-400 focus:outline-hidden"
-              />
-            </div>
-
-            {authError && (
-              <div className="p-2 rounded-xl bg-rose-950/60 border border-rose-500/40 text-[9.5px] text-rose-300 text-center font-bold">
-                ⚠️ {authError}
-              </div>
-            )}
-
+          {/* Mode Switcher Tabs */}
+          <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-2xl border border-slate-800 text-[10.5px] font-bold">
             <button
-              type="submit"
-              disabled={isAuthenticating}
-              className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-50"
+              type="button"
+              onClick={() => {
+                setAuthTab('login');
+                setAuthError('');
+                setAuthSuccess('');
+              }}
+              className={`py-2 rounded-xl transition cursor-pointer text-center ${
+                authTab === 'login' ? 'bg-amber-400 text-slate-950 font-black shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
             >
-              {isAuthenticating ? 'Verifying PIN... ⏳' : 'Unlock Business Hub ➔'}
+              1. Merchant Login
             </button>
-          </form>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthTab('request_pin');
+                setAuthError('');
+                setAuthSuccess('');
+              }}
+              className={`py-2 rounded-xl transition cursor-pointer text-center ${
+                authTab === 'request_pin' || authTab === 'enter_pin' || authTab === 'set_custom_pin'
+                  ? 'bg-amber-400 text-slate-950 font-black shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              2. Activate PIN (...S)
+            </button>
+          </div>
+
+          {authError && (
+            <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-[10.5px] text-rose-300 text-center font-bold animate-fade-in">
+              ⚠️ {authError}
+            </div>
+          )}
+
+          {authSuccess && (
+            <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-[10.5px] text-emerald-300 text-center font-bold animate-fade-in">
+              {authSuccess}
+            </div>
+          )}
+
+          {/* 1. Login Form */}
+          {authTab === 'login' && (
+            <form onSubmit={handlePerformLogin} className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  Merchant Mobile Number (मोबाइल नंबर) *
+                </label>
+                <div className="flex items-center space-x-2">
+                  <span className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 font-mono text-amber-400 font-bold text-xs">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    value={loginPhone}
+                    onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="9876543210"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold focus:border-amber-400 focus:outline-hidden tracking-wider font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  4-Digit Security PIN (4-अंकीय पिन) *
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  required
+                  maxLength={6}
+                  value={loginPin}
+                  onChange={(e) => setLoginPin(e.target.value.replace(/\D/g, ''))}
+                  placeholder="••••"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-bold text-center text-lg tracking-widest focus:border-amber-400 focus:outline-hidden font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthenticating}
+                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-50"
+              >
+                {isAuthenticating ? 'Verifying PIN... ⏳' : 'Unlock Business Hub ➔'}
+              </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTab('request_pin');
+                    setAuthError('');
+                    setAuthSuccess('');
+                  }}
+                  className="text-[10px] text-amber-400 hover:underline font-bold"
+                >
+                  New Seller? Activate via WhatsApp PIN (...S) ➔
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* 2. Step 1: Send Seller PIN via WhatsApp */}
+          {authTab === 'request_pin' && (
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  Merchant Mobile Number *
+                </label>
+                <div className="flex items-center space-x-2">
+                  <span className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 font-mono text-amber-400 font-bold text-xs">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    value={loginPhone}
+                    onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, ''))}
+                    placeholder="9876543210"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono font-bold focus:border-amber-400 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSendSellerWhatsAppPin}
+                disabled={isAuthenticating || loginPhone.replace(/\D/g, '').length !== 10}
+                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40 flex items-center justify-center space-x-1.5"
+              >
+                <span>📱</span>
+                <span>Send Seller PIN to WhatsApp ➔</span>
+              </button>
+            </div>
+          )}
+
+          {/* 3. Step 2: Enter Received Seller PIN */}
+          {authTab === 'enter_pin' && (
+            <form onSubmit={handleVerifySellerPin} className="space-y-3 text-xs">
+              {generatedPinNotice && (
+                <div className="p-3 bg-amber-950/80 border border-amber-400/60 rounded-2xl space-y-2 text-center">
+                  <span className="text-[10px] text-amber-300 font-bold block">
+                    Your Dispatched Seller PIN:
+                  </span>
+                  <span className="text-xl font-mono font-black text-amber-400 tracking-widest block">
+                    {generatedPinNotice}
+                  </span>
+                  {whatsappLink && (
+                    <a
+                      href={whatsappLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block px-3 py-1.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-lg shadow-sm"
+                    >
+                      💬 Open WhatsApp ➔
+                    </a>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-amber-300 block mb-1">
+                  Enter 6-Digit Seller PIN (e.g. {generatedPinNotice || '739102S'}) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={8}
+                  placeholder="123456S"
+                  value={activationPin}
+                  onChange={(e) => setActivationPin(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-3 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none uppercase"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthenticating || activationPin.length < 7}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40"
+              >
+                {isAuthenticating ? 'Verifying...' : 'Verify Seller PIN ➔'}
+              </button>
+            </form>
+          )}
+
+          {/* 4. Step 3: Set Custom Permanent PIN */}
+          {authTab === 'set_custom_pin' && (
+            <form onSubmit={handleSavePermanentPin} className="space-y-3 text-xs">
+              <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold text-center">
+                ✓ Seller PIN Verified!
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">Shop / Business Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Royal Enfield Studio"
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">
+                  Set Permanent 4-Digit Login PIN *
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  required
+                  autoFocus
+                  maxLength={6}
+                  placeholder="••••"
+                  value={customPin}
+                  onChange={(e) => setCustomPin(e.target.value.replace(/\D/g, ''))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthenticating || customPin.length < 4}
+                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition disabled:opacity-40"
+              >
+                {isAuthenticating ? 'Saving PIN...' : 'Save & Unlock Business Hub ➔'}
+              </button>
+            </form>
+          )}
 
           <button
             type="button"
@@ -889,19 +1183,22 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     );
   }
 
+  // =========================================================================
+  // 🌟 AUTHORIZED DASHBOARD VIEW
+  // =========================================================================
   return (
-    <main className="p-3.5 space-y-3.5 animate-fade-in text-slate-100 pb-28 select-none bg-slate-950 min-h-screen">
+    <main className="p-3.5 space-y-3.5 animate-fade-in text-slate-100 pb-28 select-none bg-slate-950 min-h-screen font-sans">
       
       {/* 1. Header */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 p-4 rounded-3xl text-white shadow-xl flex items-center justify-between border border-slate-800">
         <div className="flex items-center space-x-2.5">
           <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-md">
-            📊
+            🏪
           </div>
           <div>
             <h1 className="text-sm font-black text-white leading-tight">Business Hub (व्यापार केंद्र)</h1>
             <p className="text-[10px] text-amber-300 font-bold">
-              👤 {currentUser?.full_name || 'Merchant'} ({sellerPhone})
+              👤 {currentUser?.business_name || currentUser?.full_name || 'Verified Merchant'} (+91 {sellerPhone})
             </p>
           </div>
         </div>
@@ -1391,11 +1688,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             <div className="flex items-center space-x-2">
               <span className="text-xl">🎁</span>
               <h3 className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                Tier 2 & 3 High-Conversion Offer Studio
+                High-Conversion Promotional Offer Studio
               </h3>
             </div>
             <p className="text-[10.5px] text-slate-300 leading-relaxed">
-              Attach high-impact promotional deals (Groom Kits, Bridal Sets, BOGO, Scrap Buyback, Sawa Advance Locks) to multiply your store inquiries!
+              Attach high-impact promotional deals (Combos, Kits, Flat Discounts, Advance Locks) to multiply your store inquiries across {selectedCity}!
             </p>
           </div>
 
@@ -1462,7 +1759,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
             <div className="bg-slate-900 border border-amber-500/40 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
               
-              {/* Modal Header */}
               <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
                 <div className="min-w-0 pr-2">
                   <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
@@ -1481,10 +1777,8 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </button>
               </div>
 
-              {/* Modal Form */}
               <form onSubmit={handleSaveOffer} className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
                 
-                {/* Context-Aware Tab Switcher */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-[9.5px] font-bold text-slate-400 block">
@@ -1532,7 +1826,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   )}
                 </div>
 
-                {/* Presets Grid */}
                 {!isCustomOfferMode ? (
                   <div className="space-y-1.5">
                     <label className="text-[9.5px] font-bold text-slate-400 block">
@@ -1590,7 +1883,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   </div>
                 )}
 
-                {/* Badge Input */}
                 <div className="space-y-1">
                   <label className="text-[9.5px] font-bold text-slate-300 block">
                     Promotional Tag / Badge Name (बैज का नाम) *
@@ -1605,7 +1897,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   />
                 </div>
 
-                {/* Pricing Rates */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
@@ -1635,7 +1926,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   </div>
                 </div>
 
-                {/* Inclusions */}
                 <div className="space-y-1">
                   <label className="text-[9.5px] font-bold text-slate-300 block">
                     Combo Inclusions & Freebies (कॉम्बो में क्या-क्या मिलेगा?)
@@ -1649,7 +1939,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   />
                 </div>
 
-                {/* Token Advance & Trial */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
@@ -1678,7 +1967,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   </div>
                 </div>
 
-                {/* Live Card Preview */}
                 <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-1.5">
                   <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block">
                     👁️ Customer Feed Card Preview:
@@ -1708,7 +1996,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   )}
                 </div>
 
-                {/* Action Buttons */}
                 <div className="pt-2 border-t border-slate-800 flex items-center space-x-2">
                   <button
                     type="submit"
@@ -1762,7 +2049,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
 
             <form onSubmit={handleSaveListing} className="space-y-3 text-[11px]">
-              {/* Category & Subcategory */}
               <div className="space-y-2 bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -1809,7 +2095,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 )}
               </div>
 
-              {/* Title */}
               <div>
                 <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Title / Name *</label>
                 <input
@@ -1822,7 +2107,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 />
               </div>
 
-              {/* Price & Strike Price */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Price (रुपये में - केवल अंक) *</label>
@@ -1856,7 +2140,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               </div>
 
-              {/* Ready Stock */}
               <div>
                 <label className="text-[9px] font-bold text-slate-300 block mb-1">Ready Stock Units (केवल अंक)</label>
                 <input
@@ -1869,7 +2152,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 />
               </div>
 
-              {/* Working Hours */}
               <div className="p-2.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <label className="text-[9.5px] font-black text-slate-200 block">⏰ Active Hours</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1909,7 +2191,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               </div>
 
-              {/* Location & 1-Tap GPS */}
               <div>
                 <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Location *</label>
                 <input
@@ -1932,7 +2213,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 <span>{isLocating ? 'Detecting GPS...' : '1-Tap Set Live Shop GPS'}</span>
               </button>
 
-              {/* 4 Highlights */}
               <div className="space-y-1.5 p-3 bg-slate-950 rounded-2xl border border-slate-800">
                 <label className="text-[9.5px] font-black text-slate-200 block">📝 Key Highlights</label>
                 {[0, 1, 2, 3].map((idx) => (
@@ -1955,7 +2235,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 ))}
               </div>
 
-              {/* Photos */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[9.5px] font-black text-slate-300">📷 Photos ({formData.images.length}/10)</label>
@@ -1989,7 +2268,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 )}
               </div>
 
-              {/* Videos */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[9.5px] font-black text-slate-300">🎥 Walkthrough Videos ({formData.videos.length}/2)</label>
@@ -2004,31 +2282,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
 
                 <input type="file" ref={videoInputRef} accept="video/*" onChange={handleVideoUpload} className="hidden" />
-
-                {videoUploadState.isProcessing && (
-                  <div className="p-3 bg-slate-900 border border-amber-500/50 rounded-2xl space-y-2 shadow-inner">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-black text-amber-300 flex items-center space-x-1.5 truncate pr-2">
-                        <span className="animate-spin text-xs">⚙️</span>
-                        <span className="truncate">{videoUploadState.status}</span>
-                      </span>
-                      <span className="font-black text-amber-400 font-mono text-xs shrink-0">
-                        {videoUploadState.progress}%
-                      </span>
-                    </div>
-
-                    <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800 p-0.5 shadow-inner">
-                      <div
-                        className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 h-full rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(251,191,36,0.6)]"
-                        style={{ width: `${videoUploadState.progress}%` }}
-                      ></div>
-                    </div>
-
-                    <p className="text-[8.5px] text-slate-400 font-medium">
-                      Optimizing {videoUploadState.fileName} for fast streaming... Please wait.
-                    </p>
-                  </div>
-                )}
 
                 {formData.videos.map((vid, idx) => (
                   <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-700 text-[9.5px]">
