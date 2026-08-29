@@ -5,8 +5,8 @@ import { hyperlocalStore } from './store/hyperlocalStore';
 import { isBusinessAuthorized, isAdminAuthorized } from './services/authService';
 import { useTheme } from './context/ThemeContext';
 import { useLocationContext } from './context/LocationContext';
+import { findNearestColony } from './data/cityZones';
 
-// 21 Hyperlocal Town Categories with Theme-Adaptive Colors
 const TOWN_CATEGORIES = [
   {
     id: 'kaarigar',
@@ -242,6 +242,9 @@ const TOWN_CATEGORIES = [
 ];
 
 export default function HyperlocalHomeFeed({
+  userLocation: propLocation,
+  isLocating: propIsLocating,
+  onRefreshLocation: propOnRefreshLocation,
   onSelectCategory,
   onSelectIntent,
   onSelectItem,
@@ -249,11 +252,25 @@ export default function HyperlocalHomeFeed({
   onSearchChange,
 }) {
   const { isDark } = useTheme();
-  const { location, isLocating, detectLiveGPS } = useLocationContext();
+  const context = useLocationContext();
 
-  const currentCity = location?.city || 'Alwar';
-  const displayLocality = location?.colony ? `${location.colony}, ${currentCity}` : `${location?.landmark || 'Town Center'}, ${currentCity}`;
-  
+  const [internalLocating, setInternalLocating] = useState(false);
+  const [internalLocation, setInternalLocation] = useState(null);
+
+  // Compute active locality
+  const currentCity = internalLocation?.city || context?.location?.city || propLocation?.city || 'Alwar';
+  const currentColony =
+    internalLocation?.colony ||
+    internalLocation?.locality ||
+    context?.location?.colony ||
+    context?.location?.locality ||
+    propLocation?.colony ||
+    propLocation?.locality ||
+    'Budh Vihar';
+
+  const displayLocality = `${currentColony}, ${currentCity}`;
+  const isLocatingActive = internalLocating || context?.isLocating || propIsLocating;
+
   const allListings = hyperlocalStore.getAllListings();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
@@ -265,12 +282,55 @@ export default function HyperlocalHomeFeed({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      onSearchChange(localQuery);
+      if (onSearchChange) onSearchChange(localQuery);
     }, 100);
     return () => clearTimeout(timer);
   }, [localQuery, onSearchChange]);
 
-  // 🔊 Audio Speech Synthesizer for Accessibility
+  // Direct Hardware GPS Trigger
+  const handleGpsPinClick = () => {
+    setInternalLocating(true);
+
+    if (typeof propOnRefreshLocation === 'function') {
+      propOnRefreshLocation();
+    }
+
+    if (context && typeof context.detectLiveGPS === 'function') {
+      context.detectLiveGPS();
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = Number(pos.coords.latitude.toFixed(6));
+          const lng = Number(pos.coords.longitude.toFixed(6));
+          const colony = findNearestColony(lat, lng);
+
+          const resolved = {
+            colony,
+            locality: colony,
+            city: currentCity,
+            lat,
+            lng,
+          };
+
+          setInternalLocation(resolved);
+          try {
+            localStorage.setItem('townhub_user_precise_location', JSON.stringify(resolved));
+          } catch {}
+          setInternalLocating(false);
+        },
+        (err) => {
+          console.warn('GPS detection note:', err.message);
+          setInternalLocating(false);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      );
+    } else {
+      setInternalLocating(false);
+    }
+  };
+
   const handleSpeakCategory = (e, cat) => {
     e.stopPropagation();
     if (!('speechSynthesis' in window)) return;
@@ -300,7 +360,6 @@ export default function HyperlocalHomeFeed({
 
   return (
     <div className="p-3.5 space-y-3.5 animate-fade-in font-sans select-none pb-12">
-      
       {/* 🌟 1. GPS PINNING RADAR & GLOBAL SEARCH CARD */}
       <section
         className={`p-4 rounded-3xl border transition-colors shadow-md ${
@@ -342,8 +401,8 @@ export default function HyperlocalHomeFeed({
 
             <button
               type="button"
-              onClick={detectLiveGPS}
-              disabled={isLocating}
+              onClick={handleGpsPinClick}
+              disabled={isLocatingActive}
               title="Refresh GPS Location"
               className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer active:scale-95 flex items-center space-x-1.5 shadow-xs disabled:opacity-50 ${
                 isDark
@@ -351,10 +410,10 @@ export default function HyperlocalHomeFeed({
                   : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
               }`}
             >
-              <span className={isLocating ? 'animate-spin inline-block' : ''}>
+              <span className={isLocatingActive ? 'animate-spin inline-block' : ''}>
                 🔄
               </span>
-              <span>{isLocating ? 'Locating...' : 'GPS Pin'}</span>
+              <span>{isLocatingActive ? 'Locating...' : 'GPS Pin'}</span>
             </button>
           </div>
         </div>
@@ -375,7 +434,7 @@ export default function HyperlocalHomeFeed({
               value={searchQuery}
               onChange={(e) => {
                 setLocalQuery(e.target.value);
-                onSearchChange(e.target.value);
+                if (onSearchChange) onSearchChange(e.target.value);
               }}
               className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none font-semibold"
             />
@@ -384,7 +443,7 @@ export default function HyperlocalHomeFeed({
                 type="button"
                 onClick={() => {
                   setLocalQuery('');
-                  onSearchChange('');
+                  if (onSearchChange) onSearchChange('');
                 }}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
               >
@@ -427,7 +486,6 @@ export default function HyperlocalHomeFeed({
                 isDark ? cat.darkBg : cat.lightBg
               }`}
             >
-              {/* Left: Category Icon & Clean High-Contrast Text */}
               <div className="flex items-center space-x-3.5 min-w-0">
                 <div
                   className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 border ${
@@ -456,7 +514,6 @@ export default function HyperlocalHomeFeed({
                 </div>
               </div>
 
-              {/* Right: Adaptive Voice Speaker & Navigation Arrow */}
               <div className="flex items-center space-x-2 shrink-0">
                 <button
                   type="button"
@@ -490,11 +547,11 @@ export default function HyperlocalHomeFeed({
           selectedCity={currentCity}
           onClose={() => {
             setLocalQuery('');
-            onSearchChange('');
+            if (onSearchChange) onSearchChange('');
           }}
           onSelectIntent={(category, subCategory) => {
             setLocalQuery('');
-            onSearchChange('');
+            if (onSearchChange) onSearchChange('');
             if (onSelectIntent) {
               onSelectIntent(category, subCategory);
             } else {

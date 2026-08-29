@@ -7,6 +7,7 @@ import { initRealtimeSubscriptions, hydrateFromDB } from './store/hyperlocalStor
 import { installGlobalMediaGuard } from './utils/globalMediaGuard';
 import { registerSW } from 'virtual:pwa-register';
 
+
 // 🔄 Auto-update Service Worker in background immediately on new deploy
 const updateSW = registerSW({
   immediate: true,
@@ -58,3 +59,14 @@ if (rootElement) {
     </StrictMode>
   );
 }
+
+import { LocationProvider } from './context/LocationContext';
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <ThemeProvider>
+      <LocationProvider>
+        <App />
+      </LocationProvider>
+    </ThemeProvider>
+  </React.StrictMode>,
+);

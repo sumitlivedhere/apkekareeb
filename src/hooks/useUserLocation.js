@@ -1,104 +1,83 @@
 import { useState, useEffect, useCallback } from 'react';
+import { findNearestColony, CITY_ZONES } from '../data/cityZones';
 
-const FALLBACK_LOCATION = {
-  locality: 'Budh Vihar',
-  city: 'Alwar',
-  display: 'Budh Vihar, Alwar',
-  lat: 27.553,
-  lng: 76.6346,
-};
+const STORAGE_KEY = 'townhub_user_precise_location';
 
-export function useUserLocation() {
-  const [location, setLocation] = useState(() => {
+export function useUserLocation(defaultCity = 'Alwar') {
+  const [userLocation, setUserLocation] = useState(() => {
     try {
-      const saved = localStorage.getItem('townhub_user_location');
-      return saved ? JSON.parse(saved) : FALLBACK_LOCATION;
-    } catch {
-      return FALLBACK_LOCATION;
-    }
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const colonyName = parsed.colony || parsed.locality || 'Budh Vihar';
+        return {
+          locality: colonyName,
+          colony: colonyName,
+          city: parsed.city || defaultCity,
+          display: `${colonyName}, ${parsed.city || defaultCity}`,
+          lat: parsed.lat || 27.54123,
+          lng: parsed.lng || 76.60251,
+          isDefault: false,
+        };
+      }
+    } catch {}
+    return {
+      locality: 'Budh Vihar',
+      colony: 'Budh Vihar',
+      city: defaultCity,
+      display: `Budh Vihar, ${defaultCity}`,
+      lat: 27.54123,
+      lng: 76.60251,
+      isDefault: true,
+    };
   });
 
   const [isLocating, setIsLocating] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(null);
 
-  const resolveLocalityFromCoords = async (lat, lng) => {
-    try {
-      // Fast reverse geocoding via OpenStreetMap Nominatim
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`
-      );
-      const data = await res.json();
-      const addr = data.address || {};
-
-      const locality =
-        addr.suburb ||
-        addr.neighbourhood ||
-        addr.residential ||
-        addr.road ||
-        addr.village ||
-        'Nearby Area';
-
-      const city =
-        addr.city ||
-        addr.town ||
-        addr.county ||
-        addr.state_district ||
-        (lat > 26.5 && lat < 27.2 ? 'Jaipur' : 'Alwar');
-
-      const resolved = {
-        locality,
-        city,
-        display: `${locality}, ${city}`,
-        lat,
-        lng,
-      };
-
-      localStorage.setItem('townhub_user_location', JSON.stringify(resolved));
-      return resolved;
-    } catch {
-      // Fallback coordinate proximity resolution
-      const isJaipur = Math.abs(lat - 26.9124) < Math.abs(lat - 27.553);
-      const fallbackResolved = {
-        locality: isJaipur ? 'Vaishali Nagar' : 'Budh Vihar',
-        city: isJaipur ? 'Jaipur' : 'Alwar',
-        display: isJaipur ? 'Vaishali Nagar, Jaipur' : 'Budh Vihar, Alwar',
-        lat,
-        lng,
-      };
-      localStorage.setItem('townhub_user_location', JSON.stringify(fallbackResolved));
-      return fallbackResolved;
-    }
-  };
-
-  const detectLocation = useCallback(() => {
+  const refreshLocation = useCallback(async () => {
+    setIsLocating(true);
     if (!navigator.geolocation) {
-      setErrorMsg('Geolocation is not supported by your browser.');
+      console.warn('Geolocation not supported by browser.');
+      setIsLocating(false);
       return;
     }
 
-    setIsLocating(true);
-    setErrorMsg(null);
-
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        const resolved = await resolveLocalityFromCoords(latitude, longitude);
-        setLocation(resolved);
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const colony = findNearestColony(lat, lng);
+
+        const newLoc = {
+          locality: colony,
+          colony: colony,
+          city: defaultCity,
+          display: `${colony}, ${defaultCity}`,
+          lat,
+          lng,
+          isDefault: false,
+        };
+
+        setUserLocation(newLoc);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(newLoc));
+        } catch {}
         setIsLocating(false);
       },
       (err) => {
-        console.warn('GPS notice:', err.message);
-        setErrorMsg('Location permission denied or unavailable.');
+        console.warn('GPS location error:', err.message);
         setIsLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
-  }, []);
+  }, [defaultCity]);
 
   return {
-    location,
+    userLocation,
     isLocating,
-    errorMsg,
-    detectLocation,
+    refreshLocation,
+    setUserLocation,
   };
 }
+
+export default useUserLocation;

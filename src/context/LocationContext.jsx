@@ -1,14 +1,18 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
-import { CITY_ZONES, findNearestColony } from '../data/cityZones';
+import {
+  CITY_ZONES,
+  findNearestColony,
+  reverseGeocodeFree,
+} from '../data/cityZones';
 
 const STORAGE_KEY = 'townhub_user_precise_location';
 
 const DEFAULT_LOCATION = {
-  colony: 'Budh Vihar',
-  landmark: 'Budh Vihar (Sector 1 & 2)',
+  colony: 'Ranjeet Nagar',
+  landmark: 'Ranjeet Nagar, Alwar',
   city: 'Alwar',
-  lat: 27.5682,
-  lng: 76.6215,
+  lat: 27.5702,
+  lng: 76.6278,
   radiusKm: 5,
   accuracyMeters: null,
   isGPSActive: false,
@@ -42,7 +46,7 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
     });
   }, []);
 
-  const userArea = location.colony || location.landmark || 'Town Center';
+  const userArea = location.colony || location.landmark || 'Ranjeet Nagar';
   const setUserArea = useCallback((newArea) => {
     setLocation((prev) => {
       const updated = { ...prev, colony: newArea, landmark: newArea };
@@ -61,30 +65,33 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
     });
   }, []);
 
+  // Primary GPS locator using Free Reverse Geocoder
   const detectLiveGPS = useCallback(async (onSuccessCallback) => {
     setIsLocating(true);
     setLocationError(null);
 
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        setLocationError('GPS not supported on device.');
+        setLocationError('GPS is not supported on this device.');
         setIsLocating(false);
         resolve(null);
         return;
       }
 
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        async (pos) => {
           const lat = Number(pos.coords.latitude.toFixed(6));
           const lng = Number(pos.coords.longitude.toFixed(6));
           const accuracyMeters = Math.round(pos.coords.accuracy);
 
-          const preciseColonyName = findNearestColony(lat, lng);
+          // Resolve exact colony name for free
+          const resolvedColony = await reverseGeocodeFree(lat, lng);
 
           const finalLocation = {
-            colony: preciseColonyName,
-            landmark: `${preciseColonyName}, ${location.city}`,
-            city: location.city,
+            colony: resolvedColony,
+            locality: resolvedColony,
+            landmark: `${resolvedColony}, ${location.city || 'Alwar'}`,
+            city: location.city || 'Alwar',
             lat,
             lng,
             accuracyMeters,
@@ -99,17 +106,17 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
           setIsLocating(false);
 
           if (onSuccessCallback) {
-            onSuccessCallback({ lat, lng, area: preciseColonyName });
+            onSuccessCallback(finalLocation);
           }
           resolve(finalLocation);
         },
         (err) => {
           console.warn('GPS detection error:', err.message);
-          setLocationError('Could not detect GPS.');
+          setLocationError('GPS signal weak or permission denied.');
           setIsLocating(false);
           resolve(null);
         },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
       );
     });
   }, [location.city, location.radiusKm]);
@@ -122,6 +129,7 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
 
       const updated = {
         colony: colonyObj.name || colonyObj.colony,
+        locality: colonyObj.name || colonyObj.colony,
         landmark: colonyObj.landmark || colonyObj.name || colonyObj.colony,
         city: cityName,
         lat: colonyObj.lat,
@@ -194,12 +202,11 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
   );
 }
 
-// Fallback default context object so components never crash with blank screens if provider is missing
 const FALLBACK_CONTEXT = {
   location: DEFAULT_LOCATION,
   selectedCity: 'Alwar',
   setSelectedCity: () => {},
-  userArea: 'Budh Vihar',
+  userArea: 'Ranjeet Nagar',
   setUserArea: () => {},
   coords: { lat: DEFAULT_LOCATION.lat, lng: DEFAULT_LOCATION.lng },
   setCoords: () => {},
