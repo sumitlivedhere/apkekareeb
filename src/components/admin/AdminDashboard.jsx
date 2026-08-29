@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAllListingsSlice, hyperlocalStore, hydrateFromDB } from '../../store/hyperlocalStore';
 import UserManagementCRM from './UserManagementCRM';
-
+import { supabase } from '../../services/supabaseClient';
 import {
   approveListingChanges,
   rejectListingChanges,
@@ -28,6 +28,7 @@ import {
 import VoiceNotePlayer from '../common/VoiceNotePlayer';
 
 const MASTER_ADMIN_SECRET = 'JagadUsha@NEBExt3/33';
+const sanitizePhone = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
 export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminAuth, setIsAdminAuth] = useState(() => isAdminAuthorized());
@@ -55,7 +56,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminEditing, setIsAdminEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({
     title: '',
-    category: 'property',
+    category: 'market',
     subCategory: 'all',
     price: '',
     original_price: '',
@@ -154,7 +155,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     return true;
   };
 
-  // 1. Pending Approvals
+  // 1. Pending Approvals Queue
   const pendingApprovals = useMemo(() => {
     return allListings.filter((item) => {
       const isPending =
@@ -175,7 +176,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [allListings, selectedCategory, searchQuery, timeFilterType, timeValue]);
 
-  // 2. Approved Listings
+  // 2. Approved Live Listings
   const approvedListings = useMemo(() => {
     return allListings.filter((item) => {
       const isApproved = item.is_active === true && !item.has_pending_approval;
@@ -209,11 +210,11 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   // 👤 Selected Seller Listings
   const sellerListings = useMemo(() => {
     if (!selectedSeller?.phone) return [];
-    const cleanTargetPhone = String(selectedSeller.phone).replace(/\D/g, '').slice(-10);
+    const cleanTargetPhone = sanitizePhone(selectedSeller.phone);
 
     return allListings.filter((item) => {
-      const p1 = String(item.phone || '').replace(/\D/g, '').slice(-10);
-      const p2 = String(item.pending_changes?.phone || '').replace(/\D/g, '').slice(-10);
+      const p1 = sanitizePhone(item.phone);
+      const p2 = sanitizePhone(item.pending_changes?.phone);
       return p1 === cleanTargetPhone || p2 === cleanTargetPhone;
     });
   }, [allListings, selectedSeller]);
@@ -229,7 +230,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     return sellerListings;
   }, [sellerPortfolioTab, sellerListings, sellerApproved, sellerPending, sellerFeedbackActive]);
 
-  // 🛑 MASTER ADMIN DIRECT FULL-CONTROL ACTIONS
+  // 🛑 Direct Admin Actions
   const handleDirectDeleteListing = async (listingId, title = 'Listing') => {
     if (!window.confirm(`⚠️ PERMANENT DELETE: Are you sure you want to delete "${title}"?`)) return;
     try {
@@ -243,9 +244,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
+  const handleToggleShadowban = async (item) => {
+    const nextVal = !item.is_shadowbanned;
+    if (supabase) {
+      await supabase.from('listings').update({ is_shadowbanned: nextVal }).eq('id', item.id);
+    }
+    const updated = { ...item, is_shadowbanned: nextVal };
+    hyperlocalStore.insertListing(item.category, updated);
+    showNotice(nextVal ? `👻 Shadowbanned "${item.title}"` : `✓ Removed shadowban from "${item.title}"`);
+  };
+
   const handleDirectBanPoster = async (phone, name = 'User') => {
     if (!phone) return;
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     if (!window.confirm(`⛔ BLOCK & BAN: Block phone number +91 ${cleanPhone} (${name}) and deactivate all their listings?`)) {
       return;
     }
@@ -256,7 +267,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
   const handleDirectPurgeSellerAll = async (phone, name = 'Seller') => {
     if (!phone) return;
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     if (!window.confirm(`🧹 PURGE ALL: Delete ALL listings and trade offers posted by ${name} (+91 ${cleanPhone})?`)) {
       return;
     }
@@ -264,14 +275,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     await hydrateFromDB();
     showNotice(`🧹 Purged all listings of +91 ${cleanPhone}`);
     if (selectedSeller?.phone === cleanPhone) setSelectedSeller(null);
-    if (inspectingItem && String(inspectingItem.phone).slice(-10) === cleanPhone) {
+    if (inspectingItem && sanitizePhone(inspectingItem.phone) === cleanPhone) {
       setInspectingItem(null);
     }
   };
 
   const handleDirectDeleteSellerAccount = async (phone, name = 'Seller') => {
     if (!phone) return;
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     if (!window.confirm(`🗑️ DELETE ACCOUNT: Permanently delete profile +91 ${cleanPhone} (${name}) and purge listings?`)) {
       return;
     }
@@ -280,14 +291,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     await hydrateFromDB();
     showNotice(`🗑️ Completely deleted ${name} (+91 ${cleanPhone})`);
     if (selectedSeller?.phone === cleanPhone) setSelectedSeller(null);
-    if (inspectingItem && String(inspectingItem.phone).slice(-10) === cleanPhone) {
+    if (inspectingItem && sanitizePhone(inspectingItem.phone) === cleanPhone) {
       setInspectingItem(null);
     }
   };
 
   const handleDirectDemoteSeller = async (phone, name = 'Seller') => {
     if (!phone) return;
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     if (!window.confirm(`⬇️ DEMOTE: Revert ${name} (+91 ${cleanPhone}) from Verified Merchant back to Basic Resident?`)) {
       return;
     }
@@ -310,7 +321,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const effectiveCap = changes.capacity || changes.stockCount || item.capacity || item.stockCount || 'Ready Stock';
     const effectiveLocation = changes.location || item.location || selectedCity;
     const effectiveTiming = changes.timing || item.timing || item.activeHours || '09:00 AM - 09:00 PM';
-    const effectiveCat = changes.category || item.category || 'property';
+    const effectiveCat = changes.category || item.category || 'market';
     const effectiveSubCat = changes.subCategory || changes.sub_category || item.subCategory || item.sub_category || 'all';
     const effectiveDesc = changes.description || item.description || '';
 
@@ -445,16 +456,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           videos: finalVideos,
           video_urls: finalVideos.map((v) => (typeof v === 'string' ? v : v.url)),
         };
-      } else {
-        finalChanges = {
-          ...finalChanges,
-          deal_type: finalChanges.deal_type || item.deal_type || null,
-          deal_badge: finalChanges.deal_badge || item.deal_badge || null,
-          deal_details: finalChanges.deal_details || item.deal_details || null,
-          original_price: finalChanges.original_price || item.original_price || null,
-          token_amount: finalChanges.token_amount || item.token_amount || null,
-          doorstep_trial: Boolean(finalChanges.doorstep_trial !== undefined ? finalChanges.doorstep_trial : item.doorstep_trial),
-        };
       }
 
       const updatedPayload = {
@@ -465,6 +466,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         pending_changes: null,
         admin_feedback: null,
         badge: '🟢 Verified Listing',
+        verification_badge: 'Verified Listing',
       };
 
       await approveListingChanges(item.id, updatedPayload);
@@ -477,7 +479,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         targetId: item.id,
         category: updatedPayload.category,
         recipient_role: 'seller',
-        recipient_phone: finalChanges.phone || item.phone,
+        recipient_phone: sanitizePhone(finalChanges.phone || item.phone),
         metadata: { dealBadge: finalChanges.deal_badge },
       };
       await saveNotificationToDB(notifObj);
@@ -501,7 +503,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     setActionInProgressId(item.id);
     try {
       const reason = feedbackText.trim() || 'Listing could not be approved based on community guidelines.';
-      await rejectListingChanges(item.id, reason);
+      await rejectListingChanges(item.id, reason, sanitizePhone(item.phone));
       const cleanedPayload = {
         ...item,
         has_pending_approval: false,
@@ -517,7 +519,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         targetId: item.id,
         category: item.category,
         recipient_role: 'seller',
-        recipient_phone: item.phone,
+        recipient_phone: sanitizePhone(item.phone),
       };
       await saveNotificationToDB(notifObj);
       hyperlocalStore.addNotification(notifObj);
@@ -607,7 +609,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
     setIsSendingFeedback(true);
     try {
-      const sellerPhone = item.pending_changes?.phone || item.phone;
+      const sellerPhone = sanitizePhone(item.pending_changes?.phone || item.phone);
       const feedbackPayload = {
         text: feedbackText.trim() || '🎤 Voice note review feedback from TownHub Admin',
         audioUrl: recordedVoiceNote?.audioUrl || null,
@@ -828,7 +830,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             }`}
           >
             <span>👥</span>
-            <span>Users & CRM</span>
+            <span>Users CRM</span>
           </button>
         </div>
 
@@ -944,7 +946,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   pendingApprovals.map((item) => {
                     const changes = item.pending_changes || {};
                     const isProposal = Boolean(item.pending_changes);
-                    const sellerPhone = changes.phone || item.phone;
+                    const sellerPhone = sanitizePhone(changes.phone || item.phone);
                     const sellerName = changes.sellerName || item.sellerName;
                     const activeDealBadge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
                     const activeDealDetails = changes.deal_details || changes.dealDetails || item.deal_details || item.dealDetails;
@@ -1066,6 +1068,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
                           <button
                             type="button"
+                            onClick={() => handleToggleShadowban(item)}
+                            className={`px-2 py-2 rounded-xl text-[10px] font-black border transition cursor-pointer ${
+                              item.is_shadowbanned
+                                ? 'bg-purple-950 text-purple-300 border-purple-500/50'
+                                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-purple-300'
+                            }`}
+                            title={item.is_shadowbanned ? 'Remove Shadowban' : 'Shadowban listing'}
+                          >
+                            👻
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleDirectDeleteListing(item.id, changes.title || item.title)}
                             className="px-2.5 py-2 bg-slate-950 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 border border-slate-800 rounded-xl font-bold text-[10px] transition cursor-pointer"
                             title="Permanently delete this listing"
@@ -1130,6 +1145,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       <div className="flex items-center space-x-1.5 shrink-0">
                         <button
                           type="button"
+                          onClick={() => handleToggleShadowban(item)}
+                          className={`p-1.5 rounded-lg text-[9px] font-black border transition cursor-pointer ${
+                            item.is_shadowbanned
+                              ? 'bg-purple-950 text-purple-300 border-purple-500/50'
+                              : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-purple-300'
+                          }`}
+                          title={item.is_shadowbanned ? 'Remove Shadowban' : 'Shadowban listing'}
+                        >
+                          👻
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleOpenInspector(item)}
                           className="px-2 py-1 bg-slate-800 text-slate-300 font-bold text-[9px] rounded-lg border border-slate-700 hover:text-white cursor-pointer"
                         >
@@ -1165,6 +1193,11 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         {item.deal_badge && (
                           <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-400 text-slate-950">
                             {item.deal_badge}
+                          </span>
+                        )}
+                        {item.is_shadowbanned && (
+                          <span className="text-[8px] font-black px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-500/40">
+                            👻 SHADOWBANNED
                           </span>
                         )}
                       </div>
@@ -1232,7 +1265,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </button>
               </div>
 
-              {/* 👑 Master Admin Dangerous Controls for Seller */}
+              {/* Master Admin Controls for Seller */}
               <div className="grid grid-cols-4 gap-1.5 pt-2.5">
                 <button
                   type="button"
@@ -1362,7 +1395,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & OFFER MODERATION MODAL                */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & MODERATION MODAL                      */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -1406,7 +1439,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             {/* Scrollable Inspector Studio */}
             <div className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
               
-              {/* Diff Banner if Seller Proposed Edits */}
+              {/* Proposal Diff Banner */}
               {inspectingItem.pending_changes && (
                 <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-2xl text-[10px] text-amber-200 space-y-1">
                   <span className="font-black text-amber-300 block">⚡ Proposal Diff:</span>
@@ -1597,7 +1630,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     />
                   </div>
 
-                  {/* 🎁 PROMOTIONAL OFFER FIELDS IN CORRECTION MODE */}
+                  {/* Promotional Offer Fields */}
                   <div className="p-3 bg-slate-900 rounded-xl border border-amber-500/40 space-y-2">
                     <span className="text-[9.5px] font-black text-amber-300 block">🎁 Promotional Offer Terms (ऑफर संपादन):</span>
                     
@@ -1711,7 +1744,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               ) : (
                 (() => {
                   const changes = inspectingItem.pending_changes || {};
-                  const sellerPhone = changes.phone || inspectingItem.phone;
+                  const sellerPhone = sanitizePhone(changes.phone || inspectingItem.phone);
                   const sellerName = changes.sellerName || inspectingItem.sellerName;
                   const dealBadge = changes.deal_badge || changes.dealBadge || inspectingItem.deal_badge || inspectingItem.dealBadge;
                   const dealDetails = changes.deal_details || changes.dealDetails || inspectingItem.deal_details || inspectingItem.dealDetails;
@@ -1723,7 +1756,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   return (
                     <div className="space-y-2.5 bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-[10.5px]">
                       
-                      {/* Merchant Contact Bar & Dangerous Actions */}
+                      {/* Merchant Contact Bar & Actions */}
                       <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                         <div>
                           <span className="text-[8.5px] text-slate-400 uppercase block">Merchant Contact</span>
@@ -1740,26 +1773,30 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           <span className="text-cyan-300 font-mono block">📞 +91 {sellerPhone}</span>
                         </div>
 
-                        {/* Inspector Direct Action Buttons */}
                         <div className="flex items-center space-x-1.5">
                           <button
                             type="button"
-                            onClick={() => handleDirectBanPoster(sellerPhone, sellerName)}
-                            className="px-2 py-1 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-lg text-[9px] font-black cursor-pointer active:scale-95 transition"
+                            onClick={() => handleToggleShadowban(inspectingItem)}
+                            className={`px-2 py-1 rounded-lg text-[9px] font-black border transition cursor-pointer ${
+                              inspectingItem.is_shadowbanned
+                                ? 'bg-purple-950 text-purple-300 border-purple-500/50'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-purple-300'
+                            }`}
+                            title={inspectingItem.is_shadowbanned ? 'Remove Shadowban' : 'Shadowban listing'}
                           >
-                            ⛔ Ban Seller
+                            👻 Shadowban
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDirectDeleteListing(inspectingItem.id, changes.title || inspectingItem.title)}
                             className="px-2 py-1 bg-slate-900 hover:bg-rose-900 text-rose-300 border border-slate-800 rounded-lg text-[9px] font-bold cursor-pointer"
                           >
-                            🗑️ Delete Deal
+                            🗑️ Delete
                           </button>
                         </div>
                       </div>
 
-                      {/* 🎁 PROMOTIONAL OFFER & COMBO INSPECTOR SECTION */}
+                      {/* Promotional Offer Inspector Section */}
                       {dealBadge && (
                         <div className="p-3 rounded-2xl bg-amber-950/50 border border-amber-400/60 space-y-1.5 shadow-inner">
                           <div className="flex items-center justify-between">
@@ -1834,7 +1871,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 })()
               )}
 
-              {/* 📬 Merchant Reply Inspector Box */}
+              {/* 📬 Merchant Reply Box */}
               {inspectingItem.seller_feedback_reply && (
                 <div className="p-3 bg-cyan-950/40 rounded-2xl border border-cyan-400/50 space-y-1.5 text-[10px]">
                   <span className="font-black text-cyan-300 flex items-center space-x-1">

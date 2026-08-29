@@ -1,16 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { hyperlocalStore, useAllListingsSlice } from './store/hyperlocalStore';
-import { TAXONOMY_REGISTRY, getCategoryById } from './data/taxonomyRegistry';
+import { getCategoryById } from './data/taxonomyRegistry';
 import VoiceNotePlayer from './components/common/VoiceNotePlayer';
+import PostListingModal from './components/common/PostListingModal';
 import {
   deleteListingFromDB,
-  uploadListingImagesToStorage,
-  uploadListingVideosToStorage,
-  uploadVoiceNoteToStorage,
   submitSellerEditProposal,
   sendSellerReplyToAdmin,
-  createListingInDB,
-  saveNotificationToDB,
+  uploadVoiceNoteToStorage,
 } from './services/listingService';
 import {
   getOptimizedVoiceStream,
@@ -19,8 +16,9 @@ import {
 import {
   getCurrentUserProfile,
   isBusinessAuthorized,
-  loginResidentWithPin,
-  requestAndSendWhatsAppPin,
+  loginWith4DigitPin,
+  generateActivationPin,
+  markUserPinDispatched,
   verifyActivationPin,
   setCustomPermanentPin,
   logoutUser,
@@ -40,7 +38,6 @@ const QUICK_PRESETS = [
   'कृपया कॉल या WhatsApp पर संपर्क करें',
 ];
 
-const HOURS_LIST = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 const EMOJI_PRESETS = ['🍱', '🔥', '👑', '🎁', '⚡', '🪔', '🔄', '📱', '📺', '🛏️', '🌾', '🌶️', '🍳', '🎒', '💄', '🛵', '🎨', '🩺', '📚', '🚚', '🛡️', '⏳'];
 
 export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
@@ -70,12 +67,8 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [onlyUnanswered, setOnlyUnanswered] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
 
-  // Form & GPS States
-  const [replyInputs, setReplyInputs] = useState({});
-  const [isLocating, setIsLocating] = useState(false);
-  const [isSubmittingForm, setIsSubmittingForm] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  // Post Listing Wizard Trigger State
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
 
   // 🎁 Offer & Combo Studio State
   const [selectedListingForOffer, setSelectedListingForOffer] = useState(null);
@@ -94,56 +87,15 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isSavingOffer, setIsSavingOffer] = useState(false);
 
   // 📩 Seller-to-Admin Direct Response State
+  const [replyInputs, setReplyInputs] = useState({});
   const [sellerAdminReplies, setSellerAdminReplies] = useState({});
   const [recordingAdminReplyId, setRecordingAdminReplyId] = useState(null);
   const [adminRecordingSecs, setAdminRecordingSecs] = useState(0);
   const [isSendingAdminReply, setIsSendingAdminReply] = useState(false);
 
-  // Time Picker State (01-12 AM/PM)
-  const [timePicker, setTimePicker] = useState({
-    startHour: '09',
-    startPeriod: 'AM',
-    endHour: '09',
-    endPeriod: 'PM',
-  });
-
-  // Form State
-  const [formData, setFormData] = useState({
-    title: '',
-    category: 'property',
-    subCategory: 'all',
-    originalCategory: '',
-    originalSubCategory: '',
-    priceNumber: '',
-    priceUnit: '',
-    originalPriceNumber: '',
-    dealType: '',
-    dealBadge: '',
-    dealDetails: '',
-    tokenAmount: '',
-    doorstepTrial: false,
-    stockCount: '',
-    location: `${selectedCity} Market`,
-    lat: null,
-    lng: null,
-    descPoints: ['', '', '', ''],
-    images: [],
-    videos: [],
-  });
-
-  // 🎥 Video Compression & Upload Progress State (0% - 100%)
-  const [videoUploadState, setVideoUploadState] = useState({
-    isProcessing: false,
-    progress: 0,
-    fileName: '',
-    status: '',
-  });
-
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
-  const photoInputRef = useRef(null);
-  const videoInputRef = useRef(null);
 
   const allListings = useAllListingsSlice();
   const [threadUpdateTick, setThreadUpdateTick] = useState(0);
@@ -183,13 +135,13 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
 
     if (String(loginPin).length < 4) {
-      setAuthError('कृपया 4-अंकीय पिन दर्ज करें (Enter 4-digit PIN).');
+      setAuthError('कृपया कम से कम 4-अंकीय पिन दर्ज करें (Enter 4-digit PIN).');
       setIsAuthenticating(false);
       return;
     }
 
     try {
-      const res = await loginResidentWithPin(clean, loginPin);
+      const res = await loginWith4DigitPin(clean, loginPin);
       if (res.success && res.profile) {
         if (!res.profile.is_merchant && res.profile.verification_tier !== 'verified_merchant') {
           setAuthError('यह खाता सेलर के रूप में सक्रिय नहीं है। कृपया सेलर पिन (...S) से सक्रिय करें।');
@@ -223,22 +175,17 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     setAuthSuccess('');
 
     try {
-      const res = await requestAndSendWhatsAppPin({
-        phone: clean,
-        type: 'seller',
-        fullName: shopName || 'Merchant Partner',
-        city: selectedCity,
-      });
+      const generatedPin = generateActivationPin('seller');
+      await markUserPinDispatched(clean, generatedPin);
 
-      if (res.success) {
-        setGeneratedPinNotice(res.pin);
-        setWhatsappLink(res.whatsappUrl);
-        setAuthTab('enter_pin');
-        setAuthSuccess(`📱 सेलर पिन (${res.pin}) जेनरेट हो गया है! WhatsApp खोलें या नीचे दर्ज करें।`);
-        window.open(res.whatsappUrl, '_blank');
-      } else {
-        setAuthError(res.error || 'WhatsApp पिन भेजने में असफल।');
-      }
+      const message = `Namaste ${shopName || 'Merchant Partner'}! 🙏\n\nWelcome to Aapke Kareeb (${selectedCity})!\n\nAapka Merchant Activation PIN hai: *${generatedPin}*\n\nKripya App me jakar yeh PIN darj karein aur apna man-pasand Permanent Login PIN set karein.\n\nDhanyawaad!`;
+      const waUrl = `https://wa.me/91${clean}?text=${encodeURIComponent(message)}`;
+
+      setGeneratedPinNotice(generatedPin);
+      setWhatsappLink(waUrl);
+      setAuthTab('enter_pin');
+      setAuthSuccess(`📱 सेलर पिन (${generatedPin}) तैयार है! WhatsApp खोलें या नीचे दर्ज करें।`);
+      window.open(waUrl, '_blank');
     } catch (err) {
       setAuthError(err.message || 'Error dispatching PIN.');
     } finally {
@@ -598,324 +545,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // Category Configuration
-  const activeCategoryConfig = getCategoryById(formData.category) || TAXONOMY_REGISTRY[formData.category] || null;
-  const availableSubCategories = activeCategoryConfig?.subCategories || [];
-  const hasCategoryChanged = !isCreatingNew && formData.originalCategory && (
-    formData.category !== formData.originalCategory ||
-    formData.subCategory !== formData.originalSubCategory
-  );
-
-  // 📍 1-Tap Live GPS
-  const handleDetectGPS = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your device.');
-      return;
-    }
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setFormData((prev) => ({
-          ...prev,
-          lat: latitude,
-          lng: longitude,
-          location: prev.location || `Alwar (GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
-        }));
-        setIsLocating(false);
-      },
-      () => {
-        alert('Please enable location permissions in your browser settings.');
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  // 📷 Photos Selection
-  const handlePhotoUpload = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    if (formData.images.length + files.length > 10) {
-      alert('Maximum 10 photos allowed per listing.');
-      return;
-    }
-
-    const newItems = files.map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-      isExisting: false,
-    }));
-
-    setFormData((prev) => ({ ...prev, images: [...prev.images, ...newItems] }));
-    e.target.value = '';
-  };
-
-  const handleRemovePhoto = (index) => {
-    setFormData((prev) => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== index),
-    }));
-  };
-
-  // 🎥 Video Selection
-  const handleVideoUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (formData.videos.length >= 2) {
-      alert('Maximum 2 videos allowed per listing.');
-      return;
-    }
-
-    setVideoUploadState({
-      isProcessing: true,
-      progress: 5,
-      fileName: file.name,
-      status: 'Checking video duration...',
-    });
-
-    const videoEl = document.createElement('video');
-    videoEl.preload = 'metadata';
-    const tempUrl = URL.createObjectURL(file);
-    videoEl.src = tempUrl;
-
-    videoEl.onloadedmetadata = () => {
-      const duration = Math.round(videoEl.duration);
-      if (duration > 60) {
-        alert(`Video is ${duration}s long. Maximum allowed length is 60 seconds.`);
-        setVideoUploadState({ isProcessing: false, progress: 0, fileName: '', status: '' });
-        return;
-      }
-
-      let currentProgress = 10;
-      setVideoUploadState({
-        isProcessing: true,
-        progress: currentProgress,
-        fileName: file.name,
-        status: 'Compressing video for fast 4G/5G streaming...',
-      });
-
-      const progressInterval = setInterval(() => {
-        currentProgress += Math.floor(Math.random() * 14) + 10;
-
-        if (currentProgress < 90) {
-          setVideoUploadState((prev) => ({
-            ...prev,
-            progress: currentProgress,
-            status: currentProgress > 50 ? 'Optimizing video stream...' : 'Compressing video frames...',
-          }));
-        } else {
-          clearInterval(progressInterval);
-          setVideoUploadState({
-            isProcessing: true,
-            progress: 100,
-            fileName: file.name,
-            status: 'Video ready!',
-          });
-
-          setTimeout(() => {
-            setFormData((prev) => ({
-              ...prev,
-              videos: [
-                ...prev.videos,
-                {
-                  file,
-                  preview: tempUrl,
-                  name: file.name,
-                  duration,
-                  isExisting: false,
-                },
-              ],
-            }));
-            setVideoUploadState({ isProcessing: false, progress: 0, fileName: '', status: '' });
-          }, 400);
-        }
-      }, 120);
-    };
-
-    videoEl.onerror = () => {
-      alert('Could not read video file. Please try another video.');
-      setVideoUploadState({ isProcessing: false, progress: 0, fileName: '', status: '' });
-    };
-
-    e.target.value = '';
-  };
-
-  const handleRemoveVideo = (index) => {
-    setFormData((prev) => ({
-      ...prev,
-      videos: prev.videos.filter((_, i) => i !== index),
-    }));
-  };
-
-  // Open Edit Form
-  const handleOpenEdit = (item) => {
-    setEditingItem(item);
-    setIsCreatingNew(false);
-
-    const existingImages = (item.images && item.images.length > 0 ? item.images : item.image ? [item.image] : [])
-      .map((img) => (typeof img === 'string' ? { preview: img, url: img, isExisting: true } : img));
-
-    const existingVideos = (item.videos || []).map((v) =>
-      typeof v === 'string' ? { preview: v, url: v, name: 'Video', duration: 30, isExisting: true } : { ...v, preview: v.url, isExisting: true }
-    );
-
-    const rawPrice = String(item.price || item.rates || '').replace(/\D/g, '');
-    const rawOrigPrice = String(item.original_price || item.originalPrice || '').replace(/\D/g, '');
-    const rawStock = String(item.capacity || item.stockCount || '').replace(/\D/g, '');
-
-    let parsedPoints = ['', '', '', ''];
-    if (item.description) {
-      const lines = item.description.split('\n').map((l) => l.replace(/^[•\-\d.\s]+/, '').trim()).filter(Boolean);
-      parsedPoints = [lines[0] || '', lines[1] || '', lines[2] || '', lines[3] || ''];
-    }
-
-    const timingStr = item.timing || item.activeHours || '09:00 AM - 09:00 PM';
-    const timeMatch = timingStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)\s*-\s*(\d{1,2}):?(\d{2})?\s*(AM|PM)/i);
-    if (timeMatch) {
-      setTimePicker({
-        startHour: timeMatch[1].padStart(2, '0'),
-        startPeriod: timeMatch[3].toUpperCase(),
-        endHour: timeMatch[4].padStart(2, '0'),
-        endPeriod: timeMatch[6].toUpperCase(),
-      });
-    }
-
-    setFormData({
-      title: item.title || item.name || '',
-      category: item.category || 'property',
-      subCategory: item.subCategory || item.sub_category || 'all',
-      originalCategory: item.category || 'property',
-      originalSubCategory: item.subCategory || item.sub_category || 'all',
-      priceNumber: rawPrice,
-      priceUnit: item.priceUnit || '',
-      originalPriceNumber: rawOrigPrice,
-      dealType: item.deal_type || item.dealType || '',
-      dealBadge: item.deal_badge || item.dealBadge || '',
-      dealDetails: item.deal_details || item.dealDetails || '',
-      tokenAmount: item.token_amount || item.tokenAmount || '',
-      doorstepTrial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
-      stockCount: rawStock,
-      location: item.location || `${selectedCity} Market`,
-      lat: item.lat || null,
-      lng: item.lng || null,
-      descPoints: parsedPoints,
-      images: existingImages,
-      videos: existingVideos,
-    });
-  };
-
-  // Submit Listing Form
-  const handleSaveListing = async (e) => {
-    e.preventDefault();
-    setIsSubmittingForm(true);
-
-    try {
-      const rawImageFiles = formData.images.map((img) => img.file).filter(Boolean);
-      const existingImageUrls = formData.images
-        .map((img) => img.url || (typeof img === 'string' && img.startsWith('http') ? img : null))
-        .filter(Boolean);
-
-      const uploadedImageUrls = await uploadListingImagesToStorage(rawImageFiles);
-      const finalImageUrls = [...existingImageUrls, ...uploadedImageUrls];
-      const finalVideos = await uploadListingVideosToStorage(formData.videos);
-
-      const validPoints = formData.descPoints.filter((p) => p && p.trim().length > 0);
-      const combinedDescription = validPoints.length > 0 ? validPoints.map((p) => `• ${p.trim()}`).join('\n') : formData.title;
-      const formattedPrice = formData.priceNumber ? `₹ ${formData.priceNumber.trim()}${formData.priceUnit ? ' ' + formData.priceUnit : ''}` : 'Contact for Price';
-      const formattedOrigPrice = formData.originalPriceNumber ? `₹ ${formData.originalPriceNumber.trim()}` : null;
-      const formattedStock = formData.stockCount ? `${formData.stockCount} Units Available` : 'Ready Stock';
-      const formattedActiveHours = `${timePicker.startHour}:00 ${timePicker.startPeriod} - ${timePicker.endHour}:00 ${timePicker.endPeriod}`;
-
-      const cleanPayload = {
-        title: formData.title,
-        name: formData.title,
-        category: formData.category,
-        subCategory: formData.subCategory,
-        price: formattedPrice,
-        original_price: formattedOrigPrice,
-        deal_type: formData.dealType || null,
-        deal_badge: formData.dealBadge || null,
-        deal_details: formData.dealDetails || null,
-        token_amount: formData.tokenAmount || null,
-        doorstep_trial: Boolean(formData.doorstepTrial),
-        rates: formattedPrice,
-        startingPackage: formattedPrice,
-        description: combinedDescription,
-        location: formData.location,
-        lat: formData.lat,
-        lng: formData.lng,
-        capacity: formattedStock,
-        stockCount: formattedStock,
-        timing: formattedActiveHours,
-        activeHours: formattedActiveHours,
-        image: finalImageUrls[0] || 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=600',
-        images: finalImageUrls,
-        image_urls: finalImageUrls,
-        videos: finalVideos,
-        video_urls: finalVideos.map((v) => v.url),
-        sellerName: currentUser?.full_name || 'Verified Merchant',
-        phone: sellerPhone,
-        whatsapp: sellerPhone,
-      };
-
-      if (isCreatingNew) {
-        const newDraft = { ...cleanPayload, city: selectedCity, has_pending_approval: true, isNew: true, badge: '⏳ Pending Admin Approval' };
-        const { data: dbData } = await createListingInDB(newDraft);
-        const finalItem = dbData || { id: `draft-${Date.now()}`, ...newDraft };
-        hyperlocalStore.insertListing(formData.category, finalItem);
-
-        const notifObj = {
-          tag: 'NEW ENLISTMENT',
-          title: `New Listing: "${formData.title}"`,
-          message: `Merchant (${sellerPhone}) submitted a new listing for approval.`,
-          targetId: finalItem.id,
-          category: formData.category,
-          recipient_role: 'admin',
-          recipient_phone: null,
-          metadata: { dealBadge: cleanPayload.deal_badge },
-        };
-        await saveNotificationToDB(notifObj);
-        hyperlocalStore.addNotification(notifObj);
-        showNotice('Listing submitted for Admin approval.');
-      } else if (editingItem) {
-        const { data: dbProposal } = await submitSellerEditProposal(editingItem.id, cleanPayload);
-        const updatedItem = {
-          ...editingItem,
-          id: dbProposal?.id || editingItem.id,
-          pending_changes: cleanPayload,
-          has_pending_approval: true,
-          admin_feedback: null,
-          seller_feedback_reply: null,
-        };
-        hyperlocalStore.insertListing(editingItem.category, updatedItem);
-
-        const notifObj = {
-          tag: 'EDIT PROPOSAL',
-          title: `Edit Request: "${editingItem.title || editingItem.name}"`,
-          message: `Merchant (${sellerPhone}) submitted updates for approval.`,
-          targetId: updatedItem.id,
-          category: editingItem.category,
-          recipient_role: 'admin',
-          recipient_phone: null,
-          metadata: { dealBadge: cleanPayload.deal_badge },
-        };
-        await saveNotificationToDB(notifObj);
-        hyperlocalStore.addNotification(notifObj);
-        showNotice('Edits submitted for Admin approval.');
-      }
-
-      setEditingItem(null);
-      setIsCreatingNew(false);
-    } catch (err) {
-      console.error('Save listing error:', err);
-      alert('Could not submit changes. Please check your connection.');
-    } finally {
-      setIsSubmittingForm(false);
-    }
-  };
-
   // =========================================================================
   // 🔒 AUTH GUARD VIEW: LOGIN & SELLER PIN ACTIVATION (...S)
   // =========================================================================
@@ -1003,7 +632,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
               <div>
                 <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                  4-Digit Security PIN (4-अंकीय पिन) *
+                  Security PIN (पिन दर्ज करें) *
                 </label>
                 <input
                   type="password"
@@ -1033,7 +662,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                     setAuthError('');
                     setAuthSuccess('');
                   }}
-                  className="text-[10px] text-amber-400 hover:underline font-bold"
+                  className="text-[10px] text-amber-400 hover:underline font-bold cursor-pointer"
                 >
                   New Seller? Activate via WhatsApp PIN (...S) ➔
                 </button>
@@ -1377,7 +1006,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                     <span className="text-slate-400 text-[9px]">Buyer Question</span>
                   </div>
                   {inq.audioUrl ? (
-                    <VoiceNotePlayer audioUrl={inq.audioUrl} duration={inq.audioDuration} senderName={inq.userName.split(' ')[0]} />
+                    <VoiceNotePlayer audioUrl={inq.audioUrl} duration={inq.audioDuration} senderName={inq.userName ? inq.userName.split(' ')[0] : 'Resident'} />
                   ) : (
                     <p className="text-xs text-slate-200 font-medium italic">"{inq.text}"</p>
                   )}
@@ -1458,14 +1087,11 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           <div className="p-3.5 bg-gradient-to-r from-amber-500/20 via-amber-400/10 to-transparent border border-amber-400/40 rounded-2xl flex items-center justify-between shadow-lg">
             <div>
               <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider">✨ GROW YOUR BUSINESS</span>
-              <h3 className="text-xs font-black text-slate-100 mt-0.5">Want to enlist another item?</h3>
+              <h3 className="text-xs font-black text-slate-100 mt-0.5">Want to enlist another item or service?</h3>
             </div>
             <button
               type="button"
-              onClick={() => {
-                setEditingItem(null);
-                setIsCreatingNew(true);
-              }}
+              onClick={() => setIsPostModalOpen(true)}
               className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer"
             >
               + Enlist New ➔
@@ -1586,7 +1212,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           {isRecordingAdmin ? (
                             <div className="flex items-center justify-between p-2 bg-rose-950/60 border border-rose-500/50 rounded-xl animate-pulse">
                               <span className="text-[10px] font-bold text-rose-300">
-                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}${adminRecordingSecs}
+                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}{adminRecordingSecs}
                               </span>
                               <div className="flex items-center space-x-1.5">
                                 <button type="button" onClick={handleCancelVoiceToAdmin} className="px-2 py-0.5 bg-slate-800 text-slate-300 text-[9px] rounded-lg cursor-pointer">Cancel</button>
@@ -1656,14 +1282,6 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
                         <button
                           type="button"
-                          onClick={() => handleOpenEdit(item)}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
-                        >
-                          ✏️ Edit
-                        </button>
-
-                        <button
-                          type="button"
                           onClick={() => handleDeleteMerchantListing(item.id, item.title || item.name)}
                           className="px-2.5 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
                         >
@@ -1692,7 +1310,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
               </h3>
             </div>
             <p className="text-[10.5px] text-slate-300 leading-relaxed">
-              Attach high-impact promotional deals (Combos, Kits, Flat Discounts, Advance Locks) to multiply your store inquiries across {selectedCity}!
+              Attach promotional deals (Combos, Kits, Flat Discounts, Advance Locks) to multiply your store inquiries across {selectedCity}!
             </p>
           </div>
 
@@ -1820,7 +1438,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                             : 'text-slate-400 hover:text-white'
                         }`}
                       >
-                        🛡️ Har Dukaan Flat Deals ({universalTemplates.length})
+                        🛡️ Flat Deals ({universalTemplates.length})
                       </button>
                     </div>
                   )}
@@ -2024,287 +1642,13 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         );
       })()}
 
-      {/* ========================================================================= */}
-      {/* MODAL: EDIT & ENLIST NEW                                                  */}
-      {/* ========================================================================= */}
-      {(editingItem || isCreatingNew) && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
-          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-sm rounded-3xl p-5 shadow-2xl space-y-3.5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-              <div>
-                <h3 className="text-xs font-black text-amber-300">
-                  {isCreatingNew ? '🆕 Enlist New Listing' : '✏️ Edit Listing Details'}
-                </h3>
-                <p className="text-[9px] text-slate-400">
-                  {isCreatingNew ? 'Submit for Admin approval' : `Editing "${editingItem?.title || editingItem?.name}"`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setEditingItem(null); setIsCreatingNew(false); }}
-                className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveListing} className="space-y-3 text-[11px]">
-              <div className="space-y-2 bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-300 block mb-1">Category *</label>
-                    <select
-                      value={formData.category}
-                      onChange={(e) => {
-                        const newCat = e.target.value;
-                        const catObj = getCategoryById(newCat);
-                        setFormData((prev) => ({
-                          ...prev,
-                          category: newCat,
-                          subCategory: catObj?.subCategories?.[0]?.id || 'all',
-                        }));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-2 text-slate-100 text-xs"
-                    >
-                      {Object.keys(TAXONOMY_REGISTRY).map((catKey) => {
-                        const cat = TAXONOMY_REGISTRY[catKey];
-                        return <option key={cat.id} value={cat.id}>{cat.icon} {cat.name.split('(')[0]}</option>;
-                      })}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-300 block mb-1">Subcategory *</label>
-                    <select
-                      value={formData.subCategory}
-                      onChange={(e) => setFormData({ ...formData, subCategory: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-2 text-slate-100 text-xs"
-                    >
-                      <option value="all">🌟 All / General</option>
-                      {availableSubCategories.map((sub) => (
-                        <option key={sub.id} value={sub.id}>{sub.icon || '•'} {sub.name.split('(')[0]}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {hasCategoryChanged && (
-                  <div className="p-2.5 rounded-xl bg-amber-950/70 border border-amber-500/50 text-[9.5px] text-amber-200">
-                    ⚠️ <strong>Heritage Reminder:</strong> Previously registered under <span className="underline font-black uppercase text-amber-300">{formData.originalCategory}</span> ({formData.originalSubCategory}).
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Title / Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="e.g. Rajputana Motors Dhanteras Deal"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Price (रुपये में - केवल अंक) *</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-amber-400 select-none">₹</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      required
-                      value={formData.priceNumber}
-                      onChange={(e) => setFormData({ ...formData, priceNumber: e.target.value.replace(/\D/g, '') })}
-                      placeholder="169000"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-slate-100 font-bold font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Original / Strike Price</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-500 select-none">₹</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={formData.originalPriceNumber}
-                      onChange={(e) => setFormData({ ...formData, originalPriceNumber: e.target.value.replace(/\D/g, '') })}
-                      placeholder="185000"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-slate-400 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[9px] font-bold text-slate-300 block mb-1">Ready Stock Units (केवल अंक)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={formData.stockCount}
-                  onChange={(e) => setFormData({ ...formData, stockCount: e.target.value.replace(/\D/g, '') })}
-                  placeholder="e.g. 10"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
-                />
-              </div>
-
-              <div className="p-2.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <label className="text-[9.5px] font-black text-slate-200 block">⏰ Active Hours</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex items-center space-x-1">
-                    <select
-                      value={timePicker.startHour}
-                      onChange={(e) => setTimePicker({ ...timePicker, startHour: e.target.value })}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl py-1.5 px-2 text-slate-100 text-xs font-bold"
-                    >
-                      {HOURS_LIST.map((h) => <option key={h} value={h}>{h}:00</option>)}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setTimePicker({ ...timePicker, startPeriod: timePicker.startPeriod === 'AM' ? 'PM' : 'AM' })}
-                      className="px-2.5 py-1.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 font-black text-[10px]"
-                    >
-                      {timePicker.startPeriod}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center space-x-1">
-                    <select
-                      value={timePicker.endHour}
-                      onChange={(e) => setTimePicker({ ...timePicker, endHour: e.target.value })}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl py-1.5 px-2 text-slate-100 text-xs font-bold"
-                    >
-                      {HOURS_LIST.map((h) => <option key={h} value={h}>{h}:00</option>)}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setTimePicker({ ...timePicker, endPeriod: timePicker.endPeriod === 'AM' ? 'PM' : 'AM' })}
-                      className="px-2.5 py-1.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 font-black text-[10px]"
-                    >
-                      {timePicker.endPeriod}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[9.5px] font-bold text-slate-300 block mb-1">Location *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.location}
-                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                  placeholder="e.g. Company Bagh Road, Alwar"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleDetectGPS}
-                disabled={isLocating}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-400 via-yellow-400 to-emerald-400 text-slate-950 font-black text-xs rounded-2xl shadow-md cursor-pointer flex items-center justify-center space-x-1.5 active:scale-98 border border-amber-300/40"
-              >
-                <span>📍</span>
-                <span>{isLocating ? 'Detecting GPS...' : '1-Tap Set Live Shop GPS'}</span>
-              </button>
-
-              <div className="space-y-1.5 p-3 bg-slate-950 rounded-2xl border border-slate-800">
-                <label className="text-[9.5px] font-black text-slate-200 block">📝 Key Highlights</label>
-                {[0, 1, 2, 3].map((idx) => (
-                  <div key={idx} className="flex items-center space-x-2">
-                    <span className="w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={formData.descPoints[idx]}
-                      onChange={(e) => {
-                        const next = [...formData.descPoints];
-                        next[idx] = e.target.value;
-                        setFormData({ ...formData, descPoints: next });
-                      }}
-                      placeholder={`Highlight point ${idx + 1}...`}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-[10.5px]"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[9.5px] font-black text-slate-300">📷 Photos ({formData.images.length}/10)</label>
-                  <button
-                    type="button"
-                    onClick={() => photoInputRef.current?.click()}
-                    disabled={formData.images.length >= 10}
-                    className="text-[9px] font-black bg-slate-800 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md cursor-pointer"
-                  >
-                    + Add Photos
-                  </button>
-                </div>
-
-                <input type="file" ref={photoInputRef} multiple accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-
-                {formData.images.length > 0 && (
-                  <div className="grid grid-cols-4 gap-1.5 pt-1">
-                    {formData.images.map((img, idx) => (
-                      <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700">
-                        <img src={img.preview || img} alt="Thumb" className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => handleRemovePhoto(idx)}
-                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[8px] flex items-center justify-center cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[9.5px] font-black text-slate-300">🎥 Walkthrough Videos ({formData.videos.length}/2)</label>
-                  <button
-                    type="button"
-                    onClick={() => videoInputRef.current?.click()}
-                    disabled={formData.videos.length >= 2 || videoUploadState.isProcessing}
-                    className="text-[9px] font-black bg-slate-800 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md disabled:opacity-40 cursor-pointer"
-                  >
-                    + Add Video
-                  </button>
-                </div>
-
-                <input type="file" ref={videoInputRef} accept="video/*" onChange={handleVideoUpload} className="hidden" />
-
-                {formData.videos.map((vid, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-700 text-[9.5px]">
-                    <span className="truncate text-slate-200">🎬 {vid.name || `Video ${idx + 1}`} ({vid.duration || 30}s)</span>
-                    <button type="button" onClick={() => handleRemoveVideo(idx)} className="text-rose-400 font-black cursor-pointer">✕</button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[9px] text-slate-400">
-                🛡️ Note: All changes and new submissions are routed to the Admin Dashboard for verification before going live across {selectedCity}.
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmittingForm || videoUploadState.isProcessing}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-50"
-              >
-                {isSubmittingForm ? 'Uploading & Submitting... ⏳' : isCreatingNew ? 'Submit for Admin Approval ➔' : 'Submit Edits for Approval ➔'}
-              </button>
-            </form>
-          </div>
-        </div>
+      {/* Unified Guided Post / Enlist Modal */}
+      {isPostModalOpen && (
+        <PostListingModal
+          isOpen={isPostModalOpen}
+          onClose={() => setIsPostModalOpen(false)}
+          selectedCity={selectedCity}
+        />
       )}
     </main>
   );

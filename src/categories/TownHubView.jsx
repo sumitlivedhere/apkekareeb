@@ -1,21 +1,26 @@
 import React, { useState, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { TAXONOMY_REGISTRY } from '../data/taxonomyRegistry';
+import { TAXONOMY_REGISTRY, getCategoryById } from '../data/taxonomyRegistry';
+import PostListingModal from '../components/common/PostListingModal';
+import { isBusinessAuthorized, getCurrentUserProfile } from '../services/authService';
 
 export default function TownHubView({
   category = 'market',
   selectedCity = 'Alwar',
   onSelectSubCategory,
   onSelectCategory,
+  onOpenAuth,
   onBack,
 }) {
   const { isDark } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [speakingId, setSpeakingId] = useState(null);
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
 
   // Retrieve category metadata and subcategory taxonomy
   const activeCategoryData = useMemo(() => {
     return (
+      getCategoryById(category) ||
       TAXONOMY_REGISTRY[category] || {
         id: category,
         name: category.charAt(0).toUpperCase() + category.slice(1),
@@ -69,8 +74,22 @@ export default function TownHubView({
     }
   };
 
+  // ➕ Handlers for Post Modal Gating
+  const handleOpenPostModal = () => {
+    const user = getCurrentUserProfile();
+    if (!user) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    if (!isBusinessAuthorized()) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    setIsPostModalOpen(true);
+  };
+
   return (
-    <div className="p-3.5 space-y-3.5 font-sans select-none pb-12 animate-fade-in">
+    <div className="p-3.5 space-y-3.5 font-sans select-none pb-14 animate-fade-in">
       
       {/* 🌟 1. Header Navigation Bar */}
       <div
@@ -125,7 +144,7 @@ export default function TownHubView({
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold cursor-pointer"
               >
                 ✕
               </button>
@@ -134,7 +153,32 @@ export default function TownHubView({
         </div>
       </div>
 
-      {/* 🌟 2. Subcategories Header */}
+      {/* 🌟 2. Scoped Utility Bar with Post Here Button */}
+      <div
+        className={`p-3 rounded-2xl border flex items-center justify-between shadow-sm ${
+          isDark ? 'bg-slate-900/90 border-slate-800 text-slate-200' : 'bg-amber-50/70 border-amber-200/80 text-slate-900'
+        }`}
+      >
+        <div>
+          <span className="text-[9.5px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
+            Merchant Action
+          </span>
+          <p className="text-xs font-black">
+            Have items or services in {activeCategoryData.name}?
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleOpenPostModal}
+          className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1.5"
+        >
+          <span>➕</span>
+          <span>Post Here</span>
+        </button>
+      </div>
+
+      {/* 🌟 3. Subcategories Header */}
       <div className="flex items-center justify-between px-1 pt-1">
         <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-300">
           Subcategories (उप-श्रेणियां)
@@ -150,7 +194,7 @@ export default function TownHubView({
         </span>
       </div>
 
-      {/* 🌟 3. High-Contrast Subcategory Cards Feed */}
+      {/* 🌟 4. High-Contrast Subcategory Cards Feed */}
       <div className="space-y-2.5">
         {filteredSubs.map((sub) => {
           const isSpeaking = speakingId === sub.id;
@@ -165,7 +209,7 @@ export default function TownHubView({
                   : 'bg-white border-slate-200 hover:border-amber-400 shadow-slate-200/40 text-slate-900'
               }`}
             >
-              {/* Left: Icon & High-Contrast Typography */}
+              {/* Left: Icon & Typography */}
               <div className="flex items-center space-x-3.5 min-w-0">
                 <div
                   className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 border ${
@@ -192,7 +236,7 @@ export default function TownHubView({
                 </div>
               </div>
 
-              {/* Right: Speaker & Navigation Arrow */}
+              {/* Right: Speaker & Arrow */}
               <div className="flex items-center space-x-2 shrink-0">
                 <button
                   type="button"
@@ -217,6 +261,17 @@ export default function TownHubView({
           );
         })}
       </div>
+
+      {/* Unified Guided Post Modal */}
+      {isPostModalOpen && (
+        <PostListingModal
+          isOpen={isPostModalOpen}
+          onClose={() => setIsPostModalOpen(false)}
+          initialCategory={category}
+          initialSubCategory="all"
+          selectedCity={selectedCity}
+        />
+      )}
     </div>
   );
 }

@@ -31,12 +31,14 @@ const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 const USER_INTERESTS_STORAGE_KEY = 'aapkekareeb_user_interests';
 const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
 
+const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
+
 /**
  * Generates user-specific localStorage cart key based on mobile number
  */
 function getUserCartStorageKey(phone) {
   if (!phone) return null;
-  const clean = String(phone).replace(/\D/g, '').slice(-10);
+  const clean = sanitizePhone(phone);
   return `aapkekareeb_cart_${clean}`;
 }
 
@@ -151,7 +153,7 @@ export function sanitizeImageUrl(url, category = 'property') {
 }
 
 /**
- * Normalizes DB rows, mock data, and custom user listings into a single uniform schema
+ * Normalizes DB rows, mock data, and custom user listings into a single uniform schema[cite: 2, 3]
  */
 export function normalizeDBListing(item) {
   if (!item) return null;
@@ -167,7 +169,7 @@ export function normalizeDBListing(item) {
     item.profession ||
     item.cuisine ||
     'all';
-  const subCatId = sanitizeSubCategoryId(catId, rawSub);
+  const subCatId = sanitizeSubCategoryId ? sanitizeSubCategoryId(catId, rawSub) : rawSub;
 
   // 1. Image Resolution with Sanitization
   let rawImages = [];
@@ -224,6 +226,9 @@ export function normalizeDBListing(item) {
     item.startingPackage ||
     'Contact for Price';
 
+  const rawStock = String(item.stock_count || item.stockCount || item.capacity || '').replace(/\D/g, '');
+  const capacityVal = item.capacity || (rawStock ? `${rawStock} Units Available` : 'Ready Stock');
+
   const nameVal = item.title || item.name || 'Untitled Listing';
   const rawLocation = item.location_name || item.location || 'Alwar';
   const resolvedCity = item.city || (rawLocation.toLowerCase().includes('jaipur') ? 'Jaipur' : 'Alwar');
@@ -257,6 +262,7 @@ export function normalizeDBListing(item) {
     name: nameVal,
     category: catId,
     subCategory: subCatId,
+    sub_category: subCatId,
     bucketKey: targetBucket,
     trade: subCatId,
     profession: subCatId,
@@ -271,8 +277,8 @@ export function normalizeDBListing(item) {
     fee: priceVal,
     rent: priceVal,
     rates: priceVal,
-    visitingCharge: priceVal,
-    consultationFee: priceVal,
+    visitingCharge: item.visitingCharge || priceVal,
+    consultationFee: item.consultationFee || priceVal,
     priceForTwo: priceVal,
     startingPackage: priceVal,
     deal_type: item.deal_type || item.dealType || null,
@@ -282,14 +288,16 @@ export function normalizeDBListing(item) {
     token_amount: item.token_amount || item.tokenAmount || null,
     doorstep_trial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
     sellerName: personOrBiz,
+    seller_name: personOrBiz,
     driverName: personOrBiz,
     trainerName: personOrBiz,
     providerName: personOrBiz,
     doctorName: personOrBiz,
-    phone: item.phone || '9876543201',
-    whatsapp: item.whatsapp || item.phone || '9876543201',
+    phone: sanitizePhone(item.phone) || '9876543201',
+    whatsapp: sanitizePhone(item.whatsapp || item.phone) || '9876543201',
     city: resolvedCity,
     location: rawLocation,
+    location_name: rawLocation,
     landmark: item.landmark || rawLocation || 'Main Road',
     distance: item.distance || '0.1 km away',
     lat: item.lat !== undefined && item.lat !== null ? Number(item.lat) : null,
@@ -300,6 +308,7 @@ export function normalizeDBListing(item) {
         ? `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`
         : null),
     image: coverImage,
+    image_url: coverImage,
     images: sanitizedImages,
     image_urls: sanitizedImages,
     videos: allVideos,
@@ -307,24 +316,33 @@ export function normalizeDBListing(item) {
     photo: coverImage,
     avatar: coverImage,
     description: item.description || '',
-    condition: item.condition || 'Good',
+    condition: item.condition || 'Brand New',
     interestCount: Number(
       item.interest_count !== undefined
         ? item.interest_count
         : item.interestCount || 0
     ),
+    interest_count: Number(
+      item.interest_count !== undefined
+        ? item.interest_count
+        : item.interestCount || 0
+    ),
     rating: Number(item.rating || 5.0),
-    reviewsCount: Number(item.reviews_count || 0),
+    reviewsCount: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
+    reviews_count: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
     verified: item.verified !== undefined ? item.verified : true,
+    verification_badge: item.verification_badge || (hasPendingApproval ? '⏳ Pending Approval' : 'Verified Listing'),
     badge: item.badge || (hasPendingApproval ? '⏳ Pending Approval' : '🟢 Verified Listing'),
     experience: item.experience || '5+ Years Exp',
     timing: item.timing || item.activeHours || '09:00 AM - 09:00 PM',
     activeHours: item.timing || item.activeHours || '09:00 AM - 09:00 PM',
-    capacity: item.capacity || item.stockCount || 'Ready Stock',
-    stockCount: item.capacity || item.stockCount || 'Ready Stock',
+    capacity: capacityVal,
+    stockCount: capacityVal,
+    stock_count: rawStock ? parseInt(rawStock, 10) : null,
     qualifications: item.qualifications || '',
     regNumber: item.regNumber || '',
     is_active: isActive,
+    is_shadowbanned: Boolean(item.is_shadowbanned),
     has_pending_approval: hasPendingApproval,
     pending_changes: pendingChanges,
     admin_feedback: item.admin_feedback || null,
@@ -337,10 +355,7 @@ export function normalizeDBListing(item) {
 
 export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
   const allNotifications = useNotificationSlice();
-
-  const userPhone = currentUser?.phone
-    ? String(currentUser.phone).replace(/\D/g, '').slice(-10)
-    : null;
+  const userPhone = sanitizePhone(currentUser?.phone);
 
   const isSellerOnBusinessHub =
     currentScreen === 'provider-dashboard' ||
@@ -356,9 +371,7 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
 
   return (allNotifications || []).filter((notif) => {
     const role = notif.recipient_role || notif.role || 'public';
-    const targetPhone = notif.recipient_phone
-      ? String(notif.recipient_phone).replace(/\D/g, '').slice(-10)
-      : null;
+    const targetPhone = sanitizePhone(notif.recipient_phone);
 
     if (activeRole === 'admin') {
       return role === 'admin';
@@ -376,7 +389,7 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
 class HyperlocalEngineStore {
   constructor() {
     const initialUser = getCurrentUserProfile();
-    const initialPhone = initialUser?.phone ? String(initialUser.phone).replace(/\D/g, '').slice(-10) : null;
+    const initialPhone = sanitizePhone(initialUser?.phone);
 
     this.state = {
       listings: (initialListings || []).map((i) => normalizeDBListing(i)),
@@ -438,7 +451,6 @@ class HyperlocalEngineStore {
       threads: {},
       interests: {},
       reviews: getStoredReviewsMap(),
-      // User-specific cart items array
       cart: getStoredCartForUser(initialPhone),
       activeUserPhone: initialPhone,
       notifications: [],
@@ -458,7 +470,7 @@ class HyperlocalEngineStore {
     const seen = new Set();
     return list.filter((item) => {
       if (!item || !item.id || seen.has(String(item.id))) return false;
-      if (item.is_active === false) return false;
+      if (item.is_active === false || item.is_shadowbanned === true) return false;
       seen.add(String(item.id));
       return true;
     });
@@ -615,7 +627,7 @@ class HyperlocalEngineStore {
           id: row.id,
           listingId: listingId,
           userId: row.user_id || null,
-          phone: row.phone,
+          phone: sanitizePhone(row.phone),
           userName: row.user_name || 'Verified Resident',
           rating: Number(row.rating) || 5,
           comment: row.comment || '',
@@ -646,9 +658,9 @@ class HyperlocalEngineStore {
       read: false,
       is_read: false,
       type: notif.type || 'general',
-      targetId: notif.targetId || notif.metadata?.targetId || null,
+      targetId: notif.targetId || notif.metadata?.targetId || notif.metadata?.listingId || null,
       recipient_role: notif.recipient_role || 'public',
-      recipient_phone: notif.recipient_phone || null,
+      recipient_phone: sanitizePhone(notif.recipient_phone),
       metadata: notif.metadata || {},
       created_at: notif.created_at || new Date().toISOString(),
     };
@@ -659,7 +671,7 @@ class HyperlocalEngineStore {
   removeNotificationsForTarget(listingId) {
     const targetStr = String(listingId);
     this.state.notifications = (this.state.notifications || []).filter(
-      (n) => String(n.targetId) !== targetStr && String(n.metadata?.targetId) !== targetStr
+      (n) => String(n.targetId) !== targetStr && String(n.metadata?.targetId) !== targetStr && String(n.metadata?.listingId) !== targetStr
     );
     this.notify('notifications');
   }
@@ -786,7 +798,7 @@ class HyperlocalEngineStore {
   // 🌟 SINGLE-TAP INTEREST CHECK & TOGGLE
   hasUserInterested(listingId) {
     const user = getCurrentUserProfile();
-    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : 'guest_device';
+    const userPhone = sanitizePhone(user?.phone) || 'guest_device';
     const stored = getStoredInterestsMap();
     return Boolean(stored[`${userPhone}_${listingId}`]);
   }
@@ -801,7 +813,7 @@ class HyperlocalEngineStore {
   toggleInterestOnce(listingId, defaultCount = 0, listingTitle = '', sellerName = '') {
     const strId = String(listingId);
     const user = getCurrentUserProfile();
-    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : 'guest_device';
+    const userPhone = sanitizePhone(user?.phone) || 'guest_device';
     const stored = getStoredInterestsMap();
     const interestKey = `${userPhone}_${strId}`;
 
@@ -861,7 +873,7 @@ class HyperlocalEngineStore {
   async addListingReview(listingId, reviewData) {
     const strId = String(listingId);
     const user = getCurrentUserProfile();
-    const userPhone = user?.phone ? String(user.phone).replace(/\D/g, '').slice(-10) : reviewData.phone || 'guest';
+    const userPhone = sanitizePhone(user?.phone) || sanitizePhone(reviewData.phone) || 'guest';
     const currentReviews = this.getListingReviews(strId);
 
     const existingIndex = currentReviews.findIndex((r) => r.phone === userPhone);
@@ -877,7 +889,7 @@ class HyperlocalEngineStore {
       userName: reviewData.userName || user?.full_name || 'Verified Resident',
       rating: Number(reviewData.rating) || 5,
       comment: reviewData.comment || '',
-      photos: reviewData.photos || [],
+      photos: Array.isArray(reviewData.photos) ? reviewData.photos : [],
       video: reviewData.video || null,
       audioUrl: reviewData.audioUrl || null,
       audioDuration: reviewData.audioDuration || null,
@@ -957,7 +969,7 @@ class HyperlocalEngineStore {
       return;
     }
 
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     this.state.activeUserPhone = cleanPhone;
 
     // 1. Load from Phone-Scoped LocalStorage
@@ -988,8 +1000,8 @@ class HyperlocalEngineStore {
                 numericPrice: parseNumericPrice(match.price || match.rates),
                 image: match.image || match.image_url || (match.images && match.images[0]) || null,
                 sellerName: match.sellerName || match.providerName || 'Local Merchant',
-                phone: String(match.phone || match.whatsapp || '').replace(/\D/g, '').slice(-10),
-                whatsapp: String(match.whatsapp || match.phone || '').replace(/\D/g, '').slice(-10),
+                phone: sanitizePhone(match.phone || match.whatsapp) || '9876543210',
+                whatsapp: sanitizePhone(match.whatsapp || match.phone) || '9876543210',
                 category: match.category || 'general',
                 subCategory: match.subCategory || 'all',
                 location: match.location || 'Town Center',
@@ -1046,7 +1058,7 @@ class HyperlocalEngineStore {
       };
     }
 
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     this.state.activeUserPhone = cleanPhone;
     const cart = [...(this.state.cart || [])];
     const targetId = String(listingItem.id);
@@ -1065,8 +1077,8 @@ class HyperlocalEngineStore {
         numericPrice: parseNumericPrice(listingItem.price || listingItem.rates),
         image: listingItem.image || listingItem.image_url || (listingItem.images && listingItem.images[0]) || null,
         sellerName: listingItem.sellerName || listingItem.providerName || 'Verified Merchant',
-        phone: String(listingItem.phone || listingItem.whatsapp || '').replace(/\D/g, '').slice(-10),
-        whatsapp: String(listingItem.whatsapp || listingItem.phone || '').replace(/\D/g, '').slice(-10),
+        phone: sanitizePhone(listingItem.phone || listingItem.whatsapp) || '9876543210',
+        whatsapp: sanitizePhone(listingItem.whatsapp || listingItem.phone) || '9876543210',
         category: listingItem.category || 'general',
         subCategory: listingItem.subCategory || 'all',
         location: listingItem.location || 'Town Center',
@@ -1099,7 +1111,7 @@ class HyperlocalEngineStore {
     }
 
     // 2. Dispatch Anonymous Lead Alert to Seller
-    const sellerPhone = String(listingItem.phone || listingItem.whatsapp || '').replace(/\D/g, '').slice(-10);
+    const sellerPhone = sanitizePhone(listingItem.phone || listingItem.whatsapp);
     const buyerLocality = currentUser?.area_name || currentUser?.city || 'your area';
     const residentTier = currentUser?.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
     const listingTitle = listingItem.title || listingItem.name || 'Your Product';
@@ -1144,7 +1156,7 @@ class HyperlocalEngineStore {
     const phone = explicitPhone || currentUser?.phone || this.state.activeUserPhone;
     if (!phone) return;
 
-    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    const cleanPhone = sanitizePhone(phone);
     let cart = [...(this.state.cart || [])];
     const targetId = String(listingId);
     const numQty = Number(quantity);
@@ -1197,7 +1209,7 @@ class HyperlocalEngineStore {
     const phone = explicitPhone || currentUser?.phone || this.state.activeUserPhone;
 
     if (phone) {
-      const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+      const cleanPhone = sanitizePhone(phone);
       const key = getUserCartStorageKey(cleanPhone);
       if (key) localStorage.removeItem(key);
 
@@ -1301,8 +1313,8 @@ export async function hydrateFromDB() {
         message: n.message,
         read: n.is_read,
         recipient_role: n.recipient_role,
-        recipient_phone: n.recipient_phone,
-        targetId: n.metadata?.targetId || null,
+        recipient_phone: sanitizePhone(n.recipient_phone),
+        targetId: n.metadata?.targetId || n.metadata?.listingId || null,
         metadata: n.metadata || {},
         created_at: n.created_at,
       }));
@@ -1429,10 +1441,10 @@ export function initRealtimeSubscriptions() {
         { event: '*', schema: 'public', table: 'user_carts' },
         (payload) => {
           const activeUser = getCurrentUserProfile();
-          const activePhone = activeUser?.phone ? String(activeUser.phone).replace(/\D/g, '').slice(-10) : null;
-          const rowPhone = payload.new?.phone || payload.old?.phone;
+          const activePhone = sanitizePhone(activeUser?.phone);
+          const rowPhone = sanitizePhone(payload.new?.phone || payload.old?.phone);
 
-          if (activePhone && rowPhone && String(rowPhone).replace(/\D/g, '').slice(-10) === activePhone) {
+          if (activePhone && rowPhone && rowPhone === activePhone) {
             hyperlocalStore.loadUserCart(activePhone);
           }
         }
@@ -1573,46 +1585,55 @@ export function useNotificationSlice(explicitScope = null) {
   function getScopedNotifications(scope) {
     const rawNotifs = hyperlocalStore.state.notifications || [];
     const profile = getCurrentUserProfile();
-    const userPhone = profile?.phone ? String(profile.phone).replace(/\D/g, '').slice(-10) : null;
+    const userPhone = sanitizePhone(profile?.phone);
 
     const PRIVATE_TAGS = [
       'NEW ENLISTMENT',
       'EDIT PROPOSAL',
       'REPORT',
+      'FLAGGED_REPORT',
       'SELLER FEEDBACK REPLY',
+      'SELLER_FEEDBACK_REPLY',
       'SELLER VOICE REPLY',
+      'SELLER_VOICE_REPLY',
       'ADMIN FEEDBACK',
+      'ADMIN_FEEDBACK',
       'ADMIN VOICE NOTE',
       'VOICE INQUIRY',
+      'VOICE_INQUIRY',
       'NEW COMMENT',
+      'USER_COMMENT',
       'SELLER REPLIED',
+      'SELLER_REPLY',
       'APPROVED',
       'REJECTED',
       'INTEREST REGISTERED',
+      'INTEREST_REGISTERED',
+      'CART_ADDITION',
     ];
 
     if (scope === 'admin') {
       return rawNotifs.filter(
         (n) =>
           n.recipient_role === 'admin' ||
-          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'SELLER FEEDBACK REPLY', 'SELLER VOICE REPLY'].includes(n.tag)
+          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY'].includes(n.tag)
       );
     }
 
     if (scope === 'seller' || (scope !== 'public' && userPhone)) {
       return rawNotifs.filter((n) => {
-        const notifPhone = n.recipient_phone ? String(n.recipient_phone).replace(/\D/g, '').slice(-10) : null;
-        const metaPhone =
+        const notifPhone = sanitizePhone(n.recipient_phone);
+        const metaPhone = sanitizePhone(
           n.metadata?.sellerPhone ||
           n.metadata?.seller_phone ||
           n.metadata?.phone ||
-          n.metadata?.recipient_phone;
-        const cleanMetaPhone = metaPhone ? String(metaPhone).replace(/\D/g, '').slice(-10) : null;
+          n.metadata?.recipient_phone
+        );
 
-        if (userPhone && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
+        if (userPhone && (notifPhone === userPhone || metaPhone === userPhone)) {
           return true;
         }
-        if (userPhone && n.recipient_role === 'seller' && (notifPhone === userPhone || cleanMetaPhone === userPhone)) {
+        if (userPhone && n.recipient_role === 'seller' && (notifPhone === userPhone || metaPhone === userPhone)) {
           return true;
         }
         if (n.recipient_role === 'public' && !PRIVATE_TAGS.includes(n.tag)) {
