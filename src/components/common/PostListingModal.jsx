@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TAXONOMY_REGISTRY, TAXONOMY_TREE, getCategoryById, sanitizeSubCategoryId } from '../../data/taxonomyRegistry';
+import { compressImage } from '../../utils/imageCompressor';
 import {
   uploadListingImagesToStorage,
   uploadListingVideosToStorage,
@@ -13,6 +14,9 @@ import { getCurrentUserProfile } from '../../services/authService';
 import { TOWN_CENTERS } from '../../utils/geoFence';
 import { CITY_ZONES } from '../../data/cityZones';
 import { supabase } from '../../services/supabaseClient';
+
+import { getListingSchema } from '../../data/listingFormSchemaRegistry';
+import { resolveLocalityCoordinates } from '../../data/cityZones';
 
 const HOURS_LIST = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
@@ -32,66 +36,57 @@ const SERVICE_CATEGORIES = new Set([
 const sanitizePhone = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
 export default function PostListingModal({
-  isOpen = true,
-  initialData = null, // Set when editing an existing listing
-  defaultCategory,
+  isOpen,
+  onClose,
   initialCategory = 'market',
   initialSubCategory = 'all',
   selectedCity = 'Alwar',
-  onClose,
+  initialData = null,
   onSuccess,
   onListingCreated,
 }) {
-  if (isOpen === false) return null;
+  if (!isOpen) return null;
 
-  const isEditMode = Boolean(initialData && initialData.id);
+  const isEditMode = Boolean(initialData?.id);
   const currentUser = getCurrentUserProfile();
-  const cleanUserPhone = sanitizePhone(currentUser?.phone);
-  const defaultSellerName = currentUser?.business_name || currentUser?.full_name || 'Verified Merchant';
+  const cleanPhone = String(currentUser?.phone || '').replace(/\D/g, '').slice(-10);
 
-  // 3-Step Wizard: 1 (Basics) -> 2 (Pricing & Operations) -> 3 (Media & Geolocation)
+  // Step wizard: 1 (Category & Basics) -> 2 (Adaptive Pricing & Specs) -> 3 (Media, Highlights & GPS)
   const [currentStep, setCurrentStep] = useState(1);
 
   // Form State
-  const [category, setCategory] = useState(() => initialData?.category || defaultCategory || initialCategory || 'market');
-  const [subCategory, setSubCategory] = useState(() => initialData?.sub_category || initialData?.subCategory || initialSubCategory || 'all');
-  const [title, setTitle] = useState(() => initialData?.title || initialData?.name || '');
-  const [sellerName, setSellerName] = useState(() => initialData?.seller_name || initialData?.sellerName || defaultSellerName);
-  const [phone, setPhone] = useState(() => sanitizePhone(initialData?.phone) || cleanUserPhone || '');
-  const [whatsapp, setWhatsapp] = useState(() => sanitizePhone(initialData?.whatsapp) || cleanUserPhone || '');
-  const [locationName, setLocationName] = useState(() => initialData?.location_name || initialData?.location || currentUser?.area_name || `${selectedCity} Market`);
-  const [targetCity, setTargetCity] = useState(() => initialData?.city || selectedCity || 'Alwar');
+  const [category, setCategory] = useState(initialData?.category || initialCategory || 'market');
+  const [subCategory, setSubCategory] = useState(initialData?.subCategory || initialData?.sub_category || initialSubCategory || 'all');
+  const [title, setTitle] = useState(initialData?.title || initialData?.name || '');
+  const [sellerName, setSellerName] = useState(initialData?.sellerName || initialData?.seller_name || currentUser?.business_name || currentUser?.full_name || '');
+  const [phone, setPhone] = useState(initialData?.phone ? String(initialData.phone).replace(/\D/g, '').slice(-10) : cleanPhone || '');
+  const [whatsapp, setWhatsapp] = useState(initialData?.whatsapp ? String(initialData.whatsapp).replace(/\D/g, '').slice(-10) : cleanPhone || '');
+  const [locationName, setLocationName] = useState(initialData?.location || initialData?.location_name || currentUser?.area_name || 'Town Center');
+  const [targetCity, setTargetCity] = useState(initialData?.city || selectedCity || 'Alwar');
 
   // Pricing & Metrics
-  const [priceNumber, setPriceNumber] = useState(() => {
-    if (!initialData?.price) return '';
-    const num = String(initialData.price).replace(/\D/g, '');
-    return num || '';
+  const [price, setPrice] = useState(() => {
+    const rawPrice = initialData?.price || initialData?.rates || '';
+    return rawPrice ? String(rawPrice).replace(/[₹]/g, '').trim() : '';
   });
-  const [priceUnit, setPriceUnit] = useState(() => initialData?.priceUnit || '');
-  const [originalPriceNumber, setOriginalPriceNumber] = useState(() => {
-    const orig = initialData?.original_price || initialData?.originalPrice;
-    return orig ? String(orig).replace(/\D/g, '') : '';
+  const [originalPrice, setOriginalPrice] = useState(() => {
+    const rawOrig = initialData?.original_price || initialData?.originalPrice || '';
+    return rawOrig ? String(rawOrig).replace(/[₹]/g, '').trim() : '';
   });
-  const [stockCount, setStockCount] = useState(() => {
-    const stock = initialData?.stock_count || initialData?.stockCount;
-    return stock ? String(stock).replace(/\D/g, '') : '';
-  });
-  const [capacity, setCapacity] = useState(() => initialData?.capacity || 'Ready Stock');
-  const [condition, setCondition] = useState(() => initialData?.condition || 'Brand New');
-  const [experience, setExperience] = useState(() => initialData?.experience || '5+ Years Exp');
-  const [visitingCharge, setVisitingCharge] = useState(() => {
-    const vc = initialData?.visitingCharge || initialData?.visiting_charge;
-    return vc ? String(vc).replace(/\D/g, '') : '';
-  });
+  const [dynamicSpecs, setDynamicSpecs] = useState(() => initialData?.specs || initialData?.pending_changes?.specs || {});
 
-  // 4 Bullet Highlights
+  // 4 Key Bullet Highlights
   const [descPoints, setDescPoints] = useState(() => {
     if (initialData?.description) {
       const lines = initialData.description.split('\n').map((l) => l.replace(/^[•\-\d.\s]+/, '').trim()).filter(Boolean);
       return [lines[0] || '', lines[1] || '', lines[2] || '', lines[3] || ''];
     }
     return ['', '', '', ''];
+  });
+  const [experience, setExperience] = useState(() => initialData?.experience || '5+ Years Exp');
+  const [visitingCharge, setVisitingCharge] = useState(() => {
+    const vc = initialData?.visitingCharge || initialData?.visiting_charge;
+    return vc ? String(vc).replace(/\D/g, '') : '';
   });
 
   // 12-Hour AM/PM Time Picker State
@@ -184,12 +179,12 @@ export default function PostListingModal({
   };
 
   const applyLocalityOrCityFallback = (statusMsg = '') => {
-    // Tier 2: Check locality match in cityZones.js
-    const matchedZone = findZoneCoordinates(targetCity, locationName);
-    if (matchedZone) {
-      setLat(matchedZone.lat);
-      setLng(matchedZone.lng);
-      setGpsStatus(`📍 Locality Matched (${matchedZone.name}): ${matchedZone.lat}, ${matchedZone.lng}`);
+    // Tier 2: Match locality against cityZones registry
+    const localityCoords = resolveLocalityCoordinates(locationName, targetCity);
+    if (localityCoords && localityCoords.lat && localityCoords.lng) {
+      setLat(localityCoords.lat);
+      setLng(localityCoords.lng);
+      setGpsStatus(`📍 Locality Mapped: ${localityCoords.lat}, ${localityCoords.lng}`);
       return;
     }
 
@@ -198,17 +193,6 @@ export default function PostListingModal({
     setLat(center.lat);
     setLng(center.lng);
     setGpsStatus(statusMsg || `📍 Anchored to ${targetCity} Town Center: ${center.lat}, ${center.lng}`);
-  };
-
-  const findZoneCoordinates = (city, query) => {
-    if (!CITY_ZONES || !CITY_ZONES[city] || !query) return null;
-    const zones = Array.isArray(CITY_ZONES[city]) ? CITY_ZONES[city] : Object.values(CITY_ZONES[city] || {});
-    const q = query.toLowerCase().trim();
-    const match = zones.find((z) => (z.name && z.name.toLowerCase().includes(q)) || (z.id && z.id.toLowerCase().includes(q)));
-    if (match && match.lat && match.lng) {
-      return { lat: match.lat, lng: match.lng, name: match.name || match.id };
-    }
-    return null;
   };
 
   // 📷 Photo Selection
@@ -367,15 +351,16 @@ export default function PostListingModal({
           ? validPoints.map((p) => `• ${p.trim()}`).join('\n')
           : title.trim();
 
-      const formattedPrice = priceNumber
-        ? `₹ ${priceNumber.trim()}${priceUnit ? ' ' + priceUnit.trim() : ''}`
-        : visitingCharge
-        ? `₹ ${visitingCharge.trim()} / Visit`
+      const formattedPrice = price.trim()
+        ? (price.trim().startsWith('₹') ? price.trim() : `₹ ${price.trim()}`)
         : 'Contact for Price';
 
-      const formattedOrigPrice = originalPriceNumber ? `₹ ${originalPriceNumber.trim()}` : null;
-      const formattedStock = stockCount ? `${stockCount} Units Available` : capacity;
+      const formattedOrigPrice = originalPrice.trim()
+        ? (originalPrice.trim().startsWith('₹') ? originalPrice.trim() : `₹ ${originalPrice.trim()}`)
+        : null;
+
       const formattedActiveHours = `${timePicker.startHour}:00 ${timePicker.startPeriod} - ${timePicker.endHour}:00 ${timePicker.endPeriod}`;
+      const resolvedCapacity = dynamicSpecs.stock_status || dynamicSpecs.property_type || dynamicSpecs.vehicle_type || formattedActiveHours;
 
       const payload = {
         title: title.trim(),
@@ -396,11 +381,10 @@ export default function PostListingModal({
         lng: finalLng,
         timing: formattedActiveHours,
         activeHours: formattedActiveHours,
-        capacity: isService ? formattedActiveHours : formattedStock,
-        stockCount: isService ? formattedActiveHours : formattedStock,
-        stock_count: stockCount ? parseInt(stockCount, 10) : null,
-        condition: isService ? 'Verified Service' : condition,
-        experience: isService ? experience : undefined,
+        capacity: resolvedCapacity,
+        stockCount: resolvedCapacity,
+        condition: dynamicSpecs.condition || dynamicSpecs.device_condition || (isService ? 'Verified Service' : 'Brand New'),
+        specs: dynamicSpecs,
         image: finalImageUrls[0] || getCategoryFallback(category),
         image_url: finalImageUrls[0] || getCategoryFallback(category),
         images: finalImageUrls,
@@ -625,35 +609,44 @@ export default function PostListingModal({
                 </div>
               </div>
 
-              {/* Title / Name */}
-              <div>
-                <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                  {isService ? 'Service Title / Offering Name *' : 'Product / Deal Title *'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={isService ? 'e.g. 24/7 Electrician & Inverter Repair' : 'e.g. Pure Georgette Bridal Lehenga'}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-100 font-bold focus:outline-hidden focus:border-amber-400"
-                />
-              </div>
+              {/* Contextual Title & Seller Name using Schema */}
+              {(() => {
+                const schema = getListingSchema(category);
+                return (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                        {schema.guidance?.titleLabel || (isService ? 'Service Title / Offering Name *' : 'Product / Deal Title *')}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder={schema.guidance?.titlePlaceholder || 'Enter offering title...'}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-100 font-bold focus:outline-hidden focus:border-amber-400"
+                      />
+                      {schema.guidance?.titleHelp && (
+                        <p className="text-[8.5px] text-slate-500 mt-1 italic">{schema.guidance.titleHelp}</p>
+                      )}
+                    </div>
 
-              {/* Business Name */}
-              <div>
-                <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                  {isService ? 'Agency / Master Kaarigar Name *' : 'Shop / Business / Seller Name *'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={sellerName}
-                  onChange={(e) => setSellerName(e.target.value)}
-                  placeholder="e.g. Rajputana Motors / Sharma Sweets"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-100 font-bold focus:outline-hidden focus:border-amber-400"
-                />
-              </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                        {schema.guidance?.sellerLabel || (isService ? 'Agency / Master Kaarigar Name *' : 'Shop / Business / Seller Name *')}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={sellerName}
+                        onChange={(e) => setSellerName(e.target.value)}
+                        placeholder={schema.guidance?.sellerPlaceholder || 'e.g. Royal Business Store'}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-100 font-bold focus:outline-hidden focus:border-amber-400"
+                      />
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Contact Numbers */}
               <div className="grid grid-cols-2 gap-2">
@@ -700,109 +693,76 @@ export default function PostListingModal({
           )}
 
           {/* ═══════════════════════════════════════════════════════════ */}
-          {/* 🟡 STEP 2: PRICING, AVAILABILITY & TIMINGS                  */}
+          {/* 🟡 STEP 2: CATEGORY-SPECIFIC PRICING & ADAPTIVE SPECS       */}
           {/* ═══════════════════════════════════════════════════════════ */}
-          {currentStep === 2 && (
-            <div className="space-y-3 animate-fade-in">
-              {/* Product Pricing vs Service Visiting Charges */}
-              {!isService ? (
-                <div>
-                  <label className="text-[10px] font-bold text-slate-300 block mb-1">Price (रुपये में) *</label>
-                  <div className="flex items-center space-x-1.5">
-                    <div className="relative flex-1">
+          {currentStep === 2 && (() => {
+            const schema = getListingSchema(category);
+            return (
+              <div className="space-y-3 animate-fade-in">
+                
+                {/* Pricing Fields */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={schema.pricing?.showOriginalPrice ? 'col-span-1' : 'col-span-2'}>
+                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                      {schema.pricing?.priceLabel || 'Price / Offer Rate *'}
+                    </label>
+                    <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-amber-400 select-none">₹</span>
                       <input
                         type="text"
-                        inputMode="numeric"
                         required
-                        value={priceNumber}
-                        onChange={(e) => setPriceNumber(e.target.value.replace(/\D/g, ''))}
-                        placeholder="1499"
+                        value={price}
+                        onChange={(e) => setPrice(e.target.value.replace(/[^\d./\w\s-]/g, ''))}
+                        placeholder={schema.pricing?.pricePlaceholder || '1499'}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-7 pr-3 py-2.5 text-slate-100 font-bold font-mono focus:outline-hidden focus:border-amber-400"
                       />
                     </div>
-                    <input
-                      type="text"
-                      value={priceUnit}
-                      onChange={(e) => setPriceUnit(e.target.value)}
-                      placeholder="e.g. / Pair"
-                      className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2 py-2.5 text-slate-300 text-center text-xs focus:outline-hidden focus:border-amber-400"
-                    />
                   </div>
 
-                  <div className="mt-2">
-                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Original Strike Price (कटौती दिखाने के लिए)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-500">₹</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={originalPriceNumber}
-                        onChange={(e) => setOriginalPriceNumber(e.target.value.replace(/\D/g, ''))}
-                        placeholder="2499"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-7 pr-3 py-2 text-slate-400 font-mono text-xs focus:border-amber-400 outline-none"
-                      />
+                  {schema.pricing?.showOriginalPrice && (
+                    <div>
+                      <label className="text-[9.5px] font-bold text-slate-400 block mb-1">
+                        Original M.R.P (Strike-off)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-500">₹</span>
+                        <input
+                          type="text"
+                          value={originalPrice}
+                          onChange={(e) => setOriginalPrice(e.target.value.replace(/[^\d./\w\s-]/g, ''))}
+                          placeholder="e.g. 2499"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-7 pr-3 py-2 text-slate-400 font-mono text-xs focus:border-amber-400 outline-none line-through"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-300 block mb-1">Visiting / Inspection Fee</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-amber-400">₹</span>
-                      <input
-                        type="text"
-                        value={visitingCharge}
-                        onChange={(e) => setVisitingCharge(e.target.value.replace(/\D/g, ''))}
-                        placeholder="250 / Visit"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-7 pr-2 py-2 text-slate-100 font-bold font-mono focus:border-amber-400 outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-300 block mb-1">Experience / Tier</label>
-                    <input
-                      type="text"
-                      value={experience}
-                      onChange={(e) => setExperience(e.target.value)}
-                      placeholder="e.g. 5+ Years Exp"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-slate-100 font-bold focus:border-amber-400 outline-none"
-                    />
-                  </div>
-                </div>
-              )}
 
-              {/* Retail Stock vs Service Working Hours */}
-              {!isService ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Ready Stock Availability</label>
-                    <select
-                      value={capacity}
-                      onChange={(e) => setCapacity(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 font-bold focus:border-amber-400 outline-none"
-                    >
-                      <option value="Ready Stock">In Stock / Ready</option>
-                      <option value="Limited Stock">Limited Stock</option>
-                      <option value="Made to Order">Made to Order</option>
-                      <option value="On Order (1-2 Days)">On Order (1-2 Days)</option>
-                    </select>
+                {/* Adaptive Category Specifications */}
+                {(schema.specifications || []).map((spec) => (
+                  <div key={spec.key}>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">{spec.label}</label>
+                    {spec.type === 'select' ? (
+                      <select
+                        value={dynamicSpecs[spec.key] || spec.default || ''}
+                        onChange={(e) => setDynamicSpecs({ ...dynamicSpecs, [spec.key]: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 font-bold text-xs focus:border-amber-400 outline-none"
+                      >
+                        {spec.options.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder={spec.placeholder || ''}
+                        value={dynamicSpecs[spec.key] || ''}
+                        onChange={(e) => setDynamicSpecs({ ...dynamicSpecs, [spec.key]: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 text-xs focus:border-amber-400 outline-none"
+                      />
+                    )}
                   </div>
-                  <div>
-                    <label className="text-[9.5px] font-bold text-slate-400 block mb-1">Condition</label>
-                    <select
-                      value={condition}
-                      onChange={(e) => setCondition(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 font-bold focus:border-amber-400 outline-none"
-                    >
-                      <option value="Brand New">Brand New</option>
-                      <option value="Like New">Like New / Refurbished</option>
-                      <option value="Good">Gently Used</option>
-                    </select>
-                  </div>
-                </div>
-              ) : null}
+                ))}
 
               {/* Active Hours Picker */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
@@ -844,28 +804,42 @@ export default function PostListingModal({
                 </div>
               </div>
 
-              {/* 4 Bullet Highlights */}
-              <div className="space-y-1.5 p-3 bg-slate-950 rounded-2xl border border-slate-800">
-                <label className="text-[10px] font-black text-slate-200 block">📝 Key Highlights (bullet points)</label>
-                {[0, 1, 2, 3].map((idx) => (
-                  <div key={idx} className="flex items-center space-x-2">
-                    <span className="w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={descPoints[idx]}
-                      onChange={(e) => {
-                        const next = [...descPoints];
-                        next[idx] = e.target.value;
-                        setDescPoints(next);
-                      }}
-                      placeholder={`Key highlight ${idx + 1}...`}
-                      className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-xs focus:outline-hidden focus:border-amber-400"
-                    />
+              {/* 4 Context-Tailored Key Highlights */}
+              {(() => {
+                const schema = getListingSchema(category);
+                const placeholders = schema.guidance?.bulletPlaceholders || [
+                  'Highlight key feature or quality guarantee...',
+                  'Special discount, bundle or offer inclusions...',
+                  'Colonies or areas served in Alwar...',
+                  'Warranty, return or delivery support details...',
+                ];
+
+                return (
+                  <div className="space-y-1.5 p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                    <label className="text-[10px] font-black text-slate-200 block">
+                      📝 Key Highlights (4 मुख्य विशेषताएं)
+                    </label>
+                    {[0, 1, 2, 3].map((idx) => (
+                      <div key={idx} className="flex items-center space-x-2">
+                        <span className="w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={descPoints[idx]}
+                          onChange={(e) => {
+                            const next = [...descPoints];
+                            next[idx] = e.target.value;
+                            setDescPoints(next);
+                          }}
+                          placeholder={`Point ${idx + 1}: ${placeholders[idx] || ''}`}
+                          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-xs focus:outline-hidden focus:border-amber-400 placeholder:text-slate-600"
+                        />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
               <div className="flex space-x-2 pt-1">
                 <button
@@ -887,7 +861,8 @@ export default function PostListingModal({
                 </button>
               </div>
             </div>
-          )}
+          );
+          })()}
 
           {/* ═══════════════════════════════════════════════════════════ */}
           {/* 🔵 STEP 3: MEDIA UPLOAD & PRECISE GPS PINNING               */}
