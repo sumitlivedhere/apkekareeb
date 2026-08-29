@@ -5,31 +5,27 @@ const BUSINESS_SESSION_KEY = 'townhub_business_auth';
 const ADMIN_SESSION_KEY = 'townhub_admin_authenticated';
 const TEMP_USERS_KEY = 'townhub_temp_users';
 
-export const OFFICIAL_UPI_VPA = 'aldragobhai@oksbi';
+/**
+ * Generates a 6-digit activation PIN with mandatory role suffix:
+ * - 'U' suffix for Authorized Users / Residents (e.g., 482910U)
+ * - 'S' suffix for Verified Sellers / Merchants (e.g., 739102S)
+ */
+export function generateActivationPin(type = 'user') {
+  const random6 = Math.floor(100000 + Math.random() * 900000).toString();
+  const suffix = type === 'seller' || type === 'merchant' ? 'S' : 'U';
+  return `${random6}${suffix}`;
+}
 
 /**
  * Hash PIN via Web Crypto API (SHA-256)
  */
 export async function hashPin(pin) {
-  const cleanPin = String(pin).trim();
+  const cleanPin = String(pin).trim().toUpperCase();
   const encoder = new TextEncoder();
   const data = encoder.encode(`aapkekareeb_salt_${cleanPin}`);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Formats standard NPCI ₹1 UPI Deep Link string
- */
-export function formatUpiHandshakeUrl({
-  payeeVpa = OFFICIAL_UPI_VPA,
-  payeeName = 'Aapke Kareeb KYC',
-  phone,
-  amount = '1',
-}) {
-  const transactionNote = encodeURIComponent(`KYC ${phone}`);
-  return `upi://pay?pa=${payeeVpa}&pn=${encodeURIComponent(payeeName)}&am=${amount}&cu=INR&tn=${transactionNote}`;
 }
 
 /**
@@ -171,7 +167,7 @@ export async function registerTier1User({ phone, fullName, areaName = 'Town Cent
 }
 
 /**
- * Log in Tier 1 Resident with 4-Digit MPIN (Guarded against banned users)
+ * Log in Resident or Merchant with PIN
  */
 export async function loginWith4DigitPin(phone, pin) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
@@ -203,8 +199,11 @@ export async function loginWith4DigitPin(phone, pin) {
       return { success: false, error: '⛔ This mobile number has been blocked by Admin for policy violations.' };
     }
 
-    if (data.resident_pin_hash && data.resident_pin_hash !== pinHash) {
-      return { success: false, error: 'Incorrect 4-Digit MPIN. Please try again.' };
+    const matchesResident = data.resident_pin_hash && data.resident_pin_hash === pinHash;
+    const matchesBusiness = data.business_pin_hash && data.business_pin_hash === pinHash;
+
+    if (!matchesResident && !matchesBusiness) {
+      return { success: false, error: 'Incorrect PIN. Please try again.' };
     }
 
     await supabase
@@ -222,24 +221,38 @@ export async function loginWith4DigitPin(phone, pin) {
 export const loginResidentWithPin = loginWith4DigitPin;
 
 /* ========================================================================= */
-/* 🌟 TIER 2: VERIFIED RESIDENT (ADMIN 6-DIGIT WHATSAPP PIN)                */
+/* 🌟 ROLE-DIFFERENTIATED ACTIVATION (USER: '...U' | SELLER: '...S')         */
 /* ========================================================================= */
 
 /**
- * Verify 6-Digit WhatsApp Activation PIN issued by Admin
+ * Verifies activation PIN with role differentiator ('U' or 'S')
  */
-export async function verifyTier2WhatsAppPin(phone, sixDigitPin) {
+export async function verifyActivationPin(phone, pinInput) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
-  const cleanPin = String(sixDigitPin || '').trim();
+  const cleanPin = String(pinInput || '').trim().toUpperCase();
+
+  if (cleanPin.length < 7) {
+    return { success: false, error: 'Invalid PIN format. Must be 6 digits followed by U (User) or S (Seller).' };
+  }
+
+  const isSellerPin = cleanPin.endsWith('S');
+  const isUserPin = cleanPin.endsWith('U');
+
+  if (!isSellerPin && !isUserPin) {
+    return { success: false, error: 'Invalid PIN suffix. Authorized User PIN ends with "U" and Seller PIN ends with "S".' };
+  }
 
   if (!supabase) {
-    const cached = getCurrentUserProfile();
-    if (cached) {
-      const updated = { ...cached, verification_tier: 'verified_resident', status: 'verified' };
-      setLocalUserProfile(updated);
-      return { success: true, profile: updated };
-    }
-    return { success: false, error: 'Database unavailable' };
+    const cached = getCurrentUserProfile() || { phone: cleanPhone, full_name: 'Local User' };
+    const updated = {
+      ...cached,
+      is_merchant: isSellerPin ? true : cached.is_merchant,
+      verification_tier: isSellerPin ? 'verified_merchant' : 'verified_resident',
+      status: 'verified',
+      is_verified: true,
+    };
+    setLocalUserProfile(updated);
+    return { success: true, profile: updated, roleType: isSellerPin ? 'seller' : 'user', canSetCustomPin: true };
   }
 
   try {
@@ -250,24 +263,38 @@ export async function verifyTier2WhatsAppPin(phone, sixDigitPin) {
       .single();
 
     if (fetchErr || !user) {
-      return { success: false, error: 'User account not found.' };
+      return { success: false, error: 'User account not found. Please register first.' };
     }
 
     if (user.is_banned) {
       return { success: false, error: '⛔ Account is blocked by Admin.' };
     }
 
-    if (!user.admin_activation_pin || String(user.admin_activation_pin).trim() !== cleanPin) {
-      return { success: false, error: 'Invalid 6-digit WhatsApp PIN. Please check the PIN sent by Admin.' };
+    const expectedPin = String(user.admin_activation_pin || '').trim().toUpperCase();
+    if (!expectedPin || expectedPin !== cleanPin) {
+      return {
+        success: false,
+        error: `Invalid activation PIN. Please enter the exact ${isSellerPin ? 'Seller (...S)' : 'User (...U)'} PIN dispatched by Admin.`,
+      };
     }
 
-    const { data: updated, error: updateErr } = await supabase
+    const updates = isSellerPin
+      ? {
+          is_merchant: true,
+          verification_tier: 'verified_merchant',
+          status: 'verified',
+          is_verified: true,
+          merchant_verified_at: new Date().toISOString(),
+        }
+      : {
+          verification_tier: 'verified_resident',
+          status: 'verified',
+          is_verified: true,
+        };
+
+    const { data: updatedUser, error: updateErr } = await supabase
       .from('user_profiles')
-      .update({
-        verification_tier: 'verified_resident',
-        status: 'verified',
-        is_verified: true,
-      })
+      .update(updates)
       .eq('id', user.id)
       .select()
       .single();
@@ -276,95 +303,79 @@ export async function verifyTier2WhatsAppPin(phone, sixDigitPin) {
       return { success: false, error: updateErr.message };
     }
 
-    setLocalUserProfile(updated);
-    return { success: true, profile: updated };
+    setLocalUserProfile(updatedUser);
+    return {
+      success: true,
+      profile: updatedUser,
+      roleType: isSellerPin ? 'seller' : 'user',
+      canSetCustomPin: true,
+    };
   } catch (err) {
     return { success: false, error: err.message || 'Verification failed.' };
   }
 }
 
-export const verifyAdminActivationPin = verifyTier2WhatsAppPin;
-
-/* ========================================================================= */
-/* 🌟 TIER 3: VERIFIED MERCHANT (₹1 UPI KYC HANDSHAKE)                      */
-/* ========================================================================= */
+export const verifyTier2WhatsAppPin = verifyActivationPin;
+export const verifyAdminActivationPin = verifyActivationPin;
 
 /**
- * Complete Tier 3 Merchant Upgrade via ₹1 UPI Verification
+ * Sets personal permanent PIN after activation
  */
-export async function completeTier3MerchantKyc({
-  phone,
-  businessName,
-  category = 'market',
-  upiId,
-  txnRef = '',
-}) {
+export async function setCustomPermanentPin({ phone, newPin, roleType = 'user', businessName = '' }) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
-  const cleanUpi = String(upiId || '').toLowerCase().trim();
+  const cleanPin = String(newPin || '').trim();
 
-  if (!cleanUpi.includes('@')) {
-    return { success: false, error: 'Please enter a valid UPI ID (e.g. shopname@upi).' };
+  if (!cleanPin || cleanPin.length < 4) {
+    return { success: false, error: 'PIN must be at least 4 digits.' };
   }
 
-  const existing = getCurrentUserProfile() || {};
-  const updatedPayload = {
-    ...existing,
-    business_name: businessName.trim(),
-    upi_id: cleanUpi,
-    is_merchant: true,
-    verification_tier: 'verified_merchant',
-    merchant_verified_at: new Date().toISOString(),
-  };
+  const pinHash = await hashPin(cleanPin);
+  const isSeller = roleType === 'seller' || roleType === 'merchant';
+
+  const updates = isSeller
+    ? {
+        business_pin_hash: pinHash,
+        business_name: businessName.trim() || undefined,
+        is_merchant: true,
+        verification_tier: 'verified_merchant',
+        last_login_at: new Date().toISOString(),
+      }
+    : {
+        resident_pin_hash: pinHash,
+        verification_tier: 'verified_resident',
+        last_login_at: new Date().toISOString(),
+      };
 
   if (!supabase) {
-    setLocalUserProfile(updatedPayload);
-    return { success: true, profile: updatedPayload };
+    const cached = getCurrentUserProfile() || { phone: cleanPhone };
+    const updated = { ...cached, ...updates };
+    setLocalUserProfile(updated);
+    return { success: true, profile: updated };
   }
 
   try {
     const { data, error } = await supabase
       .from('user_profiles')
-      .update({
-        business_name: businessName.trim(),
-        upi_id: cleanUpi,
-        is_merchant: true,
-        verification_tier: 'verified_merchant',
-        merchant_verified_at: new Date().toISOString(),
-      })
+      .update(updates)
       .eq('phone', cleanPhone)
       .select()
       .single();
 
-    if (error) {
-      setLocalUserProfile(updatedPayload);
-      return { success: true, profile: updatedPayload };
-    }
-
-    // Insert Admin Notification
-    await supabase.from('notifications').insert({
-      tag: 'NEW_USER_PIN',
-      title: '🏪 New Verified Merchant KYC',
-      message: `${businessName} (+91 ${cleanPhone}) completed ₹1 UPI KYC. Ref: ${txnRef || 'UPI-APP'}.`,
-      recipient_role: 'admin',
-      metadata: { phone: cleanPhone, businessName, upiId: cleanUpi, txnRef },
-    });
+    if (error) throw error;
 
     setLocalUserProfile(data);
     return { success: true, profile: data };
-  } catch {
-    setLocalUserProfile(updatedPayload);
-    return { success: true, profile: updatedPayload };
+  } catch (err) {
+    return { success: false, error: err.message || 'Failed to save personal PIN.' };
   }
 }
 
-export const upgradeToMerchant = completeTier3MerchantKyc;
-
 /* ========================================================================= */
-/* 👑 4. FULL MASTER ADMIN CONTROL ENGINE (BAN / DELETE / PURGE / OVERRIDE)  */
+/* 👑 MASTER ADMIN CRM CONTROLS                                              */
 /* ========================================================================= */
 
 /**
- * Fetch all users with full metadata for Master Admin CRM
+ * Fetch all users for Master Admin CRM
  */
 export async function getAllUsersForAdmin() {
   let dbUsers = [];
@@ -404,14 +415,13 @@ export async function getAllUsersForAdmin() {
 }
 
 /**
- * 🚫 Admin: 1-Tap Ban/Block or Unban User Profile & Mobile Number
+ * 1-Tap Ban/Block or Unban User Profile & Mobile Number
  */
 export async function adminToggleBanUser(phone, shouldBan = true) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
 
   if (supabase) {
     try {
-      // 1. Update user profile state
       await supabase
         .from('user_profiles')
         .update({
@@ -420,7 +430,6 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
         })
         .eq('phone', cleanPhone);
 
-      // 2. If banning, deactivate all active listings posted by this phone
       if (shouldBan) {
         await supabase
           .from('listings')
@@ -433,7 +442,6 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
     }
   }
 
-  // Sync active local session if matches
   const cached = getCurrentUserProfile();
   if (cached && cached.phone === cleanPhone) {
     cached.is_banned = shouldBan;
@@ -445,7 +453,7 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
 }
 
 /**
- * 🗑️ Admin: Permanently Delete Any User / Seller Profile & Associated Records
+ * Permanently Delete User Profile & Associated Records
  */
 export async function adminDeleteUser(userId, phone) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
@@ -477,7 +485,7 @@ export async function adminDeleteUser(userId, phone) {
 }
 
 /**
- * 🧹 Admin: Delete All Listings of a Specific Seller / Mobile Number
+ * Delete All Listings of a Specific Seller
  */
 export async function adminDeleteAllSellerListings(phone) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
@@ -494,6 +502,7 @@ export async function adminDeleteAllSellerListings(phone) {
         await supabase.from('listing_threads').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listing_reports').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listing_interests').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listing_reviews').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listings').delete().in('id', ids);
       }
     } catch (err) {
@@ -506,7 +515,7 @@ export async function adminDeleteAllSellerListings(phone) {
 }
 
 /**
- * ⬇️ Admin: Demote Merchant Back to Basic Resident Tier
+ * Demote Merchant Back to Basic Resident Tier
  */
 export async function adminDemoteMerchant(phone) {
   const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
