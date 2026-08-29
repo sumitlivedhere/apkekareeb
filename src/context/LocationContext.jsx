@@ -1,9 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  getCurrentHighAccuracyGPS,
-  reverseGeocodeCoordinates,
-  LOCAL_LANDMARK_CENTROIDS,
-} from '../utils/geoUtils';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { CITY_ZONES, findNearestColony } from '../data/cityZones';
 
 const STORAGE_KEY = 'townhub_user_precise_location';
 
@@ -13,7 +9,7 @@ const DEFAULT_LOCATION = {
   city: 'Alwar',
   lat: 27.5682,
   lng: 76.6215,
-  radiusKm: 5, // Default 5 km radial window
+  radiusKm: 5,
   accuracyMeters: null,
   isGPSActive: false,
 };
@@ -37,79 +33,96 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState(null);
 
-  // Sync state when default town switches (e.g. Alwar <-> Jaipur)
-  useEffect(() => {
-    if (location.city.toLowerCase() !== defaultCity.toLowerCase()) {
-      const cityCentroids =
-        (LOCAL_LANDMARK_CENTROIDS && LOCAL_LANDMARK_CENTROIDS[defaultCity]) ||
-        (LOCAL_LANDMARK_CENTROIDS && LOCAL_LANDMARK_CENTROIDS.Alwar) ||
-        [];
+  const selectedCity = location.city || defaultCity;
+  const setSelectedCity = useCallback((newCity) => {
+    setLocation((prev) => {
+      const updated = { ...prev, city: newCity };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
 
-      const initialColony = cityCentroids[0] || {
-        name: `${defaultCity} Central`,
-        landmark: `${defaultCity} Center`,
-        lat: 27.553,
-        lng: 76.6346,
-      };
+  const userArea = location.colony || location.landmark || 'Town Center';
+  const setUserArea = useCallback((newArea) => {
+    setLocation((prev) => {
+      const updated = { ...prev, colony: newArea, landmark: newArea };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
 
-      const updated = {
-        colony: initialColony.name,
-        landmark: initialColony.landmark || initialColony.name,
-        city: defaultCity,
-        lat: initialColony.lat,
-        lng: initialColony.lng,
-        radiusKm: location.radiusKm || 5,
-        accuracyMeters: null,
-        isGPSActive: false,
-      };
+  const coords = { lat: location.lat, lng: location.lng };
+  const setCoords = useCallback((newCoords) => {
+    if (!newCoords) return;
+    setLocation((prev) => {
+      const updated = { ...prev, lat: newCoords.lat, lng: newCoords.lng };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
 
-      setLocation(updated);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch {}
-    }
-  }, [defaultCity, location.city, location.radiusKm]);
-
-  // Pinpoint GPS location within meters
-  const detectLiveGPS = useCallback(async () => {
+  const detectLiveGPS = useCallback(async (onSuccessCallback) => {
     setIsLocating(true);
     setLocationError(null);
 
-    try {
-      const coords = await getCurrentHighAccuracyGPS();
-      const resolved = await reverseGeocodeCoordinates(coords.lat, coords.lng, location.city);
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        setLocationError('GPS not supported on device.');
+        setIsLocating(false);
+        resolve(null);
+        return;
+      }
 
-      const finalLocation = {
-        ...resolved,
-        lat: coords.lat,
-        lng: coords.lng,
-        accuracyMeters: coords.accuracyMeters,
-        radiusKm: location.radiusKm || 5,
-        isGPSActive: true,
-      };
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = Number(pos.coords.latitude.toFixed(6));
+          const lng = Number(pos.coords.longitude.toFixed(6));
+          const accuracyMeters = Math.round(pos.coords.accuracy);
 
-      setLocation(finalLocation);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(finalLocation));
-      } catch {}
-      return finalLocation;
-    } catch (err) {
-      console.warn('GPS detection note:', err?.message || err);
-      setLocationError('Could not detect GPS. Please pick a colony manually.');
-      return null;
-    } finally {
-      setIsLocating(false);
-    }
+          const preciseColonyName = findNearestColony(lat, lng);
+
+          const finalLocation = {
+            colony: preciseColonyName,
+            landmark: `${preciseColonyName}, ${location.city}`,
+            city: location.city,
+            lat,
+            lng,
+            accuracyMeters,
+            radiusKm: location.radiusKm || 5,
+            isGPSActive: true,
+          };
+
+          setLocation(finalLocation);
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(finalLocation));
+          } catch {}
+          setIsLocating(false);
+
+          if (onSuccessCallback) {
+            onSuccessCallback({ lat, lng, area: preciseColonyName });
+          }
+          resolve(finalLocation);
+        },
+        (err) => {
+          console.warn('GPS detection error:', err.message);
+          setLocationError('Could not detect GPS.');
+          setIsLocating(false);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    });
   }, [location.city, location.radiusKm]);
 
-  // Set colony manually from landmark centroids
+  const detectGpsLocation = detectLiveGPS;
+
   const setColony = useCallback(
     (colonyObj, cityName = location.city) => {
       if (!colonyObj) return;
 
       const updated = {
-        colony: colonyObj.name,
-        landmark: colonyObj.landmark || colonyObj.name,
+        colony: colonyObj.name || colonyObj.colony,
+        landmark: colonyObj.landmark || colonyObj.name || colonyObj.colony,
         city: cityName,
         lat: colonyObj.lat,
         lng: colonyObj.lng,
@@ -127,7 +140,6 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
     [location.city, location.radiusKm]
   );
 
-  // Set radial match distance (e.g. 1 km to 25 km)
   const setRadiusKm = useCallback(
     (newRadius) => {
       const radiusNum = Number(newRadius) || 5;
@@ -145,13 +157,34 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
   const contextValue = useMemo(
     () => ({
       location,
+      selectedCity,
+      setSelectedCity,
+      userArea,
+      setUserArea,
+      coords,
+      setCoords,
       isLocating,
       locationError,
       detectLiveGPS,
+      detectGpsLocation,
       setColony,
       setRadiusKm,
     }),
-    [location, isLocating, locationError, detectLiveGPS, setColony, setRadiusKm]
+    [
+      location,
+      selectedCity,
+      setSelectedCity,
+      userArea,
+      setUserArea,
+      coords,
+      setCoords,
+      isLocating,
+      locationError,
+      detectLiveGPS,
+      detectGpsLocation,
+      setColony,
+      setRadiusKm,
+    ]
   );
 
   return (
@@ -161,10 +194,29 @@ export function LocationProvider({ children, defaultCity = 'Alwar' }) {
   );
 }
 
+// Fallback default context object so components never crash with blank screens if provider is missing
+const FALLBACK_CONTEXT = {
+  location: DEFAULT_LOCATION,
+  selectedCity: 'Alwar',
+  setSelectedCity: () => {},
+  userArea: 'Budh Vihar',
+  setUserArea: () => {},
+  coords: { lat: DEFAULT_LOCATION.lat, lng: DEFAULT_LOCATION.lng },
+  setCoords: () => {},
+  isLocating: false,
+  locationError: null,
+  detectLiveGPS: async () => DEFAULT_LOCATION,
+  detectGpsLocation: async () => DEFAULT_LOCATION,
+  setColony: () => {},
+  setRadiusKm: () => {},
+};
+
 export function useLocationContext() {
   const context = useContext(LocationContext);
-  if (!context) {
-    throw new Error('useLocationContext must be used within a LocationProvider');
-  }
-  return context;
+  return context || FALLBACK_CONTEXT;
+}
+
+export function useLocation() {
+  const context = useContext(LocationContext);
+  return context || FALLBACK_CONTEXT;
 }

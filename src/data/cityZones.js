@@ -83,3 +83,24 @@ export function resolveLocalityCoordinates(localityName = '', fallbackCity = 'Al
 }
 
 export default CITY_ZONES;
+
+/**
+ * Computes the nearest Alwar colony/locality given current latitude & longitude.
+ */
+export function findNearestColony(lat, lng) {
+  if (!lat || !lng) return 'Town Center';
+  let closestName = 'Town Center';
+  let minDistance = Infinity;
+
+  for (const [zoneKey, data] of Object.entries(CITY_ZONES)) {
+    if (!data.lat || !data.lng) continue;
+    const dLat = data.lat - lat;
+    const dLng = data.lng - lng;
+    const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+    if (dist < minDistance) {
+      minDistance = dist;
+      closestName = zoneKey;
+    }
+  }
+  return closestName;
+}

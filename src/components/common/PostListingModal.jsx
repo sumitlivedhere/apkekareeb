@@ -12,11 +12,11 @@ import {
 import { hyperlocalStore } from '../../store/hyperlocalStore';
 import { getCurrentUserProfile } from '../../services/authService';
 import { TOWN_CENTERS } from '../../utils/geoFence';
-import { CITY_ZONES } from '../../data/cityZones';
+import { CITY_ZONES, resolveLocalityCoordinates, findNearestColony } from '../../data/cityZones';
 import { supabase } from '../../services/supabaseClient';
 
 import { getListingSchema } from '../../data/listingFormSchemaRegistry';
-import { resolveLocalityCoordinates } from '../../data/cityZones';
+
 
 const HOURS_LIST = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
@@ -148,14 +148,13 @@ export default function PostListingModal({
     }
   }, [category, availableSubCategories]);
 
-  // 🛰️ 3-Tier Geolocation Resolution
   const handleDetectGPS = () => {
     setIsLocating(true);
     setGpsStatus('🛰️ Contacting GPS satellites...');
     setErrorMsg('');
 
     if (!navigator.geolocation) {
-      applyLocalityOrCityFallback('GPS not supported on device. Locality/City Center anchored.');
+      applyLocalityOrCityFallback('GPS not supported on device. Locality anchored.');
       setIsLocating(false);
       return;
     }
@@ -166,12 +165,17 @@ export default function PostListingModal({
         const longitude = Number(pos.coords.longitude.toFixed(6));
         setLat(latitude);
         setLng(longitude);
-        setGpsStatus(`📍 GPS Locked: ${latitude}, ${longitude}`);
+
+        // Calculate nearest Alwar colony from cityZones.js
+        const nearestColony = findNearestColony(latitude, longitude);
+        setLocationName(nearestColony); // Updates the input box directly
+
+        setGpsStatus(`📍 GPS Locked: ${nearestColony} (${latitude}, ${longitude})`);
         setIsLocating(false);
       },
       (err) => {
-        console.warn('GPS location timeout or denied, using locality/town center fallback:', err.message);
-        applyLocalityOrCityFallback('GPS signal unavailable. Locality/City Center anchored.');
+        console.warn('GPS location error, using fallback:', err.message);
+        applyLocalityOrCityFallback('GPS signal low. Locality anchored.');
         setIsLocating(false);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }

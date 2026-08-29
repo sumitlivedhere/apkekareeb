@@ -4,6 +4,7 @@ import PostListingModal from './components/common/PostListingModal';
 import { hyperlocalStore } from './store/hyperlocalStore';
 import { isBusinessAuthorized, isAdminAuthorized } from './services/authService';
 import { useTheme } from './context/ThemeContext';
+import { useLocationContext } from './context/LocationContext';
 
 // 21 Hyperlocal Town Categories with Theme-Adaptive Colors
 const TOWN_CATEGORIES = [
@@ -241,9 +242,6 @@ const TOWN_CATEGORIES = [
 ];
 
 export default function HyperlocalHomeFeed({
-  userLocation,
-  isLocating,
-  onRefreshLocation,
   onSelectCategory,
   onSelectIntent,
   onSelectItem,
@@ -251,8 +249,11 @@ export default function HyperlocalHomeFeed({
   onSearchChange,
 }) {
   const { isDark } = useTheme();
-  const currentCity = userLocation?.city || 'Alwar';
-  const displayLocality = userLocation?.display || `${userLocation?.locality || 'Town Center'}, ${currentCity}`;
+  const { location, isLocating, detectLiveGPS } = useLocationContext();
+
+  const currentCity = location?.city || 'Alwar';
+  const displayLocality = location?.colony ? `${location.colony}, ${currentCity}` : `${location?.landmark || 'Town Center'}, ${currentCity}`;
+  
   const allListings = hyperlocalStore.getAllListings();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
@@ -341,7 +342,7 @@ export default function HyperlocalHomeFeed({
 
             <button
               type="button"
-              onClick={onRefreshLocation}
+              onClick={detectLiveGPS}
               disabled={isLocating}
               title="Refresh GPS Location"
               className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer active:scale-95 flex items-center space-x-1.5 shadow-xs disabled:opacity-50 ${
@@ -509,6 +510,7 @@ export default function HyperlocalHomeFeed({
       {/* Post Listing Modal */}
       {isPostModalOpen && canPostListing && (
         <PostListingModal
+          isOpen={isPostModalOpen}
           selectedCity={currentCity}
           onClose={() => setIsPostModalOpen(false)}
         />
