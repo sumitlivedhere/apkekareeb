@@ -1,12 +1,12 @@
-import { StrictMode } from 'react';
+import React, { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 import { ThemeProvider } from './context/ThemeContext';
+import { LocationProvider } from './context/LocationContext';
 import { initRealtimeSubscriptions, hydrateFromDB } from './store/hyperlocalStore';
 import { installGlobalMediaGuard } from './utils/globalMediaGuard';
 import { registerSW } from 'virtual:pwa-register';
-import ReactDOM from 'react-dom/client';
 
 // 🔄 Auto-update Service Worker in background immediately on new deploy
 const updateSW = registerSW({
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   });
 }
 
-// 1. Establish persistent WebSockets listener for live town feeds & threads
+// 1. Establish persistent WebSockets listener for live feeds & threads
 initRealtimeSubscriptions();
 
 // 2. Hydrate existing database listings from PostgreSQL into store
@@ -54,19 +54,10 @@ if (rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
       <ThemeProvider>
-        <App />
+        <LocationProvider>
+          <App />
+        </LocationProvider>
       </ThemeProvider>
     </StrictMode>
   );
 }
-
-import { LocationProvider } from './context/LocationContext';
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <ThemeProvider>
-      <LocationProvider>
-        <App />
-      </LocationProvider>
-    </ThemeProvider>
-  </React.StrictMode>,
-);

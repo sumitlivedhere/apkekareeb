@@ -499,16 +499,23 @@ export default function App() {
     });
   };
 
+  const isAdminScreen = currentScreen === 'admin-dashboard';
+
   return (
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`min-h-screen flex flex-col justify-between max-w-md mx-auto relative shadow-2xl overflow-x-hidden font-sans select-none pb-24 touch-pan-y transition-colors duration-200 ${
+      className={`min-h-screen flex flex-col justify-between relative shadow-2xl overflow-x-hidden font-sans select-none touch-pan-y transition-colors duration-200 ${
+        isAdminScreen
+          ? 'w-full max-w-none p-0 m-0 pb-0'
+          : 'max-w-md mx-auto pb-24'
+      } ${
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 🌟 1. Sticky Header */}
-      <header
+      {/* 🌟 1. Sticky Header (Hidden on Admin Dashboard) */}
+      {!isAdminScreen && (
+        <header
         className={`sticky top-0 z-40 backdrop-blur-md px-3 py-2 border-b flex items-center justify-between shadow-md transition-colors ${
           isDark
             ? 'bg-slate-950/90 border-slate-800 text-slate-100'
@@ -634,6 +641,7 @@ export default function App() {
           </button>
         </div>
       </header>
+      )}
 
       {/* 🌟 2. Main Active View Router */}
       <main className="flex-1">
@@ -1043,14 +1051,15 @@ export default function App() {
         </Suspense>
       </main>
 
-      {/* 🌟 3. Bottom Navigation Bar */}
-      <footer
-        className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto backdrop-blur-md border-t px-6 py-2 z-30 flex items-center justify-around shadow-2xl transition-colors ${
-          isDark
-            ? 'bg-slate-950/95 border-slate-800'
-            : 'bg-white/95 border-slate-200'
-        }`}
-      >
+     {/* 🌟 3. Bottom Navigation Bar (Hidden on Admin Dashboard) */}
+      {!isAdminScreen && (
+        <footer
+          className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto backdrop-blur-md border-t px-6 py-2 z-30 flex items-center justify-around shadow-2xl transition-colors ${
+            isDark
+              ? 'bg-slate-950/95 border-slate-800'
+              : 'bg-white/95 border-slate-200'
+          }`}
+        >
         <button
           type="button"
           onClick={() => navigateTo({ screen: 'home', searchQuery: '' })}
@@ -1094,6 +1103,7 @@ export default function App() {
           <span className="text-[10px] font-bold">My Business</span>
         </button>
       </footer>
+      )}
 
       {/* 🌟 4. Modals & Drawers */}
       <Suspense fallback={null}>

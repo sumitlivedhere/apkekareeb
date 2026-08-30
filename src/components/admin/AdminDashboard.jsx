@@ -30,14 +30,28 @@ import VoiceNotePlayer from '../common/VoiceNotePlayer';
 
 const MASTER_ADMIN_SECRET = 'JagadUsha@NEBExt3/33';
 
+import DesktopAdminDashboard from './DesktopAdminDashboard';
+
 export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminAuth, setIsAdminAuth] = useState(() => isAdminAuthorized());
   const [enteredKey, setEnteredKey] = useState('');
   const [keyError, setKeyError] = useState('');
   const [dashboardNotice, setDashboardNotice] = useState('');
-  const [isWidescreen, setIsWidescreen] = useState(false);
 
- const allListings = useAllListingsSlice();
+  // 🖥️ Desktop / Mobile Preference: Defaults to Desktop on wide screens (>1024px)
+  const [layoutMode, setLayoutMode] = useState(() => {
+    const saved = localStorage.getItem('alwar_admin_layout');
+    if (saved) return saved;
+    return typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'desktop' : 'mobile';
+  });
+
+  const handleToggleLayoutMode = () => {
+    const nextMode = layoutMode === 'desktop' ? 'mobile' : 'desktop';
+    setLayoutMode(nextMode);
+    localStorage.setItem('alwar_admin_layout', nextMode);
+  };
+
+  const allListings = useAllListingsSlice();
   const adminNotifications = useNotificationSlice('admin');
 
   // 🌟 7-Way Unified Tab Switcher
@@ -46,6 +60,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
   // ── 🔍 Search, Filter & Sorter State ──────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSubCategory, setSelectedSubCategory] = useState('all');
   const [selectedColony, setSelectedColony] = useState('all');
@@ -64,6 +79,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [profiles, setProfiles] = useState([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [crmSearchQuery, setCrmSearchQuery] = useState('');
+  const [debouncedCrmSearch, setDebouncedCrmSearch] = useState('');
   const [crmFilterTier, setCrmFilterTier] = useState('all');
   const [newMemberPhone, setNewMemberPhone] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
@@ -85,7 +101,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastRole, setBroadcastRole] = useState('public');
-  const [broadcastTag, setBroadcastTag] = useState('TOWN_ALERT');
+  const [broadcastTag, setBroadcastTag] = useState('ALWAR_ALERT');
   const [isSendingBroadcast, setIsSendingBroadcast] = useState(false);
 
   // 👤 Seller Dossier Modal State
@@ -140,6 +156,17 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
+
+  // ⚡ Debounce expensive searches
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 180);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedCrmSearch(crmSearchQuery), 180);
+    return () => clearTimeout(timer);
+  }, [crmSearchQuery]);
 
   // ── Fetch Profiles, Reports & Interactions ────────────────────
   const fetchProfiles = useCallback(async () => {
@@ -281,34 +308,20 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     showNotice('Registry and Moderation queue refreshed.');
   };
 
-  // ── ⏱️ Time Filter Logic ──────────────────────────────────────
-  const applyTimeFilter = (timestamp) => {
-    if (timeFilterType === 'all') return true;
-    if (!timestamp) return true;
+  // ── ⚡ High-Speed Single-Pass Filter & Sort Engine ──────────────
+  const { pendingApprovals, approvedListings, allFilteredListings } = useMemo(() => {
+    const pending = [];
+    const approved = [];
+    const all = [];
 
-    const itemTime = new Date(timestamp).getTime();
+    const q = debouncedSearch.toLowerCase().trim();
     const now = Date.now();
 
-    if (timeFilterType === 'hours') return now - itemTime <= timeValue * 60 * 60 * 1000;
-    if (timeFilterType === 'days') return now - itemTime <= timeValue * 24 * 60 * 60 * 1000;
-    if (timeFilterType === 'last_week') return now - itemTime <= 7 * 24 * 60 * 60 * 1000;
-    if (timeFilterType === 'last_month') return now - itemTime <= 30 * 24 * 60 * 60 * 1000;
-    if (timeFilterType === 'this_year') {
-      return new Date(itemTime).getFullYear() === new Date().getFullYear();
-    }
-    return true;
-  };
-
-  // ── 🔍 Filter & Sort Engine ───────────────────────────────────
-  const processListings = (list, isPendingFilter = null) => {
-    return (list || []).filter((item) => {
+    (allListings || []).forEach((item) => {
       const isPending =
         item.has_pending_approval === true ||
         item.is_active === false ||
         Boolean(item.pending_changes);
-
-      if (isPendingFilter === true && !isPending) return false;
-      if (isPendingFilter === false && isPending) return false;
 
       const changes = item.pending_changes || {};
       const cat = changes.category || item.category;
@@ -316,22 +329,21 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       const loc = changes.location || item.location || item.location_name || '';
       const badge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
 
-      if (selectedCategory !== 'all' && cat !== selectedCategory) return false;
-      if (selectedSubCategory !== 'all' && sub !== selectedSubCategory) return false;
-      if (selectedColony !== 'all' && !loc.toLowerCase().includes(selectedColony.toLowerCase())) return false;
+      if (selectedCategory !== 'all' && cat !== selectedCategory) return;
+      if (selectedSubCategory !== 'all' && sub !== selectedSubCategory) return;
+      if (selectedColony !== 'all' && !loc.toLowerCase().includes(selectedColony.toLowerCase())) return;
 
-      if (selectedOfferType === 'combo' && (!badge || !badge.includes('🍱'))) return false;
-      if (selectedOfferType === 'trial' && !(changes.doorstep_trial ?? item.doorstep_trial)) return false;
-      if (selectedOfferType === 'token' && !(changes.token_amount || item.token_amount)) return false;
-      if (selectedOfferType === 'discount' && !(changes.original_price || item.original_price)) return false;
+      if (selectedOfferType === 'combo' && (!badge || !badge.includes('🍱'))) return;
+      if (selectedOfferType === 'trial' && !(changes.doorstep_trial ?? item.doorstep_trial)) return;
+      if (selectedOfferType === 'token' && !(changes.token_amount || item.token_amount)) return;
+      if (selectedOfferType === 'discount' && !(changes.original_price || item.original_price)) return;
 
       const photos = changes.images || item.images || [];
       const videos = changes.videos || item.videos || [];
-      if (selectedMediaType === 'video' && videos.length === 0) return false;
-      if (selectedMediaType === 'photos' && photos.length < 3) return false;
+      if (selectedMediaType === 'video' && videos.length === 0) return;
+      if (selectedMediaType === 'photos' && photos.length < 3) return;
 
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase().trim();
+      if (q) {
         const matches =
           (changes.title || item.title || '').toLowerCase().includes(q) ||
           (changes.sellerName || item.sellerName || item.seller_name || '').toLowerCase().includes(q) ||
@@ -339,22 +351,84 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           String(changes.phone || item.phone || '').includes(q) ||
           loc.toLowerCase().includes(q);
 
-        if (!matches) return false;
+        if (!matches) return;
       }
 
-      return applyTimeFilter(item.created_at);
-    }).sort((a, b) => {
-      if (sortBy === 'newest') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-      if (sortBy === 'oldest') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      // Fast timestamp evaluation
+      const createdAtMs = item.created_at ? new Date(item.created_at).getTime() : 0;
+      if (timeFilterType === 'hours' && now - createdAtMs > timeValue * 3600000) return;
+      if (timeFilterType === 'days' && now - createdAtMs > timeValue * 86400000) return;
+      if (timeFilterType === 'last_week' && now - createdAtMs > 7 * 86400000) return;
+      if (timeFilterType === 'last_month' && now - createdAtMs > 30 * 86400000) return;
+      if (timeFilterType === 'this_year' && new Date(createdAtMs).getFullYear() !== new Date().getFullYear()) return;
+
+      const enrichedItem = { ...item, _createdMs: createdAtMs };
+
+      all.push(enrichedItem);
+      if (isPending) pending.push(enrichedItem);
+      else approved.push(enrichedItem);
+    });
+
+    const sorter = (a, b) => {
+      if (sortBy === 'newest') return (b._createdMs || 0) - (a._createdMs || 0);
+      if (sortBy === 'oldest') return (a._createdMs || 0) - (b._createdMs || 0);
       if (sortBy === 'stars') return (b.interestCount || b.interest_count || 0) - (a.interestCount || a.interest_count || 0);
       if (sortBy === 'flags') return (b.flag_count || 0) - (a.flag_count || 0);
       return 0;
-    });
-  };
+    };
 
-  const pendingApprovals = useMemo(() => processListings(allListings, true), [allListings, selectedCategory, selectedSubCategory, selectedColony, selectedOfferType, selectedMediaType, searchQuery, timeFilterType, timeValue, sortBy]);
-  const approvedListings = useMemo(() => processListings(allListings, false), [allListings, selectedCategory, selectedSubCategory, selectedColony, selectedOfferType, selectedMediaType, searchQuery, timeFilterType, timeValue, sortBy]);
-  const allFilteredListings = useMemo(() => processListings(allListings, null), [allListings, selectedCategory, selectedSubCategory, selectedColony, selectedOfferType, selectedMediaType, searchQuery, timeFilterType, timeValue, sortBy]);
+    return {
+      pendingApprovals: pending.sort(sorter),
+      approvedListings: approved.sort(sorter),
+      allFilteredListings: all.sort(sorter),
+    };
+  }, [
+    allListings,
+    selectedCategory,
+    selectedSubCategory,
+    selectedColony,
+    selectedOfferType,
+    selectedMediaType,
+    debouncedSearch,
+    timeFilterType,
+    timeValue,
+    sortBy,
+  ]);
+
+  // ⚡ Memoized Filtered CRM Profiles
+  const filteredProfiles = useMemo(() => {
+    const q = debouncedCrmSearch.toLowerCase().trim();
+    return profiles.filter((p) => {
+      if (crmFilterTier === 'pending_pin' && p.is_verified) return false;
+      if (crmFilterTier === 'resident' && p.is_merchant) return false;
+      if (crmFilterTier === 'merchant' && !p.is_merchant) return false;
+      if (crmFilterTier === 'banned' && !p.is_banned) return false;
+
+      if (q) {
+        const matches =
+          p.full_name?.toLowerCase().includes(q) ||
+          p.phone?.includes(q) ||
+          p.business_name?.toLowerCase().includes(q) ||
+          p.area_name?.toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      return true;
+    });
+  }, [profiles, crmFilterTier, debouncedCrmSearch]);
+
+  // ⚡ Memoized Zone Merchant Counts (Eliminates O(N*M) loop on render)
+  const zoneMerchantCounts = useMemo(() => {
+    const counts = {};
+    Object.keys(CITY_ZONES || {}).forEach((z) => {
+      counts[z] = 0;
+    });
+    profiles.forEach((p) => {
+      if (p.area_name && (p.is_merchant || p.verification_tier === 'merchant')) {
+        counts[p.area_name] = (counts[p.area_name] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [profiles]);
 
   // 👤 Selected Seller Listings
   const sellerListings = useMemo(() => {
@@ -640,7 +714,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       showNotice(`✓ Published "${finalChanges.title || item.title}"`);
 
-      // If in Rapid Review mode, auto-advance to the next pending item
+      // If in Rapid Review mode, auto-advance to next
       if (isRapidReviewMode) {
         const remainingPending = pendingApprovals.filter((p) => p.id !== item.id);
         if (remainingPending.length > 0) {
@@ -666,7 +740,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const handleReject = async (item) => {
     setActionInProgressId(item.id);
     try {
-      const reason = feedbackText.trim() || 'Listing could not be approved based on town community guidelines.';
+      const reason = feedbackText.trim() || 'Listing could not be approved based on Alwar community guidelines.';
       await rejectListingChanges(item.id, reason, sanitizePhone(item.phone));
       const cleanedPayload = {
         ...item,
@@ -809,7 +883,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     try {
       const sellerPhone = sanitizePhone(item.pending_changes?.phone || item.phone);
       const feedbackPayload = {
-        text: feedbackText.trim() || '🎤 Voice note review feedback from TownHub Admin',
+        text: feedbackText.trim() || '🎤 Voice note review feedback from Alwar Admin',
         audioUrl: recordedVoiceNote?.audioUrl || null,
         duration: recordedVoiceNote?.duration || null,
       };
@@ -955,7 +1029,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  const handleSendTownBroadcast = async (e) => {
+  const handleSendAlwarBroadcast = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastMsg.trim()) {
       showNotice('⚠️ Please provide both a title and message for the broadcast.');
@@ -1071,6 +1145,64 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     );
   }
 
+ // 🖥️ RENDER DESKTOP WORKSTATION IF IN DESKTOP MODE
+  if (layoutMode === 'desktop') {
+    return (
+      <DesktopAdminDashboard
+        allListings={allListings}
+        pendingApprovals={pendingApprovals}
+        approvedListings={approvedListings}
+        allFilteredListings={allFilteredListings}
+        profiles={profiles}
+        reports={reports}
+        threads={threads}
+        reviews={reviews}
+        filteredProfiles={filteredProfiles}
+        zoneMerchantCounts={zoneMerchantCounts}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        selectedCategory={selectedCategory}
+        setSelectedCategory={setSelectedCategory}
+        selectedSubCategory={selectedSubCategory}
+        setSelectedSubCategory={setSelectedSubCategory}
+        selectedColony={selectedColony}
+        setSelectedColony={setSelectedColony}
+        selectedOfferType={selectedOfferType}
+        setSelectedOfferType={setSelectedOfferType}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        timeFilterType={timeFilterType}
+        setTimeFilterType={setTimeFilterType}
+        crmSearchQuery={crmSearchQuery}
+        setCrmSearchQuery={setCrmSearchQuery}
+        crmFilterTier={crmFilterTier}
+        setCrmFilterTier={setCrmFilterTier}
+        newMemberName={newMemberName}
+        setNewMemberName={setNewMemberName}
+        newMemberPhone={newMemberPhone}
+        setNewMemberPhone={setNewMemberPhone}
+        newMemberArea={newMemberArea}
+        setNewMemberArea={setNewMemberArea}
+        newMemberRole={newMemberRole}
+        setNewMemberRole={setNewMemberRole}
+        newBusinessName={newBusinessName}
+        setNewBusinessName={setNewBusinessName}
+        actionLoading={actionLoading}
+        isRefreshing={isRefreshing}
+        onRefresh={handleManualRefresh}
+        onLogout={handleAdminLogout}
+        onSwitchToMobile={handleToggleLayoutMode}
+        showNotice={showNotice}
+        handleGenerateAndDispatchPin={handleGenerateAndDispatchPin}
+        handleBulkDispatchPins={handleBulkDispatchPins}
+        handleManualAddMember={handleManualAddMember}
+        handleAdjustTrustScore={handleAdjustTrustScore}
+        handleExportDirectoryCSV={handleExportDirectoryCSV}
+        selectedCity={selectedCity}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-28 select-none">
       
@@ -1103,11 +1235,11 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         <div className="flex items-center space-x-1.5">
           <button
             type="button"
-            onClick={() => setIsWidescreen((prev) => !prev)}
+            onClick={handleToggleLayoutMode}
             className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-bold cursor-pointer"
-            title="Toggle Desktop/Mobile layout width"
+            title="Switch to Desktop Workstation"
           >
-            {isWidescreen ? '📱 Mobile' : '🖥️ Desktop'}
+            🖥️ Desktop View
           </button>
 
           <button
@@ -1133,7 +1265,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       </header>
 
       {/* Main Container */}
-      <div className={`mx-auto p-3.5 space-y-3.5 ${isWidescreen ? 'max-w-5xl' : 'max-w-md'}`}>
+      <div className="mx-auto p-3.5 space-y-3.5 max-w-md">
         
         {dashboardNotice && (
           <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold text-center animate-fade-in shadow-md">
@@ -1749,116 +1881,98 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               </div>
 
               <div className="space-y-2.5">
-                {profiles
-                  .filter((p) => {
-                    if (crmFilterTier === 'pending_pin' && p.is_verified) return false;
-                    if (crmFilterTier === 'resident' && p.is_merchant) return false;
-                    if (crmFilterTier === 'merchant' && !p.is_merchant) return false;
-                    if (crmFilterTier === 'banned' && !p.is_banned) return false;
-
-                    if (crmSearchQuery) {
-                      const q = crmSearchQuery.toLowerCase().trim();
-                      const matches =
-                        p.full_name?.toLowerCase().includes(q) ||
-                        p.phone?.includes(q) ||
-                        p.business_name?.toLowerCase().includes(q) ||
-                        p.area_name?.toLowerCase().includes(q);
-                      if (!matches) return false;
-                    }
-                    return true;
-                  })
-                  .map((user) => (
-                    <div
-                      key={user.id}
-                      className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2.5 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0 pr-2">
-                          <div className="flex items-center space-x-1.5">
-                            <span className="text-xs">{user.is_merchant ? '🏪' : '👤'}</span>
-                            <h4 className="text-xs font-black text-slate-100 truncate">{user.full_name}</h4>
-                            <span
-                              className={`text-[8.5px] font-black px-1.5 py-0.2 rounded-md uppercase ${
-                                user.is_merchant ? 'bg-pink-950 text-pink-300' : 'bg-blue-950 text-blue-300'
-                              }`}
-                            >
-                              {user.is_merchant ? 'Merchant' : 'Resident'}
+                {filteredProfiles.map((user) => (
+                  <div
+                    key={user.id}
+                    className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl space-y-2.5 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 pr-2">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs">{user.is_merchant ? '🏪' : '👤'}</span>
+                          <h4 className="text-xs font-black text-slate-100 truncate">{user.full_name}</h4>
+                          <span
+                            className={`text-[8.5px] font-black px-1.5 py-0.2 rounded-md uppercase ${
+                              user.is_merchant ? 'bg-pink-950 text-pink-300' : 'bg-blue-950 text-blue-300'
+                            }`}
+                          >
+                            {user.is_merchant ? 'Merchant' : 'Resident'}
+                          </span>
+                          {user.is_banned && (
+                            <span className="text-[8px] bg-rose-950 text-rose-300 px-1 py-0.2 rounded font-bold">
+                              BANNED
                             </span>
-                            {user.is_banned && (
-                              <span className="text-[8px] bg-rose-950 text-rose-300 px-1 py-0.2 rounded font-bold">
-                                BANNED
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-[10.5px] font-mono font-bold text-cyan-300 mt-0.5">
-                            📞 +91 {user.phone}
-                          </p>
-                          <p className="text-[9.5px] text-slate-400">
-                            📍 {user.area_name || 'Town Center'}
-                            {user.business_name && <span className="text-amber-300 ml-1">({user.business_name})</span>}
-                          </p>
-
-                          <div className="flex items-center space-x-2 pt-1">
-                            <span className="text-[9px] font-bold text-amber-400">
-                              ⭐ Trust: {user.trust_score || 100}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleAdjustTrustScore(user.phone, 10)}
-                              className="text-[8.5px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.2 rounded text-slate-300"
-                            >
-                              +10
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleAdjustTrustScore(user.phone, -10)}
-                              className="text-[8.5px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.2 rounded text-rose-300"
-                            >
-                              -10
-                            </button>
-                          </div>
+                          )}
                         </div>
 
-                        {user.admin_activation_pin && (
-                          <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/30 text-amber-300 font-mono font-black text-[10px]">
-                            PIN: {user.admin_activation_pin}
+                        <p className="text-[10.5px] font-mono font-bold text-cyan-300 mt-0.5">
+                          📞 +91 {user.phone}
+                        </p>
+                        <p className="text-[9.5px] text-slate-400">
+                          📍 {user.area_name || 'Alwar'}
+                          {user.business_name && <span className="text-amber-300 ml-1">({user.business_name})</span>}
+                        </p>
+
+                        <div className="flex items-center space-x-2 pt-1">
+                          <span className="text-[9px] font-bold text-amber-400">
+                            ⭐ Trust: {user.trust_score || 100}
                           </span>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => handleAdjustTrustScore(user.phone, 10)}
+                            className="text-[8.5px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.2 rounded text-slate-300"
+                          >
+                            +10
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAdjustTrustScore(user.phone, -10)}
+                            className="text-[8.5px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.2 rounded text-rose-300"
+                          >
+                            -10
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-800/80">
-                        <button
-                          type="button"
-                          onClick={() => handleGenerateAndDispatchPin(user)}
-                          disabled={actionLoading}
-                          className="py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] rounded-lg active:scale-95 transition cursor-pointer"
-                        >
-                          📲 Send PIN
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDirectToggleBanPoster(user)}
-                          className={`py-1.5 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer ${
-                            user.is_banned
-                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                              : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800'
-                          }`}
-                        >
-                          {user.is_banned ? '✓ Unban User' : '⛔ Ban User'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDirectDeleteSellerAccount(user.phone, user.full_name, user.id)}
-                          className="py-1.5 bg-slate-950 hover:bg-rose-900 text-slate-400 hover:text-rose-200 border border-slate-800 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer"
-                        >
-                          🗑️ Delete
-                        </button>
-                      </div>
+                      {user.admin_activation_pin && (
+                        <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/30 text-amber-300 font-mono font-black text-[10px]">
+                          PIN: {user.admin_activation_pin}
+                        </span>
+                      )}
                     </div>
-                  ))}
+
+                    <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateAndDispatchPin(user)}
+                        disabled={actionLoading}
+                        className="py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] rounded-lg active:scale-95 transition cursor-pointer"
+                      >
+                        📲 Send PIN
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDirectToggleBanPoster(user)}
+                        className={`py-1.5 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer ${
+                          user.is_banned
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800'
+                        }`}
+                      >
+                        {user.is_banned ? '✓ Unban User' : '⛔ Ban User'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDirectDeleteSellerAccount(user.phone, user.full_name, user.id)}
+                        className="py-1.5 bg-slate-950 hover:bg-rose-900 text-slate-400 hover:text-rose-200 border border-slate-800 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -2003,12 +2117,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         {/* TAB 6: BROADCAST */}
         {activeTab === 'broadcast' && (
           <div className="space-y-4 animate-fade-in text-xs">
-            <form onSubmit={handleSendTownBroadcast} className="p-4 bg-slate-900 border border-amber-500/40 rounded-3xl space-y-3">
+            <form onSubmit={handleSendAlwarBroadcast} className="p-4 bg-slate-900 border border-amber-500/40 rounded-3xl space-y-3">
               <div className="flex items-center space-x-2 pb-2 border-b border-slate-800">
                 <span className="text-xl">📢</span>
                 <div>
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-100">
-                    Town-Wide Push Broadcast
+                    Alwar City Push Broadcast
                   </h3>
                   <p className="text-[9.5px] text-slate-400">Push instant notifications to member centers</p>
                 </div>
@@ -2040,7 +2154,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 <label className="block text-[9px] font-bold text-slate-400 mb-1">Broadcast Title *</label>
                 <input
                   type="text"
-                  placeholder="e.g. 🪔 Diwali Special Offers Live Across Alwar!"
+                  placeholder="e.g. 🪔 Special Offers Live Across Alwar!"
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 focus:outline-none focus:border-amber-400"
@@ -2065,7 +2179,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 disabled={isSendingBroadcast || !broadcastTitle.trim() || !broadcastMsg.trim()}
                 className="w-full py-2.5 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
               >
-                {isSendingBroadcast ? 'Sending Broadcast...' : '📢 Send Town Broadcast'}
+                {isSendingBroadcast ? 'Sending Broadcast...' : '📢 Send Alwar Broadcast'}
               </button>
             </form>
 
@@ -2088,7 +2202,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 <span className="text-[9.5px] font-bold text-slate-400 block uppercase">Alwar Colony Distribution:</span>
                 <div className="grid grid-cols-2 gap-1 max-h-36 overflow-y-auto pr-1">
                   {Object.keys(CITY_ZONES).map((z) => {
-                    const count = profiles.filter((p) => p.area_name === z && (p.is_merchant || p.verification_tier === 'merchant')).length;
+                    const count = zoneMerchantCounts[z] || 0;
                     return (
                       <div key={z} className="flex items-center justify-between p-1.5 rounded-lg bg-slate-950 text-[9.5px]">
                         <span className="text-slate-300 truncate">{z}</span>
@@ -2207,7 +2321,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       )}
 
       {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & MODERATION MODAL                      */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & MODERATION MODAL                       */}
       {/* ========================================================================= */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">

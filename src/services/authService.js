@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { hyperlocalStore } from '../store/hyperlocalStore';
 
 const LOCAL_USER_KEY = 'townhub_user_profile';
 const BUSINESS_SESSION_KEY = 'townhub_business_auth';
@@ -613,9 +614,10 @@ export async function logoutUser() {
   setLocalUserProfile(null);
   sessionStorage.removeItem(BUSINESS_SESSION_KEY);
   try {
-    const { hyperlocalStore } = await import('../store/hyperlocalStore');
     hyperlocalStore.resetCartOnLogout();
-  } catch {}
+  } catch (err) {
+    console.warn('Cart reset on logout:', err);
+  }
   if (supabase) {
     try {
       await supabase.auth.signOut();
