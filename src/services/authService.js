@@ -745,3 +745,37 @@ export const setCustomPermanentPin = async ({ phone, newPin, roleType, businessN
     newPermanentPin: newPin,
   });
 };
+
+
+// 👑 Admin Direct User Registration
+export const adminAddNewUser = async ({ phone, fullName, areaName, role, businessName, city = 'Alwar' }) => {
+  const cleanPhone = sanitizePhone(phone);
+  if (cleanPhone.length !== 10) throw new Error('Invalid 10-digit mobile number');
+
+  const randomPin = Math.floor(100000 + Math.random() * 900000).toString();
+  const isMerchant = role === 'merchant';
+
+  const userPayload = {
+    phone: cleanPhone,
+    full_name: fullName.trim(),
+    area_name: areaName || 'Ranjeet Nagar',
+    city: city,
+    is_merchant: isMerchant,
+    business_name: isMerchant ? businessName?.trim() || fullName.trim() : null,
+    verification_tier: isMerchant ? 'merchant' : 'resident',
+    status: 'pending_activation',
+    admin_activation_pin: randomPin,
+    trust_score: 100,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert([userPayload], { onConflict: 'phone' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return { success: true, profile: data, pin: randomPin };
+};

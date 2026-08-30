@@ -18,6 +18,7 @@ import {
   adminDeleteUser,
   adminDeleteAllSellerListings,
   adminDemoteMerchant,
+  adminAddNewUser,
   sanitizePhone,
 } from '../../services/authService';
 import { TAXONOMY_REGISTRY, getCategoryById } from '../../data/taxonomyRegistry';
@@ -31,6 +32,53 @@ import VoiceNotePlayer from '../common/VoiceNotePlayer';
 const MASTER_ADMIN_SECRET = 'JagadUsha@NEBExt3/33';
 
 import DesktopAdminDashboard from './DesktopAdminDashboard';
+
+// ── 🔍 Robust Cross-Category & Subcategory Matching Helpers ─────────────────
+const matchCategory = (itemCategory, selectedCat) => {
+  if (!selectedCat || selectedCat === 'all') return true;
+  if (!itemCategory) return false;
+
+  const cleanItemCat = String(itemCategory).toLowerCase().trim();
+  const cleanSelected = String(selectedCat).toLowerCase().trim();
+
+  if (cleanItemCat === cleanSelected) return true;
+
+  // Cross-reference with TAXONOMY_REGISTRY
+  const taxEntry =
+    TAXONOMY_REGISTRY[cleanSelected] ||
+    TAXONOMY_REGISTRY[selectedCat] ||
+    (typeof getCategoryById === 'function' ? getCategoryById(selectedCat) : null) ||
+    Object.values(TAXONOMY_REGISTRY).find(
+      (c) => c.id?.toLowerCase() === cleanSelected || c.name?.toLowerCase() === cleanSelected
+    );
+
+  if (taxEntry) {
+    if (taxEntry.id && String(taxEntry.id).toLowerCase() === cleanItemCat) return true;
+    if (taxEntry.name && String(taxEntry.name).toLowerCase().includes(cleanItemCat)) return true;
+    if (taxEntry.name && cleanItemCat.includes(String(taxEntry.name).toLowerCase().split('(')[0].trim())) return true;
+  }
+
+  const itemTaxEntry = TAXONOMY_REGISTRY[cleanItemCat] || (typeof getCategoryById === 'function' ? getCategoryById(cleanItemCat) : null);
+  if (itemTaxEntry) {
+    if (itemTaxEntry.id && String(itemTaxEntry.id).toLowerCase() === cleanSelected) return true;
+    if (itemTaxEntry.name && String(itemTaxEntry.name).toLowerCase().includes(cleanSelected)) return true;
+  }
+
+  return false;
+};
+
+const matchSubCategory = (itemSub, selectedSub) => {
+  if (!selectedSub || selectedSub === 'all') return true;
+  if (!itemSub) return false;
+
+  const cleanItemSub = String(itemSub).toLowerCase().trim();
+  const cleanSelected = String(selectedSub).toLowerCase().trim();
+
+  if (cleanItemSub === cleanSelected) return true;
+  if (cleanItemSub.includes(cleanSelected) || cleanSelected.includes(cleanItemSub)) return true;
+
+  return false;
+};
 
 export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminAuth, setIsAdminAuth] = useState(() => isAdminAuthorized());
@@ -167,6 +215,24 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const timer = setTimeout(() => setDebouncedCrmSearch(crmSearchQuery), 180);
     return () => clearTimeout(timer);
   }, [crmSearchQuery]);
+
+  // 🗂️ Active Category Object & Inbuilt Subcategories Resolver
+  const currentCategoryObj = useMemo(() => {
+    if (!selectedCategory || selectedCategory === 'all') return null;
+    return (
+      TAXONOMY_REGISTRY[selectedCategory] ||
+      TAXONOMY_REGISTRY[selectedCategory.toLowerCase()] ||
+      (typeof getCategoryById === 'function' ? getCategoryById(selectedCategory) : null) ||
+      Object.values(TAXONOMY_REGISTRY).find(
+        (c) => c.id?.toLowerCase() === selectedCategory.toLowerCase() || c.name?.toLowerCase() === selectedCategory.toLowerCase()
+      )
+    );
+  }, [selectedCategory]);
+
+  const availableSubCategories = useMemo(() => {
+    if (!currentCategoryObj) return [];
+    return currentCategoryObj.subCategories || currentCategoryObj.subcategories || currentCategoryObj.subs || [];
+  }, [currentCategoryObj]);
 
   // ── Fetch Profiles, Reports & Interactions ────────────────────
   const fetchProfiles = useCallback(async () => {
@@ -324,13 +390,21 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         Boolean(item.pending_changes);
 
       const changes = item.pending_changes || {};
-      const cat = changes.category || item.category;
-      const sub = changes.subCategory || changes.sub_category || item.subCategory || item.sub_category;
+      const itemCat = changes.category || item.category || '';
+      const itemSub =
+        changes.subCategory ||
+        changes.sub_category ||
+        item.subCategory ||
+        item.sub_category ||
+        changes.subcategory ||
+        item.subcategory ||
+        '';
       const loc = changes.location || item.location || item.location_name || '';
       const badge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
 
-      if (selectedCategory !== 'all' && cat !== selectedCategory) return;
-      if (selectedSubCategory !== 'all' && sub !== selectedSubCategory) return;
+      // Robust Category & Subcategory Matching
+      if (!matchCategory(itemCat, selectedCategory)) return;
+      if (!matchSubCategory(itemSub, selectedSubCategory)) return;
       if (selectedColony !== 'all' && !loc.toLowerCase().includes(selectedColony.toLowerCase())) return;
 
       if (selectedOfferType === 'combo' && (!badge || !badge.includes('🍱'))) return;
@@ -416,7 +490,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [profiles, crmFilterTier, debouncedCrmSearch]);
 
-  // ⚡ Memoized Zone Merchant Counts (Eliminates O(N*M) loop on render)
+  // ⚡ Memoized Zone Merchant Counts
   const zoneMerchantCounts = useMemo(() => {
     const counts = {};
     Object.keys(CITY_ZONES || {}).forEach((z) => {
@@ -477,7 +551,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     const updated = { ...item, is_shadowbanned: nextVal };
     hyperlocalStore.insertListing(item.category, updated);
 
-    // Record audit notification
     saveNotificationToDB({
       tag: nextVal ? 'SHADOWBAN_APPLIED' : 'SHADOWBAN_REMOVED',
       title: nextVal ? `Shadowban Applied: "${item.title}"` : `Shadowban Removed: "${item.title}"`,
@@ -491,7 +564,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     showNotice(nextVal ? `👻 Shadowbanned "${item.title}"` : `✓ Removed shadowban from "${item.title}"`);
   };
 
-  // 🔄 Bidirectional Ban/Unban Toggle Engine
   const handleDirectToggleBanPoster = async (userOrPhone, name = 'User', isCurrentlyBanned = false) => {
     let cleanPhone = '';
     let userName = name;
@@ -628,13 +700,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     e.target.value = '';
   };
 
-  const handleAdminRemovePhoto = (idx) => {
-    setEditFormData((prev) => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== idx),
-    }));
-  };
-
   const handleAdminAddVideo = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -644,13 +709,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       videos: [...prev.videos, { file, url: tempUrl, name: file.name, duration: 30, isNew: true }],
     }));
     e.target.value = '';
-  };
-
-  const handleAdminRemoveVideo = (idx) => {
-    setEditFormData((prev) => ({
-      ...prev,
-      videos: prev.videos.filter((_, i) => i !== idx),
-    }));
   };
 
   // 🟢 Approve & Publish
@@ -714,7 +772,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       showNotice(`✓ Published "${finalChanges.title || item.title}"`);
 
-      // If in Rapid Review mode, auto-advance to next
       if (isRapidReviewMode) {
         const remainingPending = pendingApprovals.filter((p) => p.id !== item.id);
         if (remainingPending.length > 0) {
@@ -752,7 +809,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       showNotice(`Rejected changes for "${item.title}"`);
 
-      // If in Rapid Review mode, auto-advance to next
       if (isRapidReviewMode) {
         const remainingPending = pendingApprovals.filter((p) => p.id !== item.id);
         if (remainingPending.length > 0) {
@@ -974,7 +1030,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   };
 
   const handleManualAddMember = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const cleanPhone = sanitizePhone(newMemberPhone);
     if (cleanPhone.length !== 10) {
       showNotice('⚠️ Please enter a valid 10-digit mobile number.');
@@ -986,44 +1042,34 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
 
     setActionLoading(true);
-    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-    const isSeller = newMemberRole === 'merchant';
-
     try {
-      const payload = {
+      const res = await adminAddNewUser({
         phone: cleanPhone,
-        full_name: newMemberName.trim(),
-        area_name: newMemberArea,
+        fullName: newMemberName.trim(),
+        areaName: newMemberArea,
+        role: newMemberRole,
+        businessName: newBusinessName,
         city: selectedCity,
-        is_merchant: isSeller,
-        business_name: isSeller ? (newBusinessName || newMemberName).trim() : null,
-        verification_tier: isSeller ? 'merchant' : 'resident',
-        is_verified: false,
-        status: 'pending_activation',
-        admin_activation_pin: generatedPin,
-      };
+      });
 
-      const { error } = await supabase
-        .from('user_profiles')
-        .upsert([payload], { onConflict: 'phone' });
+      if (res.success) {
+        showNotice(`✓ Registered ${newMemberName}! PIN: ${res.pin}`);
+        setNewMemberPhone('');
+        setNewMemberName('');
+        setNewBusinessName('');
+        fetchProfiles();
 
-      if (error) throw error;
-
-      showNotice(`✓ Registered ${newMemberName}! PIN: ${generatedPin}`);
-      setNewMemberPhone('');
-      setNewMemberName('');
-      setNewBusinessName('');
-      fetchProfiles();
-
-      const message = encodeURIComponent(
-        `Namaste ${newMemberName.trim()} ji!\n\n` +
-          `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant' : 'Member'} Activation PIN is: *${generatedPin}*\n\n` +
-          `👉 Open the app, enter this PIN, and set your 4-digit permanent login code.`
-      );
-      window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
+        const isSeller = newMemberRole === 'merchant';
+        const message = encodeURIComponent(
+          `Namaste ${newMemberName.trim()} ji!\n\n` +
+            `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant' : 'Member'} Activation PIN is: *${res.pin}*\n\n` +
+            `👉 Open the app, enter this PIN, and set your 4-digit permanent login code.`
+        );
+        window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
+      }
     } catch (err) {
       console.error('Manual onboarding error:', err);
-      showNotice('⚠️ Failed to create profile.');
+      showNotice('⚠️ Failed to create profile: ' + err.message);
     } finally {
       setActionLoading(false);
     }
@@ -1145,7 +1191,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     );
   }
 
- // 🖥️ RENDER DESKTOP WORKSTATION IF IN DESKTOP MODE
+  // 🖥️ RENDER DESKTOP WORKSTATION IF IN DESKTOP MODE
   if (layoutMode === 'desktop') {
     return (
       <DesktopAdminDashboard
@@ -1205,7 +1251,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-28 select-none">
-      
       {/* Hidden File Inputs */}
       <input type="file" ref={adminPhotoInputRef} onChange={handleAdminAddPhoto} multiple accept="image/*" className="hidden" />
       <input type="file" ref={adminVideoInputRef} onChange={handleAdminAddVideo} accept="video/*" className="hidden" />
@@ -1266,16 +1311,13 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
       {/* Main Container */}
       <div className="mx-auto p-3.5 space-y-3.5 max-w-md">
-        
         {dashboardNotice && (
           <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold text-center animate-fade-in shadow-md">
             {dashboardNotice}
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ⚡ DEDICATED SELLER LISTING APPROVAL MODERATION DESK / WIDGET              */}
-        {/* ========================================================================= */}
+        {/* ⚡ DEDICATED SELLER LISTING APPROVAL DESK */}
         <section className="p-3.5 bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border-2 border-amber-500/50 rounded-3xl shadow-xl space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -1297,7 +1339,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               </div>
             </div>
 
-            {/* Quick Filter Jump */}
             <button
               type="button"
               onClick={() => setActiveTab('pending')}
@@ -1311,7 +1352,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </button>
           </div>
 
-          {/* Quick Action Control Bar */}
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
             <button
               type="button"
@@ -1340,7 +1380,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </button>
           </div>
 
-          {/* Pending Listings Quick Stream (Horizontal Scroller) */}
           {pendingApprovals.length > 0 ? (
             <div className="pt-2">
               <span className="text-[9px] font-black text-amber-400/90 uppercase tracking-wider block mb-1.5">
@@ -1383,7 +1422,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         </div>
                       </div>
 
-                      {/* Widget Action Buttons */}
                       <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-900">
                         <button
                           type="button"
@@ -1413,7 +1451,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           )}
         </section>
 
-        {/* Top Operational Metrics */}
+        {/* Top Metrics */}
         <div className="grid grid-cols-4 gap-1.5 text-center">
           <div className="bg-slate-900 border border-amber-500/40 p-2 rounded-2xl shadow-xs">
             <span className="block text-sm font-black text-amber-300">{pendingApprovals.length}</span>
@@ -1433,7 +1471,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         </div>
 
-        {/* 🌟 7-Way Unified Tab Switcher */}
+        {/* Tab Switcher */}
         <div className="flex items-center space-x-1 overflow-x-auto pb-1 scrollbar-none bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[9.5px]">
           <button
             type="button"
@@ -1509,12 +1547,10 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </button>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════════
-            TAB 1, 2, 7: LISTINGS MODERATION TABS ('pending', 'approved', 'all')
-           ═══════════════════════════════════════════════════════════ */}
+        {/* LISTINGS MODERATION TABS */}
         {(activeTab === 'pending' || activeTab === 'approved' || activeTab === 'all') && (
           <div className="space-y-3">
-            {/* 🔍 Multi-Dimensional Search & Filter Bar */}
+            {/* 🔍 Multi-Dimensional Filter Bar */}
             <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800 space-y-2 text-xs">
               <input
                 type="text"
@@ -1525,7 +1561,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               />
 
               <div className="grid grid-cols-3 gap-1.5">
-                {/* Sector Filter */}
+                {/* Sector Selector */}
                 <select
                   value={selectedCategory}
                   onChange={(e) => {
@@ -1534,27 +1570,43 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   }}
                   className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 text-[10px] text-amber-300 font-bold focus:outline-none"
                 >
-                  <option value="all">All Sectors</option>
+                  <option value="all">All Sectors ({allListings.length})</option>
                   {Object.keys(TAXONOMY_REGISTRY).map((catKey) => {
                     const cat = TAXONOMY_REGISTRY[catKey];
-                    return <option key={cat.id} value={cat.id}>{cat.name.split('(')[0]}</option>;
+                    const catId = cat.id || catKey;
+                    const catName = (cat.name || catKey).split('(')[0].trim();
+                    return (
+                      <option key={catKey} value={catId}>
+                        {catName}
+                      </option>
+                    );
                   })}
                 </select>
 
-                {/* Subcategory Filter */}
+                {/* Subcategory Selector */}
                 <select
                   value={selectedSubCategory}
                   onChange={(e) => setSelectedSubCategory(e.target.value)}
-                  disabled={selectedCategory === 'all'}
+                  disabled={selectedCategory === 'all' || availableSubCategories.length === 0}
                   className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 text-[10px] text-slate-200 font-bold focus:outline-none disabled:opacity-40"
                 >
-                  <option value="all">All Subcategories</option>
-                  {(getCategoryById(selectedCategory)?.subCategories || []).map((sub) => (
-                    <option key={sub.id} value={sub.id}>{sub.name.split('(')[0]}</option>
-                  ))}
+                  <option value="all">
+                    {selectedCategory === 'all'
+                      ? 'All Subcategories'
+                      : `All ${currentCategoryObj?.name?.split('(')[0]?.trim() || ''} Subs (${availableSubCategories.length})`}
+                  </option>
+                  {availableSubCategories.map((sub) => {
+                    const subId = sub.id || sub.key || sub.name || sub;
+                    const subLabel = typeof sub === 'string' ? sub : (sub.name || sub.title || sub.id || '').split('(')[0].trim();
+                    return (
+                      <option key={subId} value={subId}>
+                        {subLabel}
+                      </option>
+                    );
+                  })}
                 </select>
 
-                {/* Colony Filter */}
+                {/* Colony Selector */}
                 <select
                   value={selectedColony}
                   onChange={(e) => setSelectedColony(e.target.value)}
@@ -1566,6 +1618,43 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   ))}
                 </select>
               </div>
+
+              {/* Inbuilt Subcategories Quick-Tap Chip Pill Bar */}
+              {selectedCategory !== 'all' && availableSubCategories.length > 0 && (
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 pt-0.5 scrollbar-none text-[9px] font-bold">
+                  <span className="text-amber-400 shrink-0 uppercase tracking-wider">Sub:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSubCategory('all')}
+                    className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition cursor-pointer ${
+                      selectedSubCategory === 'all'
+                        ? 'bg-amber-400 text-slate-950 font-black'
+                        : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    All ({availableSubCategories.length})
+                  </button>
+                  {availableSubCategories.map((sub) => {
+                    const subId = sub.id || sub.key || sub.name || sub;
+                    const subLabel = typeof sub === 'string' ? sub : (sub.name || sub.title || sub.id || '').split('(')[0].trim();
+                    const isSelected = String(selectedSubCategory).toLowerCase() === String(subId).toLowerCase();
+                    return (
+                      <button
+                        key={subId}
+                        type="button"
+                        onClick={() => setSelectedSubCategory(subId)}
+                        className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-400 text-slate-950 font-black shadow-xs'
+                            : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {subLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Offer Type & Sorters Filter Strip */}
               <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none text-[9px] font-bold">
@@ -1606,7 +1695,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center space-y-1.5">
                     <span className="text-2xl block">{activeTab === 'pending' ? '✅' : '📦'}</span>
                     <h4 className="text-xs font-black text-slate-200">No Listings Match Filter</h4>
-                    <p className="text-[10px] text-slate-400">Try adjusting your search terms or colony filters.</p>
+                    <p className="text-[10px] text-slate-400">Try adjusting your sector, subcategory, or colony filters.</p>
                   </div>
                 );
               }
@@ -2217,16 +2306,12 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* ========================================================================= */}
-      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL                                */}
-      {/* ========================================================================= */}
+      {/* 👤 1-TAP MERCHANT DOSSIER MODAL */}
       {selectedSeller && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
           <div className="bg-slate-900 border border-amber-500/40 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            
             <div className="p-4 bg-slate-950 border-b border-slate-800 shrink-0">
               <div className="flex items-center justify-between pb-2 border-b border-slate-900">
                 <div>
@@ -2315,18 +2400,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 ))
               )}
             </div>
-
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO & MODERATION MODAL                       */}
-      {/* ========================================================================= */}
+      {/* 🔍 FULL INTERACTIVE REVIEW STUDIO MODAL */}
       {inspectingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
           <div className="bg-slate-900 border border-amber-500/40 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
-            
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
               <div className="min-w-0 pr-2">
                 <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
@@ -2361,7 +2442,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
 
             <div className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
-              
               {/* Media Box */}
               {(() => {
                 const photos = editFormData.images || [];
@@ -2433,6 +2513,40 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 font-bold"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Sector *</label>
+                      <select
+                        value={editFormData.category}
+                        onChange={(e) => {
+                          const newCat = e.target.value;
+                          const newCatObj = TAXONOMY_REGISTRY[newCat] || getCategoryById(newCat);
+                          const firstSub = (newCatObj?.subCategories || [])[0]?.id || 'all';
+                          setEditFormData({ ...editFormData, category: newCat, subCategory: firstSub });
+                        }}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-white font-bold text-[10px]"
+                      >
+                        {Object.keys(TAXONOMY_REGISTRY).map((k) => (
+                          <option key={k} value={k}>{TAXONOMY_REGISTRY[k].name.split('(')[0]}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[8.5px] font-bold text-slate-400 block mb-1">Subcategory</label>
+                      <select
+                        value={editFormData.subCategory}
+                        onChange={(e) => setEditFormData({ ...editFormData, subCategory: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-white font-bold text-[10px]"
+                      >
+                        <option value="all">All / General</option>
+                        {((TAXONOMY_REGISTRY[editFormData.category] || getCategoryById(editFormData.category))?.subCategories || []).map((sub) => (
+                          <option key={sub.id} value={sub.id}>{sub.name.split('(')[0]}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -2530,10 +2644,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   📩 Send Note to Merchant
                 </button>
               </div>
-
             </div>
 
-            {/* Modal Bottom Actions */}
             <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center space-x-2 shrink-0">
               <button
                 type="button"
@@ -2553,7 +2665,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 ✕ Reject
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -2581,7 +2692,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         </div>
       )}
-
     </div>
   );
 }
