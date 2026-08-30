@@ -12,7 +12,13 @@ import {
 import { hyperlocalStore } from '../../store/hyperlocalStore';
 import { getCurrentUserProfile } from '../../services/authService';
 import { TOWN_CENTERS } from '../../utils/geoFence';
-import { CITY_ZONES, resolveLocalityCoordinates, findNearestColony, reverseGeocodeFree as reverseGeocodeWithFallback } from "../../data/cityZones";import { supabase } from '../../services/supabaseClient';
+import {
+  CITY_ZONES,
+  resolveLocalityCoordinates,
+  findNearestColony,
+  reverseGeocodeFree,
+} from '../../data/cityZones';
+import { supabase } from '../../services/supabaseClient';
 
 import { getListingSchema } from '../../data/listingFormSchemaRegistry';
 
@@ -147,7 +153,22 @@ export default function PostListingModal({
     }
   }, [category, availableSubCategories]);
 
- // 🛰️ Free High-Precision Geolocation & Locality Auto-Fill
+// 📍 1-Tap Colony Selector from CITY_ZONES
+  const handleSelectColony = (colony) => {
+    if (!colony) return;
+    setLocationName(colony);
+
+    const coords = resolveLocalityCoordinates(colony, targetCity);
+    if (coords && coords.lat && coords.lng) {
+      setLat(coords.lat);
+      setLng(coords.lng);
+      setGpsStatus(`📍 Anchored to ${colony}: ${coords.lat}, ${coords.lng}`);
+    } else {
+      applyLocalityOrCityFallback(`📍 Selected ${colony}`);
+    }
+  };
+
+ // 🛰️ High-Precision Geolocation & Locality Auto-Fill
   const handleDetectGPS = () => {
     setIsLocating(true);
     setGpsStatus('🛰️ Contacting GPS satellites...');
@@ -166,37 +187,49 @@ export default function PostListingModal({
         setLat(latitude);
         setLng(longitude);
 
-        // Resolve exact colony free of charge
-        const exactColony = await reverseGeocodeFree(latitude, longitude);
-        setLocationName(exactColony);
+        try {
+          let resolvedColony = null;
+          if (typeof reverseGeocodeFree === 'function') {
+            resolvedColony = await reverseGeocodeFree(latitude, longitude, targetCity);
+          } else if (typeof findNearestColony === 'function') {
+            resolvedColony = findNearestColony(latitude, longitude, targetCity);
+          }
 
-        setGpsStatus(`📍 GPS Locked: ${exactColony} (${latitude}, ${longitude})`);
-        setIsLocating(false);
+          if (resolvedColony) {
+            setLocationName(resolvedColony);
+            setGpsStatus(`📍 GPS Locked: ${resolvedColony} (${latitude}, ${longitude})`);
+          } else {
+            setGpsStatus(`📍 GPS Locked: ${latitude}, ${longitude}`);
+          }
+        } catch (geoErr) {
+          console.warn('Colony reverse-match notice:', geoErr);
+          setGpsStatus(`📍 GPS Locked: ${latitude}, ${longitude}`);
+        } finally {
+          setIsLocating(false);
+        }
       },
       (err) => {
-        console.warn('GPS location timeout or denied, using locality fallback:', err.message);
+        console.warn('GPS signal timeout/denied, fallback to locality anchor:', err.message);
         applyLocalityOrCityFallback('GPS signal unavailable. Locality anchored.');
         setIsLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
   };
 
   const applyLocalityOrCityFallback = (statusMsg = '') => {
-    // Tier 2: Match locality against cityZones registry
     const localityCoords = resolveLocalityCoordinates(locationName, targetCity);
     if (localityCoords && localityCoords.lat && localityCoords.lng) {
       setLat(localityCoords.lat);
       setLng(localityCoords.lng);
-      setGpsStatus(`📍 Locality Mapped: ${localityCoords.lat}, ${localityCoords.lng}`);
+      setGpsStatus(`📍 Locality Mapped: ${locationName} (${localityCoords.lat}, ${localityCoords.lng})`);
       return;
     }
 
-    // Tier 3: Town center anchor
     const center = (TOWN_CENTERS && TOWN_CENTERS[targetCity]) || (TOWN_CENTERS && TOWN_CENTERS['Alwar']) || { lat: 27.5530, lng: 76.6346 };
     setLat(center.lat);
     setLng(center.lng);
-    setGpsStatus(statusMsg || `📍 Anchored to ${targetCity} Town Center: ${center.lat}, ${center.lng}`);
+    setGpsStatus(statusMsg || `📍 Anchored to ${targetCity} Center: ${center.lat}, ${center.lng}`);
   };
 
   // 📷 Photo Selection
@@ -381,8 +414,9 @@ export default function PostListingModal({
         location: locationName.trim(),
         location_name: locationName.trim(),
         city: targetCity,
-        lat: finalLat,
-        lng: finalLng,
+        lat: finalLat ? Number(finalLat) : null,
+        lng: finalLng ? Number(finalLng) : null,
+        mapUrl: finalLat && finalLng ? `https://www.google.com/maps/dir/?api=1&destination=${finalLat},${finalLng}` : null,
         timing: formattedActiveHours,
         activeHours: formattedActiveHours,
         capacity: resolvedCapacity,
@@ -873,47 +907,87 @@ export default function PostListingModal({
           {/* ═══════════════════════════════════════════════════════════ */}
           {currentStep === 3 && (
             <div className="space-y-3 animate-fade-in">
-              {/* Location & GPS */}
-              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+              {/* Location & GPS with 1-Tap Colony Chips */}
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold text-amber-400 flex items-center space-x-1">
                     <span>📍</span>
-                    <span>Locality & Live Shop GPS</span>
+                    <span>Colony / Locality & Shop GPS</span>
                   </span>
                   <button
                     type="button"
                     onClick={handleDetectGPS}
                     disabled={isLocating}
-                    className="px-2.5 py-1 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/40 rounded-lg text-[10px] font-bold cursor-pointer active:scale-95 transition"
+                    className="px-2.5 py-1 bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 border border-amber-400/40 rounded-lg text-[9.5px] font-black cursor-pointer active:scale-95 transition"
                   >
                     {isLocating ? '🛰️ Locking...' : '🛰️ 1-Tap Set Live GPS'}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={locationName}
-                    onChange={(e) => setLocationName(e.target.value)}
-                    placeholder="e.g. Company Bagh Road"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-slate-100 text-xs focus:border-amber-400 outline-none"
-                  />
-                  <select
-                    value={targetCity}
-                    onChange={(e) => setTargetCity(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-slate-100 text-xs font-bold focus:border-amber-400 outline-none"
-                  >
-                    {Object.keys(TOWN_CENTERS || { Alwar: {} }).map((city) => (
-                      <option key={city} value={city}>
-                        {city}
-                      </option>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 block mb-1">Select Colony *</label>
+                    <select
+                      value={locationName}
+                      onChange={(e) => handleSelectColony(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-slate-100 text-xs font-bold focus:border-amber-400 outline-none"
+                    >
+                      <option value="">-- Choose Colony --</option>
+                      {Object.keys(CITY_ZONES || {}).map((colony) => (
+                        <option key={colony} value={colony}>
+                          {colony}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 block mb-1">Town / City *</label>
+                    <select
+                      value={targetCity}
+                      onChange={(e) => {
+                        const newCity = e.target.value;
+                        setTargetCity(newCity);
+                        applyLocalityOrCityFallback(`Switched city to ${newCity}`);
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2 text-slate-100 text-xs font-bold focus:border-amber-400 outline-none"
+                    >
+                      {Object.keys(TOWN_CENTERS || { Alwar: {} }).map((city) => (
+                        <option key={city} value={city}>
+                          {city}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Quick Colony Selection Chips */}
+                <div className="space-y-1">
+                  <span className="text-[8.5px] text-slate-400 font-bold block uppercase tracking-wider">
+                    Popular Colonies (Tap to Auto-Lock GPS):
+                  </span>
+                  <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none text-[9.5px]">
+                    {Object.keys(CITY_ZONES || {}).slice(0, 8).map((colony) => (
+                      <button
+                        key={colony}
+                        type="button"
+                        onClick={() => handleSelectColony(colony)}
+                        className={`px-2 py-0.5 rounded-lg border font-bold whitespace-nowrap transition cursor-pointer shrink-0 ${
+                          locationName === colony
+                            ? 'bg-amber-400 text-slate-950 border-amber-400 font-black'
+                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {colony}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
 
                 {gpsStatus && (
-                  <p className="text-[10px] font-mono text-emerald-400 font-semibold">{gpsStatus}</p>
+                  <p className="text-[9.5px] font-mono text-emerald-400 font-bold bg-emerald-950/40 border border-emerald-500/30 p-1.5 rounded-xl">
+                    {gpsStatus}
+                  </p>
                 )}
               </div>
 

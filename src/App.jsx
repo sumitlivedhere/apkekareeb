@@ -619,7 +619,7 @@ export default function App() {
                 ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
                 : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
             }`}
-            title="Open Town Alerts"
+            title="Open Alwar Alerts"
           >
             <span className={`text-sm ${unreadNotifCount > 0 ? 'animate-bounce' : ''}`}>🔔</span>
 
@@ -1063,7 +1063,7 @@ export default function App() {
           }`}
         >
           <span className="text-lg">🏛️</span>
-          <span className="text-[10px] font-bold">Town Hub</span>
+          <span className="text-[10px] font-bold">ALWAR</span>
         </button>
 
         {/* Floating Post Button */}

@@ -82,7 +82,7 @@ export default function NotificationCenter({
       case 'TRENDING_OFFER':
         return { label: '🏷️ Deal Alert', bg: 'bg-purple-400/20 text-purple-300 border-purple-400/30' };
       default:
-        return { label: '📢 Town Alert', bg: 'bg-slate-800 text-slate-300 border-slate-700' };
+        return { label: '📢 Alwar Alert', bg: 'bg-slate-800 text-slate-300 border-slate-700' };
     }
   };
 
@@ -112,7 +112,7 @@ export default function NotificationCenter({
                   ? `🏪 Business Hub (+91 ${userPhone || ''})`
                   : activeRole === 'user'
                   ? `👤 Resident Mode (${currentUser?.full_name || 'User'})`
-                  : '📢 Town Hub Public Feed'}
+                  : '📢Alwar  Hub Public Feed'}
               </p>
             </div>
           </div>

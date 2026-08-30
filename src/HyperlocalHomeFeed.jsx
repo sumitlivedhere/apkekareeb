@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import SearchOverlay from './components/common/SearchOverlay';
-import PostListingModal from './components/common/PostListingModal';
 import { hyperlocalStore } from './store/hyperlocalStore';
-import { isBusinessAuthorized, isAdminAuthorized } from './services/authService';
 import { useTheme } from './context/ThemeContext';
 import { useLocationContext } from './context/LocationContext';
 import { findNearestColony } from './data/cityZones';
 
-const TOWN_CATEGORIES = [
+const ALWAR_CATEGORIES = [
   {
     id: 'kaarigar',
     name: 'Kaarigar & Mistri',
@@ -273,12 +271,7 @@ export default function HyperlocalHomeFeed({
 
   const allListings = hyperlocalStore.getAllListings();
   const [localQuery, setLocalQuery] = useState(searchQuery);
-  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [speakingCatId, setSpeakingCatId] = useState(null);
-
-  const canPostListing = useMemo(() => {
-    return isBusinessAuthorized() || isAdminAuthorized();
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -316,7 +309,7 @@ export default function HyperlocalHomeFeed({
 
           setInternalLocation(resolved);
           try {
-            localStorage.setItem('townhub_user_precise_location', JSON.stringify(resolved));
+            localStorage.setItem('alwar_user_precise_location', JSON.stringify(resolved));
           } catch {}
           setInternalLocating(false);
         },
@@ -348,9 +341,9 @@ export default function HyperlocalHomeFeed({
   };
 
   const filteredCategories = useMemo(() => {
-    if (!searchQuery.trim()) return TOWN_CATEGORIES;
+    if (!searchQuery.trim()) return ALWAR_CATEGORIES;
     const q = searchQuery.toLowerCase().trim();
-    return TOWN_CATEGORIES.filter(
+    return ALWAR_CATEGORIES.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.hindi.toLowerCase().includes(q) ||
@@ -387,18 +380,6 @@ export default function HyperlocalHomeFeed({
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
-            {canPostListing && (
-              <button
-                type="button"
-                onClick={() => setIsPostModalOpen(true)}
-                title="Create a New Listing"
-                className="px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
-              >
-                <span>+</span>
-                <span>Post Here</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={handleGpsPinClick}
@@ -459,7 +440,7 @@ export default function HyperlocalHomeFeed({
         <div className="flex items-center space-x-1.5">
           <span className="text-base">🏛️</span>
           <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-300">
-            All Town Categories (सभी श्रेणियां)
+            ALL ALWAR CATEGORIES (सभी श्रेणियां)
           </h3>
         </div>
         <span
@@ -561,15 +542,6 @@ export default function HyperlocalHomeFeed({
           onSelectItem={(item) => {
             if (onSelectItem) onSelectItem(item);
           }}
-        />
-      )}
-
-      {/* Post Listing Modal */}
-      {isPostModalOpen && canPostListing && (
-        <PostListingModal
-          isOpen={isPostModalOpen}
-          selectedCity={currentCity}
-          onClose={() => setIsPostModalOpen(false)}
         />
       )}
     </div>

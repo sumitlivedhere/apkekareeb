@@ -1028,7 +1028,7 @@ class HyperlocalEngineStore {
                 whatsapp: sanitizePhone(match.whatsapp || match.phone) || '9876543210',
                 category: match.category || 'general',
                 subCategory: match.subCategory || 'all',
-                location: match.location || 'Town Center',
+                location: match.location || 'Alwar',
                 quantity: Number(row.quantity),
                 addedAt: new Date().toISOString(),
               });
@@ -1078,7 +1078,7 @@ class HyperlocalEngineStore {
           sellerName: item.sellerName || 'Local Merchant',
           sellerPhone: vendorKey,
           whatsapp: item.whatsapp || vendorKey,
-          location: item.location || 'Town Center',
+          location: item.location || 'Alwar',
           timing: item.timing || '09:00 AM - 09:00 PM',
           items: [],
           subtotal: 0,
@@ -1141,7 +1141,7 @@ class HyperlocalEngineStore {
         whatsapp: sanitizePhone(listingItem.whatsapp || listingItem.phone) || '9876543210',
         category: listingItem.category || 'general',
         subCategory: listingItem.subCategory || listingItem.sub_category || 'all',
-        location: listingItem.location || listingItem.location_name || 'Town Center',
+        location: listingItem.location || listingItem.location_name || 'Alwar',
         city: listingItem.city || 'Alwar',
         timing: listingItem.timing || listingItem.activeHours || '09:00 AM - 09:00 PM',
         dealBadge: listingItem.deal_badge || listingItem.dealBadge || null,
@@ -1691,7 +1691,7 @@ export function useNotificationSlice(explicitScope = null) {
       return rawNotifs.filter(
         (n) =>
           n.recipient_role === 'admin' ||
-          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN', 'TOWN_ALERT'].includes(n.tag)
+          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN', 'TOWN_ALERT', 'ALWAR_ALERT'].includes(n.tag)
       );
     }
 
