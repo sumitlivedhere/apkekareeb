@@ -16,15 +16,13 @@ import {
   getCurrentUserProfile,
   isBusinessAuthorized,
   loginWith4DigitPin,
-  generateActivationPin,
-  markUserPinDispatched,
-  verifyActivationPin,
-  setCustomPermanentPin,
+  requestWhatsAppActivation,
+  verifyActivationPinAndSetPermanentPin,
   logoutUser,
+  sanitizePhone,
 } from './services/authService';
-import {
-  getTemplatesForCategory,
-} from './data/offerTemplatesRegistry';
+import { CITY_ZONES } from './data/cityZones';
+import { getTemplatesForCategory } from './data/offerTemplatesRegistry';
 
 const QUICK_PRESETS = [
   'हाँ, उपलब्ध है (Available)',
@@ -43,21 +41,21 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [isAuthorized, setIsAuthorized] = useState(() => isBusinessAuthorized());
 
-  // 🔒 Login & Activation Gate States ('login' | 'request_pin' | 'enter_pin' | 'set_custom_pin')
+  // 🔒 Login & Activation Gate States ('login' | 'request_pin' | 'enter_pin')
   const [authTab, setAuthTab] = useState('login');
   const [loginPhone, setLoginPhone] = useState(currentUser?.phone || '');
   const [loginPin, setLoginPin] = useState('');
-  const [activationPin, setActivationPin] = useState('');
-  const [generatedPinNotice, setGeneratedPinNotice] = useState('');
-  const [whatsappLink, setWhatsappLink] = useState('');
-  const [customPin, setCustomPin] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [shopName, setShopName] = useState(() => currentUser?.business_name || '');
+  const [shopArea, setShopArea] = useState('Ranjeet Nagar');
+  const [activationPin, setActivationPin] = useState('');
+  const [newPermanentPin, setNewPermanentPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Active Merchant Phone
-  const sellerPhone = currentUser?.phone || loginPhone;
+  const sellerPhone = sanitizePhone(currentUser?.phone || loginPhone);
 
   // Navigation & Filter States
   const [activeTab, setActiveTab] = useState('inquiries'); // 'inquiries' | 'listings' | 'offers'
@@ -119,16 +117,20 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     setTimeout(() => setActionNotice(''), 3500);
   };
 
+  const resetAuthAlerts = () => {
+    setAuthError('');
+    setAuthSuccess('');
+  };
+
   // 🚪 1. Merchant PIN Login Handler
   const handlePerformLogin = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
+    resetAuthAlerts();
     setIsAuthenticating(true);
 
-    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
+    const clean = sanitizePhone(loginPhone);
 
-    if (clean.length < 10) {
+    if (clean.length !== 10) {
       setAuthError('कृपया 10-अंकीय मोबाइल नंबर दर्ज करें (Enter 10-digit mobile).');
       setIsAuthenticating(false);
       return;
@@ -143,15 +145,17 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     try {
       const res = await loginWith4DigitPin(clean, loginPin);
       if (res.success && res.profile) {
-        if (!res.profile.is_merchant && res.profile.verification_tier !== 'verified_merchant') {
-          setAuthError('यह खाता सेलर के रूप में सक्रिय नहीं है। कृपया सेलर पिन (...S) से सक्रिय करें।');
+        if (!res.profile.is_merchant && res.profile.verification_tier !== 'verified_merchant' && res.profile.verification_tier !== 'merchant') {
+          setAuthError('यह खाता सेलर के रूप में सक्रिय नहीं है। कृपया एडमिन से मर्चेंट सत्यापन का अनुरोध करें।');
           setAuthTab('request_pin');
           return;
         }
         setCurrentUser(res.profile);
         sessionStorage.setItem('townhub_business_auth', 'authorized');
         setIsAuthorized(true);
-        setAuthError('');
+      } else if (res.isPendingActivation) {
+        setAuthError(res.error);
+        setAuthTab('enter_pin');
       } else {
         setAuthError(res.error || 'पिन अमान्य है या खाता नहीं मिला (Incorrect PIN or account not found).');
       }
@@ -162,84 +166,71 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 📱 2. Step 1: Send Seller PIN via WhatsApp
-  const handleSendSellerWhatsAppPin = async () => {
-    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
+  // 📱 2. Request Merchant PIN via WhatsApp
+  const handleRequestMerchantWhatsAppPin = async (e) => {
+    e.preventDefault();
+    const clean = sanitizePhone(loginPhone);
     if (clean.length !== 10) {
       setAuthError('कृपया 10-अंकीय मोबाइल नंबर दर्ज करें (Enter 10-digit mobile).');
       return;
     }
-
-    setIsAuthenticating(true);
-    setAuthError('');
-    setAuthSuccess('');
-
-    try {
-      const generatedPin = generateActivationPin('seller');
-      await markUserPinDispatched(clean, generatedPin);
-
-      const message = `Namaste ${shopName || 'Merchant Partner'}! 🙏\n\nWelcome to Aapke Kareeb (${selectedCity})!\n\nAapka Merchant Activation PIN hai: *${generatedPin}*\n\nKripya App me jakar yeh PIN darj karein aur apna man-pasand Permanent Login PIN set karein.\n\nDhanyawaad!`;
-      const waUrl = `https://wa.me/91${clean}?text=${encodeURIComponent(message)}`;
-
-      setGeneratedPinNotice(generatedPin);
-      setWhatsappLink(waUrl);
-      setAuthTab('enter_pin');
-      setAuthSuccess(`📱 सेलर पिन (${generatedPin}) तैयार है! WhatsApp खोलें या नीचे दर्ज करें।`);
-      window.open(waUrl, '_blank');
-    } catch (err) {
-      setAuthError(err.message || 'Error dispatching PIN.');
-    } finally {
-      setIsAuthenticating(false);
+    if (!ownerName.trim()) {
+      setAuthError('कृपया मालिक का नाम दर्ज करें (Enter owner name).');
+      return;
     }
-  };
-
-  // 🔑 3. Step 2: Verify Seller PIN ending with S
-  const handleVerifySellerPin = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
-
-    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
-    if (activationPin.trim().length < 7) {
-      setAuthError('सेलर पिन 6 अंक और अंत में S होना चाहिए (e.g. 739102S).');
+    if (!shopName.trim()) {
+      setAuthError('कृपया दुकान / फर्म का नाम दर्ज करें (Enter shop name).');
       return;
     }
 
     setIsAuthenticating(true);
+    resetAuthAlerts();
+
     try {
-      const res = await verifyActivationPin(clean, activationPin);
+      const res = await requestWhatsAppActivation({
+        phone: clean,
+        fullName: ownerName.trim(),
+        areaName: shopArea,
+        isMerchant: true,
+        businessName: shopName.trim(),
+        city: selectedCity,
+      });
+
       if (res.success) {
-        setAuthTab('set_custom_pin');
-        setAuthSuccess('✓ सेलर पिन सत्यापित हो गया! अब अपना स्थायी 4-अंकीय पिन सेट करें।');
+        setAuthSuccess(res.message);
+        window.open(res.whatsappUrl, '_blank');
+        setAuthTab('enter_pin');
       } else {
-        setAuthError(res.error || 'अमान्य सेलर पिन (Invalid Seller PIN).');
+        setAuthError(res.error || 'Error submitting request.');
       }
     } catch (err) {
-      setAuthError(err.message || 'सत्यापन विफल रहा (Verification failed).');
+      setAuthError(err.message || 'Error requesting PIN.');
     } finally {
       setIsAuthenticating(false);
     }
   };
 
-  // 🔒 4. Step 3: Set Permanent PIN for Seller
-  const handleSavePermanentPin = async (e) => {
+  // 🔑 3. Verify Admin WhatsApp PIN & Set Own 4-Digit PIN
+  const handleVerifyMerchantPin = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
+    resetAuthAlerts();
 
-    if (customPin.length < 4) {
-      setAuthError('पिन कम से कम 4 अंकों का होना चाहिए (PIN must be at least 4 digits).');
+    const clean = sanitizePhone(loginPhone || currentUser?.phone);
+    if (!activationPin.trim()) {
+      setAuthError('कृपया एडमिन से प्राप्त 6-अंकीय पिन दर्ज करें (Enter 6-digit PIN).');
+      return;
+    }
+    if (newPermanentPin.length < 4) {
+      setAuthError('कृपया कम से कम 4-अंकीय स्थायी पिन सेट करें (PIN must be at least 4 digits).');
       return;
     }
 
-    const clean = String(loginPhone).replace(/\D/g, '').slice(-10);
     setIsAuthenticating(true);
     try {
-      const res = await setCustomPermanentPin({
+      const res = await verifyActivationPinAndSetPermanentPin({
         phone: clean,
-        newPin: customPin,
-        roleType: 'seller',
-        businessName: shopName,
+        activationPin,
+        newPermanentPin,
       });
 
       if (res.success && res.profile) {
@@ -247,10 +238,10 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         sessionStorage.setItem('townhub_business_auth', 'authorized');
         setIsAuthorized(true);
       } else {
-        setAuthError(res.error || 'पिन सेट करने में त्रुटि (Failed to save PIN).');
+        setAuthError(res.error || 'अमान्य सेलर पिन (Invalid Activation PIN).');
       }
     } catch (err) {
-      setAuthError(err.message || 'Error saving PIN.');
+      setAuthError(err.message || 'सत्यापन विफल रहा (Verification failed).');
     } finally {
       setIsAuthenticating(false);
     }
@@ -271,10 +262,10 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const myListings = useMemo(() => {
     if (!isAuthorized || !sellerPhone) return [];
 
-    const clean = String(sellerPhone).replace(/\D/g, '').slice(-10);
+    const clean = sellerPhone;
     const list = (allListings || []).filter((item) => {
-      const p1 = String(item.phone || '').replace(/\D/g, '').slice(-10);
-      const p2 = String(item.pending_changes?.phone || '').replace(/\D/g, '').slice(-10);
+      const p1 = sanitizePhone(item.phone);
+      const p2 = sanitizePhone(item.pending_changes?.phone);
       return p1 === clean || p2 === clean;
     });
 
@@ -557,7 +548,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   };
 
   // =========================================================================
-  // 🔒 AUTH GUARD VIEW: LOGIN & SELLER PIN ACTIVATION (...S)
+  // 🔒 AUTH GUARD VIEW: LOGIN & SELLER PIN ACTIVATION
   // =========================================================================
   if (!isAuthorized) {
     return (
@@ -570,7 +561,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             </div>
             <h2 className="text-sm font-black text-slate-100">Business Hub (सुरक्षित लॉगिन)</h2>
             <p className="text-[10.5px] text-slate-400 leading-relaxed">
-              अपनी लिस्टिंग्स, ऑर्डर्स व ग्राहक बातचीत देखने के लिए लॉगिन या सेलर पिन से एक्टिवेट करें।
+              अपनी लिस्टिंग्स, ऑर्डर्स व ग्राहक बातचीत देखने के लिए 4-अंकीय पिन दर्ज करें।
             </p>
           </div>
 
@@ -580,8 +571,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
               type="button"
               onClick={() => {
                 setAuthTab('login');
-                setAuthError('');
-                setAuthSuccess('');
+                resetAuthAlerts();
               }}
               className={`py-2 rounded-xl transition cursor-pointer text-center ${
                 authTab === 'login' ? 'bg-amber-400 text-slate-950 font-black shadow-md' : 'text-slate-400 hover:text-white'
@@ -593,16 +583,15 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
               type="button"
               onClick={() => {
                 setAuthTab('request_pin');
-                setAuthError('');
-                setAuthSuccess('');
+                resetAuthAlerts();
               }}
               className={`py-2 rounded-xl transition cursor-pointer text-center ${
-                authTab === 'request_pin' || authTab === 'enter_pin' || authTab === 'set_custom_pin'
+                authTab === 'request_pin' || authTab === 'enter_pin'
                   ? 'bg-amber-400 text-slate-950 font-black shadow-md'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              2. Activate PIN (...S)
+              2. Request / Enter PIN
             </button>
           </div>
 
@@ -659,7 +648,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
 
               <button
                 type="submit"
-                disabled={isAuthenticating}
+                disabled={isAuthenticating || loginPhone.replace(/\D/g, '').length !== 10 || loginPin.length < 4}
                 className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-50"
               >
                 {isAuthenticating ? 'Verifying PIN... ⏳' : 'Unlock Business Hub ➔'}
@@ -670,23 +659,50 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                   type="button"
                   onClick={() => {
                     setAuthTab('request_pin');
-                    setAuthError('');
-                    setAuthSuccess('');
+                    resetAuthAlerts();
                   }}
                   className="text-[10px] text-amber-400 hover:underline font-bold cursor-pointer"
                 >
-                  New Seller? Activate via WhatsApp PIN (...S) ➔
+                  New Seller? Request WhatsApp Verification ➔
                 </button>
               </div>
             </form>
           )}
 
-          {/* 2. Step 1: Send Seller PIN via WhatsApp */}
+          {/* 2. Step 1: Request WhatsApp PIN */}
           {authTab === 'request_pin' && (
-            <div className="space-y-3.5 text-xs">
+            <form onSubmit={handleRequestMerchantWhatsAppPin} className="space-y-3 text-xs">
               <div>
                 <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                  Merchant Mobile Number *
+                  Owner Full Name (मालिक का नाम) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Ramesh Saini"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold focus:border-amber-400 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  Shop / Business Name (दुकान का नाम) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Alwar Auto Spares"
+                  value={shopName}
+                  onChange={(e) => setShopName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-bold focus:border-amber-400 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  WhatsApp Mobile Number *
                 </label>
                 <div className="flex items-center space-x-2">
                   <span className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 font-mono text-amber-400 font-bold text-xs">
@@ -704,110 +720,102 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  Locality / Colony
+                </label>
+                <select
+                  value={shopArea}
+                  onChange={(e) => setShopArea(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-100 font-bold focus:outline-hidden"
+                >
+                  {Object.keys(CITY_ZONES).map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <button
-                type="button"
-                onClick={handleSendSellerWhatsAppPin}
-                disabled={isAuthenticating || loginPhone.replace(/\D/g, '').length !== 10}
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40 flex items-center justify-center space-x-1.5"
+                type="submit"
+                disabled={isAuthenticating || loginPhone.replace(/\D/g, '').length !== 10 || !ownerName.trim() || !shopName.trim()}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 text-white font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40 flex items-center justify-center space-x-1.5"
               >
-                <span>📱</span>
-                <span>Send Seller PIN to WhatsApp ➔</span>
+                <span>📲</span>
+                <span>{isAuthenticating ? 'Submitting...' : 'Request PIN on WhatsApp ➔'}</span>
               </button>
-            </div>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTab('enter_pin');
+                    resetAuthAlerts();
+                  }}
+                  className="text-[10px] text-amber-400 hover:underline font-bold"
+                >
+                  Already have WhatsApp PIN? Enter here
+                </button>
+              </div>
+            </form>
           )}
 
-          {/* 3. Step 2: Enter Received Seller PIN */}
+          {/* 3. Step 2: Enter Received Admin PIN & Set Own PIN */}
           {authTab === 'enter_pin' && (
-            <form onSubmit={handleVerifySellerPin} className="space-y-3 text-xs">
-              {generatedPinNotice && (
-                <div className="p-3 bg-amber-950/80 border border-amber-400/60 rounded-2xl space-y-2 text-center">
-                  <span className="text-[10px] text-amber-300 font-bold block">
-                    Your Dispatched Seller PIN:
-                  </span>
-                  <span className="text-xl font-mono font-black text-amber-400 tracking-widest block">
-                    {generatedPinNotice}
-                  </span>
-                  {whatsappLink && (
-                    <a
-                      href={whatsappLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block px-3 py-1.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-lg shadow-sm"
-                    >
-                      💬 Open WhatsApp ➔
-                    </a>
-                  )}
-                </div>
-              )}
-
+            <form onSubmit={handleVerifyMerchantPin} className="space-y-3 text-xs">
               <div>
                 <label className="text-[10px] font-bold text-amber-300 block mb-1">
-                  Enter 6-Digit Seller PIN (e.g. {generatedPinNotice || '739102S'}) *
+                  Enter 6-Digit WhatsApp PIN received from Admin *
                 </label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  maxLength={8}
-                  placeholder="123456S"
+                  maxLength={6}
+                  placeholder="e.g. 849201"
                   value={activationPin}
-                  onChange={(e) => setActivationPin(e.target.value.toUpperCase())}
-                  className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-3 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none uppercase"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isAuthenticating || activationPin.length < 7}
-                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40"
-              >
-                {isAuthenticating ? 'Verifying...' : 'Verify Seller PIN ➔'}
-              </button>
-            </form>
-          )}
-
-          {/* 4. Step 3: Set Custom Permanent PIN */}
-          {authTab === 'set_custom_pin' && (
-            <form onSubmit={handleSavePermanentPin} className="space-y-3 text-xs">
-              <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold text-center">
-                ✓ Seller PIN Verified!
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">Shop / Business Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Royal Enfield Studio"
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+                  onChange={(e) => setActivationPin(e.target.value.replace(/\D/g, ''))}
+                  className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-3 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Set Permanent 4-Digit Login PIN *
+                <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                  Create Permanent 4-Digit Security PIN *
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
                   required
-                  autoFocus
                   maxLength={6}
-                  placeholder="••••"
-                  value={customPin}
-                  onChange={(e) => setCustomPin(e.target.value.replace(/\D/g, ''))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-center text-xl font-mono font-black tracking-widest text-amber-300 focus:outline-none focus:border-amber-400"
+                  placeholder="Choose 4 digits"
+                  value={newPermanentPin}
+                  onChange={(e) => setNewPermanentPin(e.target.value.replace(/\D/g, ''))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-center text-white font-mono font-bold text-base tracking-widest focus:outline-none focus:border-amber-400"
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={isAuthenticating || customPin.length < 4}
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition disabled:opacity-40"
+                disabled={isAuthenticating || activationPin.length !== 6 || newPermanentPin.length < 4}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer disabled:opacity-40"
               >
-                {isAuthenticating ? 'Saving PIN...' : 'Save & Unlock Business Hub ➔'}
+                {isAuthenticating ? 'Activating Store...' : 'Set PIN & Open Business Hub ➔'}
               </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTab('request_pin');
+                    resetAuthAlerts();
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-amber-300 hover:underline"
+                >
+                  Didn't receive PIN? Request again on WhatsApp
+                </button>
+              </div>
             </form>
           )}
 
@@ -1223,7 +1231,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           {isRecordingAdmin ? (
                             <div className="flex items-center justify-between p-2 bg-rose-950/60 border border-rose-500/50 rounded-xl animate-pulse">
                               <span className="text-[10px] font-bold text-rose-300">
-                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}{adminRecordingSecs}
+                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}${adminRecordingSecs}
                               </span>
                               <div className="flex items-center space-x-1.5">
                                 <button type="button" onClick={handleCancelVoiceToAdmin} className="px-2 py-0.5 bg-slate-800 text-slate-300 text-[9px] rounded-lg cursor-pointer">Cancel</button>
@@ -1673,6 +1681,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
             setEditingListing(null);
           }}
           selectedCity={selectedCity}
+          initialLocality={currentUser?.area_name || 'Ranjeet Nagar'}
         />
       )}
     </main>

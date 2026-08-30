@@ -14,14 +14,11 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
     return rawCartItems || [];
   }, [currentUser, rawCartItems]);
 
-  const isPermanentUser = Boolean(
-    currentUser &&
-      (currentUser.verification_tier === 'verified_resident' ||
-        currentUser.verification_tier === 'verified_merchant' ||
-        currentUser.is_verified === true)
+  const isVerifiedMember = Boolean(
+    currentUser && currentUser.is_verified && currentUser.status === 'active'
   );
 
-  // Group items by Seller for multi-category checkout
+  // Group items by Seller for multi-merchant checkout
   const groupedBySeller = useMemo(() => {
     if (!currentUser) return [];
     const map = {};
@@ -50,7 +47,7 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
 
   // Dispatch individual seller order via formatted WhatsApp contract
   const handleDispatchWhatsAppOrder = (sellerGroup) => {
-    if (!currentUser) {
+    if (!currentUser || !isVerifiedMember) {
       if (onOpenAuth) onOpenAuth();
       return;
     }
@@ -62,7 +59,7 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
       )
       .join('\n\n');
 
-    const buyerName = currentUser?.full_name || 'Resident';
+    const buyerName = currentUser?.full_name || 'Resident Member';
     const buyerPhone = currentUser?.phone || '';
     const buyerLocality = currentUser?.area_name || 'Town Center';
 
@@ -75,10 +72,10 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
       `----------------------------------------\n` +
       (sellerGroup.subtotal > 0 ? `💰 *Estimated Total: ₹${sellerGroup.subtotal.toLocaleString('en-IN')}*\n` : '') +
       `👤 *Customer:* ${buyerName} (+91 ${buyerPhone})\n` +
-      `📍 *Delivery / Service Area:* ${buyerLocality}\n\n` +
-      `Please confirm availability, timing, and dispatch details. Dhanyawaad!`;
+      `📍 *Delivery / Locality:* ${buyerLocality}\n\n` +
+      `Please confirm availability, delivery timing, and payment details. Dhanyawaad!`;
 
-    const targetPhone = sellerGroup.whatsapp || sellerGroup.phone;
+    const targetPhone = String(sellerGroup.whatsapp || sellerGroup.phone).replace(/\D/g, '').slice(-10);
     const url = `https://wa.me/91${targetPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -154,7 +151,7 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
               <div className="space-y-1 max-w-xs mx-auto">
                 <h3 className="text-sm font-black">Sign In to Access Your Cart</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Your cart is linked to your registered mobile number so you can order directly from verified local merchants.
+                  Your cart is linked to your registered mobile number so you can order directly from verified local merchants across Alwar.
                 </p>
               </div>
 
@@ -171,12 +168,23 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
           ) : (
             /* 🛍️ AUTHENTICATED USER CART */
             <>
-              {!isPermanentUser && (
-                <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl text-[11px] text-cyan-300 space-y-1">
-                  <span className="font-black block">⭐ Verified Resident Recommended</span>
-                  <p className="text-[10px] text-slate-400">
-                    Verify your 6-digit WhatsApp PIN in Profile for faster merchant priority dispatch.
-                  </p>
+              {!isVerifiedMember && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-[11px] text-amber-300 flex items-center justify-between">
+                  <div>
+                    <span className="font-black block">🔒 Account Pending WhatsApp Activation</span>
+                    <p className="text-[10px] text-slate-400">
+                      Verify your 6-digit WhatsApp PIN to dispatch orders to sellers.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenAuth) onOpenAuth();
+                    }}
+                    className="px-2.5 py-1 bg-amber-400 text-slate-950 font-black text-[10px] rounded-lg cursor-pointer"
+                  >
+                    Activate
+                  </button>
                 </div>
               )}
 

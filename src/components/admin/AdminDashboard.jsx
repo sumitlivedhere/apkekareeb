@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useAllListingsSlice, hyperlocalStore, hydrateFromDB } from '../../store/hyperlocalStore';
 import UserManagementCRM from './UserManagementCRM';
 import { supabase } from '../../services/supabaseClient';
@@ -18,8 +18,10 @@ import {
   adminDeleteUser,
   adminDeleteAllSellerListings,
   adminDemoteMerchant,
+  sanitizePhone,
 } from '../../services/authService';
 import { TAXONOMY_REGISTRY, getCategoryById } from '../../data/taxonomyRegistry';
+import { CITY_ZONES } from '../../data/cityZones';
 import {
   getOptimizedVoiceStream,
   createOptimizedMediaRecorder,
@@ -27,28 +29,42 @@ import {
 import VoiceNotePlayer from '../common/VoiceNotePlayer';
 
 const MASTER_ADMIN_SECRET = 'JagadUsha@NEBExt3/33';
-const sanitizePhone = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
 export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isAdminAuth, setIsAdminAuth] = useState(() => isAdminAuthorized());
   const [enteredKey, setEnteredKey] = useState('');
   const [keyError, setKeyError] = useState('');
   const [dashboardNotice, setDashboardNotice] = useState('');
+  const [isWidescreen, setIsWidescreen] = useState(false);
 
   const allListings = useAllListingsSlice();
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending' | 'approved' | 'all' | 'users'
+  
+  // 🌟 5-Way Tab Switcher: 'whatsapp' | 'pending' | 'approved' | 'all' | 'users'
+  const [activeTab, setActiveTab] = useState('whatsapp');
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState(null);
 
+  // 📲 WhatsApp Desk State
+  const [profiles, setProfiles] = useState([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [newMemberPhone, setNewMemberPhone] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberArea, setNewMemberArea] = useState('Ranjeet Nagar');
+  const [newMemberRole, setNewMemberRole] = useState('resident');
+  const [newBusinessName, setNewBusinessName] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
   // ⏱️ Timeline Filter States
-  const [timeFilterType, setTimeFilterType] = useState('all'); // 'all' | 'hours' | 'days' | 'last_week' | 'last_month' | 'this_year'
+  const [timeFilterType, setTimeFilterType] = useState('all');
   const [timeValue, setTimeValue] = useState(1);
 
   // 👤 Seller Dossier Modal State
-  const [selectedSeller, setSelectedSeller] = useState(null); // { phone, name }
-  const [sellerPortfolioTab, setSellerPortfolioTab] = useState('all'); // 'all' | 'approved' | 'pending' | 'feedback'
+  const [selectedSeller, setSelectedSeller] = useState(null);
+  const [sellerPortfolioTab, setSellerPortfolioTab] = useState('all');
 
   // 🔍 Review Studio & Full Correction State
   const [inspectingItem, setInspectingItem] = useState(null);
@@ -75,7 +91,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     videos: [],
   });
 
-  const [activeMediaTab, setActiveMediaTab] = useState('photos'); // 'photos' | 'videos'
+  const [activeMediaTab, setActiveMediaTab] = useState('photos');
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
 
@@ -99,17 +115,35 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
 
+  // ── Fetch Profiles for WhatsApp Desk ──────────────────────────
+  const fetchProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setProfiles(data);
+      }
+    } catch (err) {
+      console.error('Error fetching user profiles:', err);
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (isAdminAuth) {
       hydrateFromDB();
+      fetchProfiles();
     }
-  }, [isAdminAuth]);
+  }, [isAdminAuth, fetchProfiles]);
 
   const showNotice = (msg) => {
     setDashboardNotice(msg);
-    if (msg) {
-      setTimeout(() => setDashboardNotice(''), 4000);
-    }
+    if (msg) setTimeout(() => setDashboardNotice(''), 4000);
   };
 
   const handleVerifyAdminKey = (e) => {
@@ -135,8 +169,136 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     await hydrateFromDB();
+    await fetchProfiles();
     setIsRefreshing(false);
-    showNotice('Registry and feeds refreshed.');
+    showNotice('Registry and WhatsApp queue refreshed.');
+  };
+
+  // ── 📲 1-Click WhatsApp PIN Dispatcher ─────────────────────────
+  const handleGenerateAndDispatchPin = async (user) => {
+    setActionLoading(true);
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({
+          admin_activation_pin: generatedPin,
+          status: 'pending_activation',
+        })
+        .eq('phone', user.phone);
+
+      if (error) throw error;
+
+      showNotice(`⚡ PIN ${generatedPin} created for ${user.full_name}. Opening WhatsApp...`);
+      fetchProfiles();
+
+      const isSeller = user.is_merchant;
+      const message = encodeURIComponent(
+        `Namaste ${user.full_name} ji!\n\n` +
+        `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant (Seller)' : 'Member'} Verification PIN is: *${generatedPin}*\n\n` +
+        `👉 Open the Aapke Kareeb app, select 'Activate Account', enter this 6-digit PIN, and set your 4-digit permanent Security PIN.\n\n` +
+        `Welcome to Aapke Kareeb Alwar!`
+      );
+
+      window.open(`https://wa.me/91${user.phone}?text=${message}`, '_blank');
+    } catch (err) {
+      console.error('PIN dispatch error:', err);
+      showNotice('⚠️ Failed to generate PIN in database.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ── 📲 Bulk WhatsApp PIN Dispatcher ────────────────────────────
+  const handleBulkDispatchPins = async () => {
+    if (pendingWhatsAppRequests.length === 0) return;
+    if (!window.confirm(`Generate and dispatch activation PINs for all ${pendingWhatsAppRequests.length} pending user(s)?`)) return;
+
+    setActionLoading(true);
+    let sentCount = 0;
+
+    for (const user of pendingWhatsAppRequests) {
+      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+      try {
+        await supabase
+          .from('user_profiles')
+          .update({
+            admin_activation_pin: generatedPin,
+            status: 'pending_activation',
+          })
+          .eq('phone', user.phone);
+
+        sentCount++;
+      } catch (e) {
+        console.error('Bulk dispatch item error:', e);
+      }
+    }
+
+    showNotice(`✓ Generated PINs for ${sentCount} user(s).`);
+    fetchProfiles();
+    setActionLoading(false);
+
+    if (pendingWhatsAppRequests[0]) {
+      handleGenerateAndDispatchPin(pendingWhatsAppRequests[0]);
+    }
+  };
+
+  // ── 📲 Manual Member Onboarding via Admin ─────────────────────
+  const handleManualAddMember = async (e) => {
+    e.preventDefault();
+    const cleanPhone = sanitizePhone(newMemberPhone);
+    if (cleanPhone.length !== 10) {
+      showNotice('⚠️ Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    if (!newMemberName.trim()) {
+      showNotice('⚠️ Please enter the full name.');
+      return;
+    }
+
+    setActionLoading(true);
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    const isSeller = newMemberRole === 'merchant';
+
+    try {
+      const payload = {
+        phone: cleanPhone,
+        full_name: newMemberName.trim(),
+        area_name: newMemberArea,
+        city: selectedCity,
+        is_merchant: isSeller,
+        business_name: isSeller ? (newBusinessName || newMemberName).trim() : null,
+        verification_tier: isSeller ? 'merchant' : 'resident',
+        is_verified: false,
+        status: 'pending_activation',
+        admin_activation_pin: generatedPin,
+      };
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .upsert([payload], { onConflict: 'phone' });
+
+      if (error) throw error;
+
+      showNotice(`✓ Registered ${newMemberName}! PIN: ${generatedPin}`);
+      setNewMemberPhone('');
+      setNewMemberName('');
+      setNewBusinessName('');
+      fetchProfiles();
+
+      const message = encodeURIComponent(
+        `Namaste ${newMemberName.trim()} ji!\n\n` +
+        `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant' : 'Member'} Activation PIN is: *${generatedPin}*\n\n` +
+        `👉 Open the app, enter this PIN, and set your 4-digit permanent login code.`
+      );
+      window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
+    } catch (err) {
+      console.error('Manual onboarding error:', err);
+      showNotice('⚠️ Failed to create profile.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const applyTimeFilter = (timestamp) => {
@@ -231,6 +393,15 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     return sellerListings;
   }, [sellerPortfolioTab, sellerListings, sellerApproved, sellerPending, sellerFeedbackActive]);
 
+  // Smart Detection: Anyone pending activation OR who hasn't set their permanent PIN
+  const pendingWhatsAppRequests = useMemo(() => {
+    return profiles.filter((p) => {
+      const hasSetPin = Boolean(p.secret_pin_hash || p.resident_pin_hash || p.business_pin_hash);
+      const isUnverified = !p.is_verified || p.status === 'temporary' || p.status === 'pending_activation';
+      return isUnverified || !hasSetPin || Boolean(p.admin_activation_pin);
+    });
+  }, [profiles]);
+
   // 🛑 Direct Admin Actions
   const handleDirectDeleteListing = async (listingId, title = 'Listing') => {
     if (!window.confirm(`⚠️ PERMANENT DELETE: Are you sure you want to delete "${title}"?`)) return;
@@ -263,6 +434,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
     await adminToggleBanUser(cleanPhone, true);
     await hydrateFromDB();
+    await fetchProfiles();
     showNotice(`⛔ Blocked and banned +91 ${cleanPhone}`);
   };
 
@@ -290,6 +462,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     await adminDeleteAllSellerListings(cleanPhone);
     await adminDeleteUser(null, cleanPhone);
     await hydrateFromDB();
+    await fetchProfiles();
     showNotice(`🗑️ Completely deleted ${name} (+91 ${cleanPhone})`);
     if (selectedSeller?.phone === cleanPhone) setSelectedSeller(null);
     if (inspectingItem && sanitizePhone(inspectingItem.phone) === cleanPhone) {
@@ -304,6 +477,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       return;
     }
     await adminDemoteMerchant(cleanPhone);
+    await fetchProfiles();
     showNotice(`⬇️ Demoted ${name} to Basic Resident`);
   };
 
@@ -369,7 +543,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     setRecordedVoiceNote(null);
   };
 
-  // 📷 Admin Add Photo Handler
+  // 📷 Admin Photo Handler
   const handleAdminAddPhoto = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -389,7 +563,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }));
   };
 
-  // 🎥 Admin Add Video Handler
+  // 🎥 Admin Video Handler
   const handleAdminAddVideo = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -519,7 +693,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ Admin Voice Recording Handlers
+  // 🎙️ Admin Voice Handlers
   const handleStartAdminVoice = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -539,7 +713,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } catch {
-      alert('Microphone access denied. Please allow microphone permissions.');
+      alert('Microphone access denied. Please allow permissions.');
     }
   };
 
@@ -681,22 +855,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-28 select-none">
       
-      {/* Hidden File Upload Inputs for Admin Edit Mode */}
-      <input
-        type="file"
-        ref={adminPhotoInputRef}
-        onChange={handleAdminAddPhoto}
-        multiple
-        accept="image/*"
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={adminVideoInputRef}
-        onChange={handleAdminAddVideo}
-        accept="video/*"
-        className="hidden"
-      />
+      {/* Hidden File Inputs */}
+      <input type="file" ref={adminPhotoInputRef} onChange={handleAdminAddPhoto} multiple accept="image/*" className="hidden" />
+      <input type="file" ref={adminVideoInputRef} onChange={handleAdminAddVideo} accept="video/*" className="hidden" />
 
       {/* Sticky Top Header */}
       <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-lg">
@@ -715,12 +876,22 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               <span className="text-slate-400">{selectedCity.toUpperCase()}</span>
             </div>
             <h2 className="text-xs font-black text-slate-100">
-              Content & User Moderation Console
+              Content & Member Moderation Console
             </h2>
           </div>
         </div>
 
         <div className="flex items-center space-x-1.5">
+          {/* Desktop/Mobile Layout Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsWidescreen((prev) => !prev)}
+            className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-bold cursor-pointer"
+            title="Toggle Desktop/Mobile layout width"
+          >
+            {isWidescreen ? '📱 Mobile' : '🖥️ Desktop'}
+          </button>
+
           <button
             type="button"
             onClick={handleManualRefresh}
@@ -738,12 +909,13 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             className="px-2.5 py-1 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 text-[10px] font-bold border border-rose-800 transition cursor-pointer flex items-center space-x-1"
           >
             <span>🔒</span>
-            <span>Lock & Exit</span>
+            <span>Lock</span>
           </button>
         </div>
       </header>
 
-      <div className="max-w-md mx-auto p-3.5 space-y-3.5">
+      {/* Main Container */}
+      <div className={`mx-auto p-3.5 space-y-3.5 ${isWidescreen ? 'max-w-5xl' : 'max-w-md'}`}>
         
         {dashboardNotice && (
           <div className="p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold text-center animate-fade-in shadow-md">
@@ -755,20 +927,32 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-slate-900 border border-amber-500/40 p-2.5 rounded-2xl text-center shadow-xs">
             <span className="block text-base font-black text-amber-300">{pendingApprovals.length}</span>
-            <span className="text-[8.5px] text-amber-300/80 font-bold uppercase tracking-wider">Pending</span>
+            <span className="text-[8.5px] text-amber-300/80 font-bold uppercase tracking-wider">Deals Pending</span>
           </div>
           <div className="bg-slate-900 border border-emerald-500/40 p-2.5 rounded-2xl text-center shadow-xs">
             <span className="block text-base font-black text-emerald-400">{approvedListings.length}</span>
-            <span className="text-[8.5px] text-emerald-300/80 font-bold uppercase tracking-wider">Approved Live</span>
+            <span className="text-[8.5px] text-emerald-300/80 font-bold uppercase tracking-wider">Live Approved</span>
           </div>
-          <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
-            <span className="block text-base font-black text-slate-300">{allFilteredListings.length}</span>
-            <span className="text-[8.5px] text-slate-400 font-bold uppercase tracking-wider">Total Listings</span>
+          <div className="bg-slate-900 border border-cyan-500/40 p-2.5 rounded-2xl text-center shadow-xs">
+            <span className="block text-base font-black text-cyan-300">{pendingWhatsAppRequests.length}</span>
+            <span className="text-[8.5px] text-cyan-300/80 font-bold uppercase tracking-wider">PIN Requests</span>
           </div>
         </div>
 
-        {/* 🌟 4-Way Tab Switcher */}
-        <div className="grid grid-cols-4 gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[9.5px]">
+        {/* 🌟 5-Way Tab Switcher */}
+        <div className="grid grid-cols-5 gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[9px]">
+          <button
+            type="button"
+            onClick={() => setActiveTab('whatsapp')}
+            className={`py-2 text-center rounded-xl font-black transition cursor-pointer flex items-center justify-center space-x-0.5 ${
+              activeTab === 'whatsapp'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-emerald-300'
+            }`}
+          >
+            <span>📲 PINs ({pendingWhatsAppRequests.length})</span>
+          </button>
+          
           <button
             type="button"
             onClick={() => setActiveTab('pending')}
@@ -778,19 +962,21 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Pending ({pendingApprovals.length})
+            Deals ({pendingApprovals.length})
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('approved')}
             className={`py-2 text-center rounded-xl font-black transition cursor-pointer ${
               activeTab === 'approved'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Approved ({approvedListings.length})
+            Live ({approvedListings.length})
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('all')}
@@ -802,6 +988,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           >
             All ({allFilteredListings.length})
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('users')}
@@ -811,20 +998,219 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 : 'text-slate-400 hover:text-purple-300'
             }`}
           >
-            <span>👥</span>
-            <span>Users CRM</span>
+            <span>👥 CRM</span>
           </button>
         </div>
 
-        {/* 🌟 USER MANAGEMENT CRM TAB */}
+        {/* ═══════════════════════════════════════════════════════════
+            TAB 1: 📲 WHATSAPP ACTIVATION DESK
+           ═══════════════════════════════════════════════════════════ */}
+        {activeTab === 'whatsapp' && (
+          <div className="space-y-4 animate-fade-in text-xs">
+            {/* Quick Manual Onboarding Form */}
+            <div className="p-4 rounded-3xl bg-slate-900 border border-emerald-500/40 shadow-sm space-y-3">
+              <div className="flex items-center space-x-2 pb-2 border-b border-slate-800">
+                <span className="text-xl">⚡</span>
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-100">
+                    Add Member & Send WhatsApp PIN
+                  </h3>
+                  <p className="text-[9.5px] text-slate-400">1-Click Manual Registration</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleManualAddMember} className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">Full Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Ramesh Saini"
+                      value={newMemberName}
+                      onChange={(e) => setNewMemberName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 px-3 py-2 text-xs font-bold bg-slate-950 text-slate-100 focus:outline-none focus:border-emerald-400"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">WhatsApp Phone *</label>
+                    <div className="flex items-center rounded-xl border border-slate-800 px-2.5 py-1.5 bg-slate-950">
+                      <span className="text-xs font-bold text-slate-500 mr-1.5">+91</span>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="9876543210"
+                        value={newMemberPhone}
+                        onChange={(e) => setNewMemberPhone(e.target.value.replace(/\D/g, ''))}
+                        className="w-full bg-transparent text-xs font-bold text-slate-100 focus:outline-none"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">Colony / Locality</label>
+                    <select
+                      value={newMemberArea}
+                      onChange={(e) => setNewMemberArea(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 px-2.5 py-2 text-xs font-bold bg-slate-950 text-slate-100 focus:outline-none"
+                    >
+                      {Object.keys(CITY_ZONES).map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center space-x-3 px-1 pt-3">
+                    <label className="flex items-center space-x-1 text-[10.5px] font-bold text-slate-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="adminNewRole"
+                        checked={newMemberRole === 'resident'}
+                        onChange={() => setNewMemberRole('resident')}
+                        className="accent-emerald-500"
+                      />
+                      <span>Resident</span>
+                    </label>
+                    <label className="flex items-center space-x-1 text-[10.5px] font-bold text-slate-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="adminNewRole"
+                        checked={newMemberRole === 'merchant'}
+                        onChange={() => setNewMemberRole('merchant')}
+                        className="accent-emerald-500"
+                      />
+                      <span>Merchant</span>
+                    </label>
+                  </div>
+                </div>
+
+                {newMemberRole === 'merchant' && (
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 mb-1">Shop / Firm Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Alwar Auto Spares"
+                      value={newBusinessName}
+                      onChange={(e) => setNewBusinessName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-800 px-3 py-2 text-xs font-bold bg-slate-950 text-slate-100 focus:outline-none focus:border-emerald-400"
+                      required
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={actionLoading || newMemberPhone.length !== 10 || !newMemberName.trim()}
+                  className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <span>⚡</span>
+                  <span>Generate & Send PIN via WhatsApp</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Pending Requests Queue */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Pending Verification Requests ({pendingWhatsAppRequests.length})
+                </span>
+                {pendingWhatsAppRequests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkDispatchPins}
+                    disabled={actionLoading}
+                    className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-[10px] rounded-lg shadow active:scale-95 transition cursor-pointer"
+                  >
+                    🚀 Dispatch All
+                  </button>
+                )}
+              </div>
+
+              {profilesLoading ? (
+                <div className="p-6 text-center text-xs text-slate-500">Loading requests...</div>
+              ) : pendingWhatsAppRequests.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center space-y-1">
+                  <span className="text-2xl block">🎉</span>
+                  <h4 className="text-xs font-black text-slate-200">No Pending Activations</h4>
+                  <p className="text-[10px] text-slate-400">All member registration requests are active.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {pendingWhatsAppRequests
+                    .filter((p) => {
+                      const q = memberSearchQuery.toLowerCase().trim();
+                      return !q || p.full_name?.toLowerCase().includes(q) || p.phone?.includes(q);
+                    })
+                    .map((user) => (
+                      <div
+                        key={user.id}
+                        className="p-3 bg-slate-900 border border-emerald-500/30 rounded-2xl space-y-2.5 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0 pr-2">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-xs">{user.is_merchant ? '🏪' : '👤'}</span>
+                              <h4 className="text-xs font-black text-slate-100 truncate">{user.full_name}</h4>
+                              <span
+                                className={`text-[8.5px] font-black px-1.5 py-0.2 rounded-md uppercase ${
+                                  user.is_merchant ? 'bg-pink-950 text-pink-300' : 'bg-blue-950 text-blue-300'
+                                }`}
+                              >
+                                {user.is_merchant ? 'Merchant' : 'Resident'}
+                              </span>
+                            </div>
+
+                            <p className="text-[10.5px] font-mono font-bold text-cyan-300 mt-0.5">
+                              📞 +91 {user.phone}
+                            </p>
+                            <p className="text-[9.5px] text-slate-400">
+                              📍 {user.area_name || 'Town Center'}
+                              {user.business_name && <span className="text-amber-300 ml-1">({user.business_name})</span>}
+                            </p>
+                          </div>
+
+                          {user.admin_activation_pin && (
+                            <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/30 text-amber-300 font-mono font-black text-[10px]">
+                              PIN: {user.admin_activation_pin}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateAndDispatchPin(user)}
+                          disabled={actionLoading}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10.5px] rounded-xl active:scale-95 transition flex items-center justify-center space-x-1 cursor-pointer shadow-md"
+                        >
+                          <span>📲</span>
+                          <span>{user.admin_activation_pin ? 'Resend WhatsApp PIN' : 'Send 6-Digit PIN on WhatsApp ➔'}</span>
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════
+            TAB 2: USER MANAGEMENT CRM
+           ═══════════════════════════════════════════════════════════ */}
         {activeTab === 'users' && (
           <div className="animate-fade-in">
             <UserManagementCRM selectedCity={selectedCity} />
           </div>
         )}
 
-        {/* LISTINGS CONTENT & FILTERS */}
-        {activeTab !== 'users' && (
+        {/* ═══════════════════════════════════════════════════════════
+            LISTINGS MODERATION TABS ('pending', 'approved', 'all')
+           ═══════════════════════════════════════════════════════════ */}
+        {activeTab !== 'users' && activeTab !== 'whatsapp' && (
           <>
             {/* ⏱️ Dynamic Time Filter Bar */}
             <div className="p-2.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-2 text-xs">
@@ -959,7 +1345,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                               {changes.title || item.title}
                             </h4>
 
-                            {/* 👤 1-Tap Merchant Dossier Trigger */}
                             <button
                               type="button"
                               onClick={() => {
@@ -1018,65 +1403,44 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           )}
                         </div>
 
-                        {/* Action Controls & Full Control Delete / Ban Buttons */}
-                        <div className="flex items-center space-x-1.5 pt-1">
+                        {/* Organized 2x2 Action Button Grid (No overlap) */}
+                        <div className="grid grid-cols-2 gap-1.5 pt-1">
                           <button
                             type="button"
                             onClick={() => handleOpenInspector(item)}
-                            className="flex-1 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1"
+                            className="py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-[10.5px] rounded-xl shadow cursor-pointer active:scale-95 transition flex items-center justify-center space-x-1"
                           >
-                            <span>🔍</span>
-                            <span>Inspect Deal</span>
+                            <span>🔍 Inspect</span>
                           </button>
-                          
+
                           <button
                             type="button"
                             onClick={() => handleApprove(item)}
                             disabled={actionInProgressId === item.id}
-                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+                            className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10.5px] rounded-xl shadow cursor-pointer active:scale-95 transition disabled:opacity-50 flex items-center justify-center space-x-1"
                           >
-                            {actionInProgressId === item.id ? '...' : '✓ Approve'}
+                            <span>✓ {actionInProgressId === item.id ? '...' : 'Approve'}</span>
                           </button>
-                          
+
                           <button
                             type="button"
                             onClick={() => handleReject(item)}
                             disabled={actionInProgressId === item.id}
-                            className="px-2.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer disabled:opacity-50"
-                            title="Reject pending changes"
+                            className="py-2 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[10px] rounded-xl cursor-pointer active:scale-95 transition disabled:opacity-50 flex items-center justify-center space-x-1"
                           >
-                            ✕
+                            <span>✕ Reject</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleToggleShadowban(item)}
-                            className={`px-2 py-2 rounded-xl text-[10px] font-black border transition cursor-pointer ${
+                            className={`py-2 rounded-xl text-[10px] font-bold border transition cursor-pointer flex items-center justify-center space-x-1 ${
                               item.is_shadowbanned
                                 ? 'bg-purple-950 text-purple-300 border-purple-500/50'
                                 : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-purple-300'
                             }`}
-                            title={item.is_shadowbanned ? 'Remove Shadowban' : 'Shadowban listing'}
                           >
-                            👻
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDirectDeleteListing(item.id, changes.title || item.title)}
-                            className="px-2.5 py-2 bg-slate-950 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 border border-slate-800 rounded-xl font-bold text-[10px] transition cursor-pointer"
-                            title="Permanently delete this listing"
-                          >
-                            🗑️
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDirectBanPoster(sellerPhone, sellerName)}
-                            className="px-2 py-2 bg-rose-950/40 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-xl font-black text-[10px] transition cursor-pointer"
-                            title="Block and ban this seller"
-                          >
-                            ⛔
+                            <span>👻 {item.is_shadowbanned ? 'Unban' : 'Shadowban'}</span>
                           </button>
                         </div>
                       </div>
@@ -1429,7 +1793,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
               )}
 
-              {/* Media Player & Edit Gallery Box */}
+              {/* Media Player & Gallery Box */}
               {(() => {
                 const photos = editFormData.images || [];
                 const cleanPhotos = photos.map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useThreadSlice, useInterestSlice, hyperlocalStore } from '../../store/hyperlocalStore';
 import VoiceNotePlayer from './VoiceNotePlayer';
+import AuthModal from './AuthModal';
 import { uploadVoiceNoteToStorage } from '../../services/listingService';
 import { getCurrentUserProfile } from '../../services/authService';
 import {
@@ -16,35 +17,42 @@ export default function ListingDiscussionThread({
   initialInterestCount = 0,
   variant = 'corner', // 'corner' | 'reels'
   onNewNotification,
+  selectedCity = 'Alwar',
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
   const [newComment, setNewComment] = useState('');
-  const [userName, setUserName] = useState(currentUser?.full_name || '');
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [isSellerMode, setIsSellerMode] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authActionTitle, setAuthActionTitle] = useState('Sign In to Post Question');
 
   // Sync active user profile on modal open
   useEffect(() => {
     if (isOpen) {
       const user = getCurrentUserProfile();
       setCurrentUser(user);
-      if (user?.full_name && !userName) {
-        setUserName(user.full_name);
-      }
     }
   }, [isOpen]);
 
-  // Tier 2 & Tier 3 Permissions Verification
-  const isTier2Verified = Boolean(
-    currentUser &&
-      (currentUser.verification_tier === 'verified_resident' ||
-        currentUser.verification_tier === 'verified_merchant' ||
-        currentUser.is_merchant === true)
+  // Verified member check
+  const isMemberVerified = Boolean(
+    currentUser && currentUser.is_verified && currentUser.status === 'active'
   );
 
-  // 🎙️ Buyer Audio Recording & Server Upload State
+  const checkAuthOrPrompt = (actionTitle = 'Sign In to Post Question') => {
+    const user = getCurrentUserProfile();
+    if (user && user.is_verified && user.status === 'active') {
+      setCurrentUser(user);
+      return true;
+    }
+    setAuthActionTitle(actionTitle);
+    setIsAuthModalOpen(true);
+    return false;
+  };
+
+  // 🎙️ Buyer Audio Recording & Upload State
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isUploadingBuyerVoice, setIsUploadingBuyerVoice] = useState(false);
@@ -53,7 +61,7 @@ export default function ListingDiscussionThread({
   const buyerAudioChunksRef = useRef([]);
   const buyerTimerRef = useRef(null);
 
-  // 🎙️ Seller Audio Recording & Server Upload State
+  // 🎙️ Seller Audio Recording & Upload State
   const [sellerRecordingId, setSellerRecordingId] = useState(null);
   const [sellerRecordSeconds, setSellerRecordSeconds] = useState(0);
   const [isUploadingSellerVoice, setIsUploadingSellerVoice] = useState(false);
@@ -68,16 +76,9 @@ export default function ListingDiscussionThread({
   const interestCount = useInterestSlice(listingId, initialInterestCount);
   const inputRef = useRef(null);
 
-  // 🎙️ 1. Buyer: Start Recording Pure Voice Note (16kHz Mono Opus)
+  // 🎙️ 1. Buyer: Start Recording Voice Note
   const startBuyerVoiceRecording = async () => {
-    if (!currentUser) {
-      alert('⚠️ Login Required: Please sign in with your phone and 4-digit MPIN first.');
-      return;
-    }
-    if (!isTier2Verified) {
-      alert('🔒 Tier 2 Verification Required: Only Verified Residents can send voice notes. Please request your 6-digit WhatsApp PIN from your Profile page.');
-      return;
-    }
+    if (!checkAuthOrPrompt('Sign In to Send Voice Note')) return;
 
     try {
       const stream = await getOptimizedVoiceStream();
@@ -98,11 +99,11 @@ export default function ListingDiscussionThread({
         setRecordSeconds((p) => p + 1);
       }, 1000);
     } catch {
-      alert('Microphone permission denied. Please allow microphone access in your browser settings.');
+      alert('Microphone permission denied. Please allow microphone access in browser settings.');
     }
   };
 
-  // 🎙️ 2. Buyer: Stop, Upload to Backend Storage & Save
+  // 🎙️ 2. Buyer: Stop & Upload Voice Note
   const stopAndSendBuyerVoice = () => {
     const mediaRecorder = buyerMediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -116,10 +117,9 @@ export default function ListingDiscussionThread({
           type: mediaRecorder.mimeType || 'audio/webm',
         });
 
-        // Upload voice note to Supabase Storage
         const publicAudioUrl = await uploadVoiceNoteToStorage(audioBlob);
         const durationStr = `0:${recordSeconds < 10 ? '0' : ''}${recordSeconds}`;
-        const sender = currentUser?.full_name || userName.trim() || 'Town User';
+        const sender = currentUser?.full_name || 'Resident';
 
         hyperlocalStore.addThreadComment(
           listingId,
@@ -128,7 +128,7 @@ export default function ListingDiscussionThread({
             type: 'audio',
             audioUrl: publicAudioUrl,
             audioDuration: durationStr,
-            text: '🎤 Voice Note Question',
+            text: '🎤 Voice Question',
             isPublic: true,
           },
           listingTitle
@@ -147,7 +147,7 @@ export default function ListingDiscussionThread({
       } catch (err) {
         console.error('Failed to upload buyer voice note:', err);
       } finally {
-        mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+        if (mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach((t) => t.stop());
         setIsRecording(false);
         setRecordSeconds(0);
         setIsUploadingBuyerVoice(false);
@@ -160,7 +160,9 @@ export default function ListingDiscussionThread({
   const cancelBuyerVoiceRecording = () => {
     if (buyerMediaRecorderRef.current) {
       clearInterval(buyerTimerRef.current);
-      buyerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      if (buyerMediaRecorderRef.current.stream) {
+        buyerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
       buyerMediaRecorderRef.current = null;
       setIsRecording(false);
       setRecordSeconds(0);
@@ -192,7 +194,7 @@ export default function ListingDiscussionThread({
     }
   };
 
-  // 🎙️ 4. Seller: Stop, Upload to Backend Storage & Save
+  // 🎙️ 4. Seller: Stop & Upload Audio Reply
   const stopAndSendSellerVoice = (commentId) => {
     const mediaRecorder = sellerMediaRecorderRef.current;
     if (!mediaRecorder) return;
@@ -224,7 +226,7 @@ export default function ListingDiscussionThread({
       } catch (err) {
         console.error('Failed to upload seller voice note:', err);
       } finally {
-        mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+        if (mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach((t) => t.stop());
         setSellerRecordingId(null);
         setSellerRecordSeconds(0);
         setActiveReplyId(null);
@@ -238,7 +240,9 @@ export default function ListingDiscussionThread({
   const cancelSellerVoiceRecording = () => {
     if (sellerMediaRecorderRef.current) {
       clearInterval(sellerTimerRef.current);
-      sellerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      if (sellerMediaRecorderRef.current.stream) {
+        sellerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
       sellerMediaRecorderRef.current = null;
       setSellerRecordingId(null);
       setSellerRecordSeconds(0);
@@ -249,10 +253,10 @@ export default function ListingDiscussionThread({
     return () => {
       if (buyerTimerRef.current) clearInterval(buyerTimerRef.current);
       if (sellerTimerRef.current) clearInterval(sellerTimerRef.current);
-      if (buyerMediaRecorderRef.current) {
+      if (buyerMediaRecorderRef.current?.stream) {
         buyerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
       }
-      if (sellerMediaRecorderRef.current) {
+      if (sellerMediaRecorderRef.current?.stream) {
         sellerMediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
       }
     };
@@ -260,26 +264,18 @@ export default function ListingDiscussionThread({
 
   const handleIncrementInterest = (e) => {
     e.stopPropagation();
+    if (!checkAuthOrPrompt('Sign In to Express Interest')) return;
     hyperlocalStore.incrementInterest(listingId, interestCount, listingTitle, sellerName);
   };
 
-  // 📝 5. Buyer Text Query Gate Check
+  // 📝 5. Buyer Text Query
   const handleInitiateSend = (e) => {
     if (e) e.preventDefault();
     if (!newComment.trim()) return;
-
-    if (!currentUser) {
-      alert('⚠️ Login Required: Please log in with your phone and 4-digit MPIN.');
-      return;
-    }
-
-    if (!isTier2Verified) {
-      alert('🔒 Tier 2 Verification Required: Only Verified Residents can post questions or comments. Enter your 6-digit WhatsApp PIN on your Profile page.');
-      return;
-    }
+    if (!checkAuthOrPrompt('Sign In to Post Question')) return;
 
     setPendingConfirmQuery({
-      senderName: currentUser?.full_name || userName.trim() || 'Town User',
+      senderName: currentUser?.full_name || 'Resident',
       queryText: newComment.trim(),
     });
   };
@@ -433,10 +429,17 @@ export default function ListingDiscussionThread({
               </div>
             </div>
 
-            {/* Tier 2 Status Banner */}
-            {!isTier2Verified && (
+            {/* Member Status Banner */}
+            {!isMemberVerified && (
               <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-[10.5px] text-amber-300 flex items-center justify-between">
-                <span>🔒 Viewing Mode: Tier 2 Verified Resident PIN required to ask questions.</span>
+                <span>🔒 Member Status: WhatsApp verified account required to ask questions.</span>
+                <button
+                  type="button"
+                  onClick={() => checkAuthOrPrompt('Join Aapke Kareeb')}
+                  className="underline font-bold text-amber-400 ml-2 cursor-pointer"
+                >
+                  Verify ➔
+                </button>
               </div>
             )}
 
@@ -446,7 +449,7 @@ export default function ListingDiscussionThread({
                 <div className="text-center py-12 space-y-2">
                   <span className="text-3xl text-slate-600">🎙️</span>
                   <p className="text-xs text-slate-400 font-medium">
-                    No active questions. Verified residents can tap the mic below to ask via voice note!
+                    No active questions. Verified members can tap the mic below to ask via voice note!
                   </p>
                 </div>
               ) : (
@@ -465,7 +468,7 @@ export default function ListingDiscussionThread({
                         <div className="flex-1 space-y-1 min-w-0">
                           <div className="flex items-center space-x-1.5">
                             <span className="text-[11px] font-bold text-slate-200 truncate">
-                              @{c.userName?.toLowerCase().replace(/\s+/g, '_') || 'town_user'}
+                              @{c.userName?.toLowerCase().replace(/\s+/g, '_') || 'resident'}
                             </span>
                             <span className="text-[10px] text-slate-500">
                               • {c.timestamp || 'Just now'}
@@ -500,7 +503,7 @@ export default function ListingDiscussionThread({
                         </div>
                       </div>
 
-                      {/* Nested Seller Reply (Voice or Text) */}
+                      {/* Nested Seller Reply */}
                       {c.sellerReply && (
                         <div className="ml-11 flex items-start space-x-2.5 pt-1">
                           <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center shrink-0 shadow-md">
@@ -598,14 +601,14 @@ export default function ListingDiscussionThread({
               )}
             </div>
 
-            {/* 🌟 3. BUYER ASK BAR (VOICE NOTE OR TEXT) */}
+            {/* 🌟 3. BUYER ASK BAR */}
             <div className="p-3.5 border-t border-slate-800 bg-slate-950 space-y-2.5">
               <div className="flex items-center justify-between px-2">
                 <span className="text-[11px] font-bold text-slate-300">
-                  {currentUser ? `Asking as ${currentUser.full_name}` : 'Sign In required to post'}
+                  {currentUser ? `Asking as ${currentUser.full_name}` : 'Sign In required to post questions'}
                 </span>
                 <span className="text-[10px] text-amber-400 font-bold">
-                  {isTier2Verified ? 'Tier 2 Verified ✓' : 'Tier 2 Required 🔒'}
+                  {isMemberVerified ? 'Verified Member ✓' : 'Verification Required 🔒'}
                 </span>
               </div>
 
@@ -649,9 +652,9 @@ export default function ListingDiscussionThread({
                       ref={inputRef}
                       type="text"
                       placeholder={
-                        isTier2Verified
+                        isMemberVerified
                           ? 'Ask about price, condition, visit timings...'
-                          : 'Tier 2 PIN required to post questions...'
+                          : 'Member sign-in required to post questions...'
                       }
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
@@ -663,7 +666,7 @@ export default function ListingDiscussionThread({
                       type="button"
                       onClick={startBuyerVoiceRecording}
                       className="ml-2 w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 flex items-center justify-center text-sm font-black transition cursor-pointer shadow-md active:scale-90 shrink-0"
-                      title="Record Voice Note (Tier 2)"
+                      title="Record Voice Note"
                     >
                       🎙️
                     </button>
@@ -724,6 +727,19 @@ export default function ListingDiscussionThread({
             )}
           </div>
         </div>
+      )}
+
+      {isAuthModalOpen && (
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          actionTitle={authActionTitle}
+          selectedCity={selectedCity}
+          onClose={() => setIsAuthModalOpen(false)}
+          onSuccess={(user) => {
+            setCurrentUser(user);
+            setIsAuthModalOpen(false);
+          }}
+        />
       )}
     </>
   );

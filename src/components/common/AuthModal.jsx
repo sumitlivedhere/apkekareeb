@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   checkUserExistence,
   loginWith4DigitPin,
-  registerTier1User,
-  requestAndSendWhatsAppPin,
-  verifyActivationPin,
-  setCustomPermanentPin,
+  requestWhatsAppActivation,
+  verifyActivationPinAndSetPermanentPin,
+  sanitizePhone,
 } from '../../services/authService';
+import { CITY_ZONES } from '../../data/cityZones';
 
 export default function AuthModal({
   isOpen,
@@ -17,24 +17,22 @@ export default function AuthModal({
 }) {
   if (!isOpen) return null;
 
-  // Modes: 'phone' | 'login_pin' | 'register' | 'request_pin' | 'enter_pin' | 'set_custom_pin'
+  // Modes: 'phone' | 'login_pin' | 'request_activation' | 'enter_pin'
   const [authMode, setAuthMode] = useState('phone');
-  const [pinTargetType, setPinTargetType] = useState('user'); // 'user' | 'seller'
 
-  // Tier 1 Fields
+  // Form Fields
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [fullName, setFullName] = useState('');
-  const [areaName, setAreaName] = useState('');
+  const [areaName, setAreaName] = useState('Ranjeet Nagar');
+  const [isMerchant, setIsMerchant] = useState(false);
+  const [businessName, setBusinessName] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [isListening, setIsListening] = useState(false);
 
-  // Activation & Custom PIN Fields
-  const [generatedPinNotice, setGeneratedPinNotice] = useState('');
-  const [whatsappLink, setWhatsappLink] = useState('');
+  // Activation Fields
   const [activationPinInput, setActivationPinInput] = useState('');
-  const [customPinInput, setCustomPinInput] = useState('');
-  const [businessNameInput, setBusinessNameInput] = useState('');
+  const [newPermanentPin, setNewPermanentPin] = useState('');
 
   // UI State
   const [isLoading, setIsLoading] = useState(false);
@@ -42,9 +40,9 @@ export default function AuthModal({
   const [successMsg, setSuccessMsg] = useState('');
   const recognitionRef = useRef(null);
 
-  const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+  const cleanPhone = sanitizePhone(phone);
 
-  // Speech Recognition
+  // Speech Recognition for Name Input
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -74,11 +72,15 @@ export default function AuthModal({
     }
   };
 
-  // 1. Phone Check
-  const handlePhoneCheck = async (e) => {
-    e.preventDefault();
+  const resetAlerts = () => {
     setErrorMsg('');
     setSuccessMsg('');
+  };
+
+  // ── 1. Phone Check ────────────────────────────────────────────
+  const handlePhoneCheck = async (e) => {
+    e.preventDefault();
+    resetAlerts();
 
     if (cleanPhone.length !== 10) {
       setErrorMsg('Please enter a valid 10-digit mobile number.');
@@ -86,28 +88,32 @@ export default function AuthModal({
     }
 
     setIsLoading(true);
-    const { exists, hasPin, isBanned, profile } = await checkUserExistence(cleanPhone);
+    const { exists, hasPin, isVerified, isBanned, profile } = await checkUserExistence(cleanPhone);
     setIsLoading(false);
 
     if (isBanned) {
-      setErrorMsg('⛔ This mobile number is blocked by Admin.');
+      setErrorMsg('⛔ This mobile number is suspended by Admin.');
       return;
     }
 
-    if (exists && hasPin) {
+    if (exists && isVerified && hasPin) {
       setFullName(profile?.full_name || '');
-      setAreaName(profile?.area_name || '');
+      setAreaName(profile?.area_name || 'Ranjeet Nagar');
       setAuthMode('login_pin');
+    } else if (exists && !isVerified) {
+      setFullName(profile?.full_name || '');
+      setAreaName(profile?.area_name || 'Ranjeet Nagar');
+      setErrorMsg('Account pending WhatsApp PIN activation.');
+      setAuthMode('enter_pin');
     } else {
-      setAuthMode('register');
+      setAuthMode('request_activation');
     }
   };
 
-  // 2. PIN Login
+  // ── 2. Submit Login via 4-Digit PIN ───────────────────────────
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
+    resetAlerts();
 
     if (pin.length < 4) {
       setErrorMsg('Please enter your 4-digit PIN.');
@@ -123,139 +129,75 @@ export default function AuthModal({
       setTimeout(() => {
         if (onSuccess) onSuccess(res.profile);
         onClose();
-      }, 500);
+      }, 400);
+    } else if (res.isPendingActivation) {
+      setErrorMsg(res.error);
+      setAuthMode('enter_pin');
     } else {
       setErrorMsg(res.error || 'Incorrect PIN.');
     }
   };
 
-  // 3. Register New Resident
-  const handleRegisterSubmit = async (e) => {
+  // ── 3. Request WhatsApp Verification ──────────────────────────
+  const handleRequestActivationSubmit = async (e) => {
     e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
+    resetAlerts();
 
     if (!fullName.trim()) {
       setErrorMsg('Please enter your full name.');
       return;
     }
-    if (pin.length < 4) {
-      setErrorMsg('Please choose a PIN with at least 4 digits.');
-      return;
-    }
 
     setIsLoading(true);
-    const res = await registerTier1User({
+    const res = await requestWhatsAppActivation({
       phone: cleanPhone,
       fullName: fullName.trim(),
-      areaName: areaName.trim() || 'Town Center',
-      pin,
+      areaName,
+      isMerchant,
+      businessName,
       city: selectedCity,
     });
     setIsLoading(false);
 
+    if (res.success) {
+      setSuccessMsg(res.message);
+      window.open(res.whatsappUrl, '_blank');
+      setAuthMode('enter_pin');
+    } else {
+      setErrorMsg(res.error || 'Failed to request activation.');
+    }
+  };
+
+  // ── 4. Verify Admin WhatsApp PIN & Set Own 4-Digit PIN ────────
+  const handleVerifyActivationSubmit = async (e) => {
+    e.preventDefault();
+    resetAlerts();
+
+    if (!activationPinInput.trim()) {
+      setErrorMsg('Please enter the 6-digit PIN received from Admin on WhatsApp.');
+      return;
+    }
+    if (newPermanentPin.length < 4) {
+      setErrorMsg('Please create a PIN with at least 4 digits.');
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await verifyActivationPinAndSetPermanentPin({
+      phone: cleanPhone,
+      activationPin: activationPinInput,
+      newPermanentPin,
+    });
+    setIsLoading(false);
+
     if (res.success && res.profile) {
-      setSuccessMsg('Account created successfully!');
+      setSuccessMsg('🎉 Account verified and activated!');
       setTimeout(() => {
         if (onSuccess) onSuccess(res.profile);
         onClose();
       }, 500);
     } else {
-      setErrorMsg(res.error || 'Registration failed.');
-    }
-  };
-
-  // 4. Send PIN to WhatsApp (User or Seller)
-  const handleRequestWhatsAppPin = async (type) => {
-    if (cleanPhone.length !== 10) {
-      setErrorMsg('Please enter your 10-digit mobile number first.');
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMsg('');
-
-    try {
-      const res = await requestAndSendWhatsAppPin({
-        phone: cleanPhone,
-        type: type,
-        fullName: fullName || (type === 'seller' ? 'Merchant' : 'Resident'),
-        city: selectedCity,
-      });
-
-      if (res.success) {
-        setPinTargetType(res.roleType);
-        setGeneratedPinNotice(res.pin);
-        setWhatsappLink(res.whatsappUrl);
-        setAuthMode('enter_pin');
-        setSuccessMsg(`📱 PIN (${res.pin}) generated! Tap "Open WhatsApp" or enter below.`);
-        window.open(res.whatsappUrl, '_blank');
-      } else {
-        setErrorMsg(res.error || 'Failed to dispatch WhatsApp PIN.');
-      }
-    } catch (err) {
-      setErrorMsg(err.message || 'Error dispatching PIN.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 5. Verify 6-Digit WhatsApp PIN
-  const handleVerifyActivation = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    if (activationPinInput.trim().length < 7) {
-      setErrorMsg('PIN must be 6 digits ending with U (User) or S (Seller).');
-      return;
-    }
-
-    setIsLoading(true);
-    const res = await verifyActivationPin(cleanPhone, activationPinInput);
-    setIsLoading(false);
-
-    if (res.success) {
-      setPinTargetType(res.roleType);
-      setAuthMode('set_custom_pin');
-      setSuccessMsg(`✓ ${res.roleType === 'seller' ? 'Seller (...S)' : 'User (...U)'} PIN Verified! Now set your personal permanent PIN.`);
-    } else {
-      setErrorMsg(res.error || 'Invalid activation PIN.');
-    }
-  };
-
-  // 6. Save Permanent Custom PIN
-  const handleSetCustomPin = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    if (customPinInput.length < 4) {
-      setErrorMsg('Please set a PIN with at least 4 digits.');
-      return;
-    }
-
-    setIsLoading(true);
-    const res = await setCustomPermanentPin({
-      phone: cleanPhone,
-      newPin: customPinInput,
-      roleType: pinTargetType,
-      businessName: businessNameInput,
-    });
-    setIsLoading(false);
-
-    if (res.success) {
-      setSuccessMsg(
-        pinTargetType === 'seller'
-          ? '🎉 Merchant Account Activated! Your custom PIN is set.'
-          : '🎉 Verified Resident Status Activated! Your custom PIN is set.'
-      );
-      setTimeout(() => {
-        if (onSuccess) onSuccess(res.profile);
-        onClose();
-      }, 700);
-    } else {
-      setErrorMsg(res.error || 'Failed to save custom PIN.');
+      setErrorMsg(res.error || 'Invalid activation code.');
     }
   };
 
@@ -283,41 +225,6 @@ export default function AuthModal({
           </button>
         </div>
 
-        {/* Mode Switcher */}
-        <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-2xl border border-slate-800 text-[10px] font-bold">
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode('phone');
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'phone' || authMode === 'login_pin' || authMode === 'register'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            1. Login / Register
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode('request_pin');
-              setErrorMsg('');
-              setSuccessMsg('');
-            }}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              authMode === 'request_pin' || authMode === 'enter_pin' || authMode === 'set_custom_pin'
-                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            2. WhatsApp PIN (U/S)
-          </button>
-        </div>
-
         {/* Alerts */}
         {errorMsg && (
           <div className="p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs font-bold text-center animate-fade-in">
@@ -330,7 +237,7 @@ export default function AuthModal({
           </div>
         )}
 
-        {/* ─── 1. MOBILE NUMBER ─── */}
+        {/* ─── SCREEN 1: ENTER PHONE NUMBER ─── */}
         {authMode === 'phone' && (
           <form onSubmit={handlePhoneCheck} className="space-y-3 text-xs">
             <div>
@@ -364,14 +271,17 @@ export default function AuthModal({
           </form>
         )}
 
-        {/* ─── 2. LOGIN WITH PIN ─── */}
+        {/* ─── SCREEN 2: LOGIN WITH 4-DIGIT PIN ─── */}
         {authMode === 'login_pin' && (
           <form onSubmit={handleLoginSubmit} className="space-y-3 text-xs">
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-slate-300 font-bold">Welcome back, {fullName}</span>
               <button
                 type="button"
-                onClick={() => setAuthMode('phone')}
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('phone');
+                }}
                 className="text-[10px] text-amber-400 font-bold hover:underline"
               >
                 Change
@@ -380,7 +290,7 @@ export default function AuthModal({
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-slate-400">Enter Your Login PIN</label>
+                <label className="text-[10px] font-bold text-slate-400">Enter Your 4-Digit Security PIN</label>
                 <button
                   type="button"
                   onClick={() => setShowPin((p) => !p)}
@@ -409,17 +319,33 @@ export default function AuthModal({
             >
               {isLoading ? 'Verifying PIN...' : 'Log In ➔'}
             </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('request_activation');
+                }}
+                className="text-[10px] text-slate-400 hover:text-amber-300 hover:underline"
+              >
+                Forgot PIN? Reset via WhatsApp
+              </button>
+            </div>
           </form>
         )}
 
-        {/* ─── 3. REGISTER NEW RESIDENT ─── */}
-        {authMode === 'register' && (
-          <form onSubmit={handleRegisterSubmit} className="space-y-3 text-xs">
+        {/* ─── SCREEN 3: REQUEST WHATSAPP ACTIVATION ─── */}
+        {authMode === 'request_activation' && (
+          <form onSubmit={handleRequestActivationSubmit} className="space-y-3 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-300 font-bold">New Account for +91 {cleanPhone}</span>
+              <span className="text-[11px] text-slate-300 font-bold">Register: +91 {cleanPhone}</span>
               <button
                 type="button"
-                onClick={() => setAuthMode('phone')}
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('phone');
+                }}
                 className="text-[10px] text-amber-400 font-bold hover:underline"
               >
                 Change
@@ -428,17 +354,18 @@ export default function AuthModal({
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-slate-400">Full Name *</label>
+                <label className="text-[10px] font-bold text-slate-400">Full Name (पूरा नाम) *</label>
                 <span className="text-[9px] text-amber-400 font-semibold">बोलकर बताएं</span>
               </div>
               <div className="flex items-center space-x-2">
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Rahul Sharma"
+                  placeholder="e.g. Ramesh Saini"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
+                  autoFocus
                 />
                 <button
                   type="button"
@@ -454,175 +381,141 @@ export default function AuthModal({
 
             <div>
               <label className="block text-[10px] font-bold text-slate-400 mb-1">Locality (कॉलोनी / क्षेत्र)</label>
-              <input
-                type="text"
-                placeholder="e.g. Budh Vihar / Scheme 2"
+              <select
                 value={areaName}
                 onChange={(e) => setAreaName(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 mb-1">Set 4-Digit Login PIN *</label>
-              <input
-                type="password"
-                inputMode="numeric"
-                required
-                maxLength={4}
-                placeholder="••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-center text-lg font-mono font-black tracking-widest text-amber-300 focus:outline-none focus:border-amber-400"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading || !fullName.trim() || pin.length !== 4}
-              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
-            >
-              {isLoading ? 'Creating Account...' : 'Complete Sign Up ➔'}
-            </button>
-          </form>
-        )}
-
-        {/* ─── 4. STEP 1: SEND PIN TO WHATSAPP ─── */}
-        {authMode === 'request_pin' && (
-          <div className="space-y-3.5 text-xs">
-            <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-slate-400">Mobile Number (WhatsApp)</label>
-              <input
-                type="tel"
-                required
-                maxLength={10}
-                placeholder="9876543210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-100 font-mono font-bold focus:outline-none focus:border-amber-400"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleRequestWhatsAppPin('user')}
-                disabled={isLoading || cleanPhone.length !== 10}
-                className="py-3 px-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition flex flex-col items-center justify-center space-y-0.5"
               >
-                <span>👤 Send User PIN</span>
-                <span className="text-[8.5px] font-normal opacity-90">(Ends in ...U)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleRequestWhatsAppPin('seller')}
-                disabled={isLoading || cleanPhone.length !== 10}
-                className="py-3 px-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer active:scale-95 transition flex flex-col items-center justify-center space-y-0.5"
-              >
-                <span>🏪 Send Seller PIN</span>
-                <span className="text-[8.5px] font-normal opacity-90">(Ends in ...S)</span>
-              </button>
+                {Object.keys(CITY_ZONES).map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
-        )}
 
-        {/* ─── 5. STEP 2: ENTER RECEIVED PIN ─── */}
-        {authMode === 'enter_pin' && (
-          <form onSubmit={handleVerifyActivation} className="space-y-3 text-xs">
-            {generatedPinNotice && (
-              <div className="p-3 bg-amber-950/80 border border-amber-400/60 rounded-2xl space-y-2 text-center">
-                <span className="text-[10px] text-amber-300 font-bold block">
-                  Your Dispatched {pinTargetType === 'seller' ? 'Seller' : 'User'} PIN:
-                </span>
-                <span className="text-xl font-mono font-black text-amber-400 tracking-widest block">
-                  {generatedPinNotice}
-                </span>
-                {whatsappLink && (
-                  <a
-                    href={whatsappLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block px-3 py-1.5 bg-emerald-500 text-slate-950 font-black text-[10px] rounded-lg shadow-sm"
-                  >
-                    💬 Re-open on WhatsApp ➔
-                  </a>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-[10px] font-bold text-amber-300 mb-1">
-                Enter 6-Digit PIN + Suffix (e.g. {generatedPinNotice || '739102S'}) *
+            <div className="flex items-center space-x-2 pt-1">
+              <input
+                type="checkbox"
+                id="modalMerchantToggle"
+                checked={isMerchant}
+                onChange={(e) => setIsMerchant(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer accent-amber-400"
+              />
+              <label htmlFor="modalMerchantToggle" className="text-xs font-bold text-slate-300 cursor-pointer">
+                I am a Business / Seller (दुकानदार / कारीगर)
               </label>
-              <input
-                type="text"
-                required
-                autoFocus
-                maxLength={8}
-                placeholder="123456S or 123456U"
-                value={activationPinInput}
-                onChange={(e) => setActivationPinInput(e.target.value.toUpperCase())}
-                className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-2.5 text-center text-amber-300 font-mono font-black text-lg tracking-widest focus:outline-none uppercase"
-              />
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading || activationPinInput.length < 7}
-              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
-            >
-              {isLoading ? 'Verifying PIN...' : 'Verify WhatsApp PIN ➔'}
-            </button>
-          </form>
-        )}
-
-        {/* ─── 6. STEP 3: SET OWN PERMANENT CUSTOM PIN ─── */}
-        {authMode === 'set_custom_pin' && (
-          <form onSubmit={handleSetCustomPin} className="space-y-3 text-xs">
-            <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold text-center">
-              ✓ {pinTargetType === 'seller' ? 'Seller (...S)' : 'Authorized User (...U)'} PIN Verified!
-            </div>
-
-            {pinTargetType === 'seller' && (
+            {isMerchant && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                  Shop / Business Name (दुकान का नाम)
+                  Shop / Business Name (दुकान का नाम) *
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Royal Enfield Studio"
-                  value={businessNameInput}
-                  onChange={(e) => setBusinessNameInput(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-white font-bold focus:border-amber-400 outline-none"
+                  required
+                  placeholder="e.g. Alwar Auto Spares"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-slate-100 font-semibold focus:outline-none focus:border-amber-400"
                 />
               </div>
             )}
 
+            <button
+              type="submit"
+              disabled={isLoading || !fullName.trim()}
+              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 text-white font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition flex items-center justify-center space-x-2 disabled:opacity-50"
+            >
+              <span>📲</span>
+              <span>{isLoading ? 'Connecting...' : 'Request PIN via WhatsApp'}</span>
+            </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('enter_pin');
+                }}
+                className="text-[10px] text-amber-400 hover:underline"
+              >
+                Already have WhatsApp PIN? Enter here
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ─── SCREEN 4: ENTER WHATSAPP PIN & CREATE PERMANENT PIN ─── */}
+        {authMode === 'enter_pin' && (
+          <form onSubmit={handleVerifyActivationSubmit} className="space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-300 font-bold">Activating: +91 {cleanPhone}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('phone');
+                }}
+                className="text-[10px] text-amber-400 font-bold hover:underline"
+              >
+                Change
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-amber-300 mb-1">
+                Enter 6-Digit WhatsApp PIN received from Admin *
+              </label>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                placeholder="e.g. 849201"
+                value={activationPinInput}
+                onChange={(e) => setActivationPinInput(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-amber-400/60 rounded-xl p-2.5 text-center text-amber-300 font-mono font-black text-lg tracking-widest focus:outline-none"
+                autoFocus
+              />
+            </div>
+
             <div>
               <label className="block text-[10px] font-bold text-slate-400 mb-1">
-                Set Your Personal Permanent Login PIN (4 to 6 digits) *
+                Create Permanent 4-Digit Security PIN *
               </label>
               <input
                 type="password"
                 inputMode="numeric"
                 required
-                autoFocus
                 maxLength={6}
-                placeholder="••••"
-                value={customPinInput}
-                onChange={(e) => setCustomPinInput(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center text-white font-mono font-bold text-base tracking-widest focus:border-amber-400 outline-none"
+                placeholder="Choose 4 digits"
+                value={newPermanentPin}
+                onChange={(e) => setNewPermanentPin(e.target.value.replace(/\D/g, ''))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-center text-white font-mono font-bold text-base tracking-widest focus:outline-none focus:border-amber-400"
               />
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || customPinInput.length < 4}
-              className="w-full py-3 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
+              disabled={isLoading || activationPinInput.length !== 6 || newPermanentPin.length < 4}
+              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg cursor-pointer active:scale-95 transition"
             >
-              {isLoading ? 'Saving Personal PIN...' : 'Save & Activate Account ➔'}
+              {isLoading ? 'Activating Account...' : 'Set PIN & Enter App ➔'}
             </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  resetAlerts();
+                  setAuthMode('request_activation');
+                }}
+                className="text-[10px] text-slate-400 hover:text-amber-300 hover:underline"
+              >
+                Didn't get WhatsApp PIN? Resend request
+              </button>
+            </div>
           </form>
         )}
 

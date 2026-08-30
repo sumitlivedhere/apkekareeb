@@ -6,7 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { initRealtimeSubscriptions, hydrateFromDB } from './store/hyperlocalStore';
 import { installGlobalMediaGuard } from './utils/globalMediaGuard';
 import { registerSW } from 'virtual:pwa-register';
-
+import ReactDOM from 'react-dom/client';
 
 // 🔄 Auto-update Service Worker in background immediately on new deploy
 const updateSW = registerSW({
