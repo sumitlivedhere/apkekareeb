@@ -10,6 +10,29 @@ const ADMIN_SESSION_KEY = 'townhub_admin_authenticated';
 export const sanitizePhone = (phone) => String(phone || '').replace(/\D/g, '').slice(-10);
 
 /**
+ * Safe query deletion helpers (prevents Supabase thenable .catch() runtime TypeError)
+ */
+async function safeDeleteIn(table, column, values) {
+  if (!supabase || !values || (Array.isArray(values) && values.length === 0)) return;
+  try {
+    const { error } = await supabase.from(table).delete().in(column, values);
+    if (error) console.warn(`safeDeleteIn on ${table}.${column} warning:`, error.message);
+  } catch (err) {
+    console.warn(`safeDeleteIn on ${table} caught:`, err);
+  }
+}
+
+async function safeDeleteEq(table, column, value) {
+  if (!supabase || value === undefined || value === null || value === '') return;
+  try {
+    const { error } = await supabase.from(table).delete().eq(column, value);
+    if (error) console.warn(`safeDeleteEq on ${table}.${column} warning:`, error.message);
+  } catch (err) {
+    console.warn(`safeDeleteEq on ${table} caught:`, err);
+  }
+}
+
+/**
  * Generates a clean 6-digit numeric activation PIN
  */
 export function generateActivationPin(type = 'user') {
@@ -404,7 +427,7 @@ export async function verifyActivationPinAndSetPermanentPin({
 /* ========================================================================= */
 
 /**
- * Toggle ban state for user profile and deactivates all active listings
+ * Toggle ban state for user profile and updates active listing states
  */
 export async function adminToggleBanUser(phone, shouldBan = true) {
   const cleanPhone = sanitizePhone(phone);
@@ -415,19 +438,19 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
       const { error: userError } = await supabase
         .from('user_profiles')
         .update({
-          is_banned: shouldBan,
+          is_banned: Boolean(shouldBan),
           status: shouldBan ? 'banned' : 'active',
         })
         .eq('phone', cleanPhone);
 
       if (userError) throw userError;
 
-      if (shouldBan) {
-        await supabase
-          .from('listings')
-          .update({ is_active: false })
-          .eq('phone', cleanPhone);
-      }
+      // Update listings active status according to ban state
+      await supabase
+        .from('listings')
+        .update({ is_active: !shouldBan })
+        .eq('phone', cleanPhone);
+
       return { success: true };
     } catch (err) {
       console.error('Toggle ban error:', err);
@@ -439,7 +462,7 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
 
 /**
  * Guaranteed Cascading User Deletion Pipeline
- * Cleanly removes child records in exact foreign key order before deleting user_profiles
+ * Cleanly removes child records in foreign key order before deleting user_profiles
  */
 export async function adminDeleteUser(userId, phone) {
   const cleanPhone = sanitizePhone(phone);
@@ -471,38 +494,39 @@ export async function adminDeleteUser(userId, phone) {
 
       // 3. Cascade delete child records tied to listings
       if (listingIds.length > 0) {
-        await supabase.from('user_carts').delete().in('listing_id', listingIds).catch(() => {});
-        await supabase.from('listing_interests').delete().in('listing_id', listingIds).catch(() => {});
-        await supabase.from('listing_reports').delete().in('listing_id', listingIds).catch(() => {});
-        await supabase.from('listing_reviews').delete().in('listing_id', listingIds).catch(() => {});
-        await supabase.from('listing_threads').delete().in('listing_id', listingIds).catch(() => {});
+        await safeDeleteIn('user_carts', 'listing_id', listingIds);
+        await safeDeleteIn('listing_interests', 'listing_id', listingIds);
+        await safeDeleteIn('listing_reports', 'listing_id', listingIds);
+        await safeDeleteIn('listing_reviews', 'listing_id', listingIds);
+        await safeDeleteIn('listing_threads', 'listing_id', listingIds);
       }
 
-      // 4. Cascade delete child records tied directly to user phone / ID
+      // 4. Cascade delete child records tied directly to user phone
       if (cleanPhone) {
-        await supabase.from('user_carts').delete().eq('phone', cleanPhone).catch(() => {});
-        await supabase.from('listing_interests').delete().eq('phone', cleanPhone).catch(() => {});
-        await supabase.from('listing_reports').delete().eq('reporter_phone', cleanPhone).catch(() => {});
-        await supabase.from('listing_reviews').delete().eq('phone', cleanPhone).catch(() => {});
-        await supabase.from('notifications').delete().eq('recipient_phone', cleanPhone).catch(() => {});
+        await safeDeleteEq('user_carts', 'phone', cleanPhone);
+        await safeDeleteEq('listing_interests', 'phone', cleanPhone);
+        await safeDeleteEq('listing_reports', 'reporter_phone', cleanPhone);
+        await safeDeleteEq('listing_reviews', 'phone', cleanPhone);
+        await safeDeleteEq('notifications', 'recipient_phone', cleanPhone);
       }
 
+      // 5. Cascade delete child records tied to resolved user ID
       if (resolvedUserId) {
-        await supabase.from('listing_reports').delete().eq('reporter_id', resolvedUserId).catch(() => {});
-        await supabase.from('listing_reviews').delete().eq('user_id', resolvedUserId).catch(() => {});
-        await supabase.from('listing_threads').delete().eq('user_id', resolvedUserId).catch(() => {});
-        await supabase.from('notifications').delete().eq('user_id', resolvedUserId).catch(() => {});
+        await safeDeleteEq('listing_reports', 'reporter_id', resolvedUserId);
+        await safeDeleteEq('listing_reviews', 'user_id', resolvedUserId);
+        await safeDeleteEq('listing_threads', 'user_id', resolvedUserId);
+        await safeDeleteEq('notifications', 'user_id', resolvedUserId);
       }
 
-      // 5. Delete all listings
+      // 6. Delete all listings
       if (listingIds.length > 0) {
-        await supabase.from('listings').delete().in('id', listingIds).catch(() => {});
+        await safeDeleteIn('listings', 'id', listingIds);
       }
       if (cleanPhone) {
-        await supabase.from('listings').delete().eq('phone', cleanPhone).catch(() => {});
+        await safeDeleteEq('listings', 'phone', cleanPhone);
       }
 
-      // 6. Delete user profile record
+      // 7. Delete user profile record
       const { error: deleteUserError } = await supabase
         .from('user_profiles')
         .delete()
@@ -536,12 +560,12 @@ export async function adminDeleteAllSellerListings(phone) {
 
       if (listings && listings.length > 0) {
         const ids = listings.map((l) => l.id);
-        await supabase.from('user_carts').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listing_interests').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listing_reports').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listing_reviews').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listing_threads').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listings').delete().in('id', ids);
+        await safeDeleteIn('user_carts', 'listing_id', ids);
+        await safeDeleteIn('listing_interests', 'listing_id', ids);
+        await safeDeleteIn('listing_reports', 'listing_id', ids);
+        await safeDeleteIn('listing_reviews', 'listing_id', ids);
+        await safeDeleteIn('listing_threads', 'listing_id', ids);
+        await safeDeleteIn('listings', 'id', ids);
       }
       return { success: true };
     } catch (err) {

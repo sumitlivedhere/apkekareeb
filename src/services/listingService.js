@@ -1056,33 +1056,61 @@ export function getCategoryFallback(catId) {
   return fallbacks[catId] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
 }
 
+
 /**
- * Guaranteed Cascading Listing Deletion Pipeline
+ * Safe query deletion helper to avoid Supabase thenable .catch() errors
+ */
+async function safeDeleteByColumn(table, column, value) {
+  if (!supabase || value === undefined || value === null || value === '') return;
+  try {
+    const { error } = await supabase.from(table).delete().eq(column, value);
+    if (error) console.warn(`Note: safeDelete on ${table}.${column} returned:`, error.message);
+  } catch (err) {
+    console.warn(`safeDelete error on ${table}:`, err);
+  }
+}
+
+/**
+ * Deletes a listing and safely cascade-deletes all associated child records
  */
 export async function deleteListingFromDB(listingId) {
-  if (!listingId) return { success: false, error: 'Listing ID required' };
+  if (!listingId) return { success: false, error: 'Listing ID is required.' };
 
-  hyperlocalStore.removeListing(listingId);
-
-  if (supabase && isValidDatabaseId(listingId)) {
+  if (supabase) {
     try {
-      await supabase.from('user_carts').delete().eq('listing_id', listingId).catch(() => {});
-      await supabase.from('listing_interests').delete().eq('listing_id', listingId).catch(() => {});
-      await supabase.from('listing_reports').delete().eq('listing_id', listingId).catch(() => {});
-      await supabase.from('listing_reviews').delete().eq('listing_id', listingId).catch(() => {});
-      await supabase.from('listing_threads').delete().eq('listing_id', listingId).catch(() => {});
-      await supabase.from('notifications').delete().filter('metadata->>listingId', 'eq', String(listingId)).catch(() => {});
-      
-      const { error } = await supabase.from('listings').delete().eq('id', listingId);
-      if (error) throw error;
+      // 1. Cascade delete child records referencing this listing
+      await Promise.allSettled([
+        safeDeleteByColumn('user_carts', 'listing_id', listingId),
+        safeDeleteByColumn('listing_interests', 'listing_id', listingId),
+        safeDeleteByColumn('listing_reports', 'listing_id', listingId),
+        safeDeleteByColumn('listing_reviews', 'listing_id', listingId),
+        safeDeleteByColumn('listing_threads', 'listing_id', listingId),
+      ]);
+
+      // 2. Delete the actual listing record
+      const { error: listingError } = await supabase
+        .from('listings')
+        .delete()
+        .eq('id', listingId);
+
+      if (listingError) throw listingError;
+
+      // 3. Remove listing from client-side Zustand/local store
+      if (typeof hyperlocalStore?.removeListing === 'function') {
+        hyperlocalStore.removeListing(listingId);
+      }
 
       return { success: true };
     } catch (err) {
       console.error('Delete listing cascade error:', err);
-      return { success: false, error: err.message };
+      return { success: false, error: err.message || 'Failed to delete listing.' };
     }
   }
 
+  // Fallback for local session / mock data
+  if (typeof hyperlocalStore?.removeListing === 'function') {
+    hyperlocalStore.removeListing(listingId);
+  }
   return { success: true };
 }
 

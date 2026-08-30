@@ -38,21 +38,22 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [isWidescreen, setIsWidescreen] = useState(false);
 
   const allListings = useAllListingsSlice();
-  
+
   // 🌟 7-Way Unified Tab Switcher
   // 'pending' | 'approved' | 'all' | 'crm' | 'reports' | 'interactions' | 'broadcast'
   const [activeTab, setActiveTab] = useState('pending');
-  
+
   // ── 🔍 Search, Filter & Sorter State ──────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSubCategory, setSelectedSubCategory] = useState('all');
   const [selectedColony, setSelectedColony] = useState('all');
-  const [selectedOfferType, setSelectedOfferType] = useState('all'); // 'all' | 'combo' | 'trial' | 'token' | 'discount'
-  const [selectedMediaType, setSelectedMediaType] = useState('all'); // 'all' | 'video' | 'audio' | 'photos' | 'text'
-  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'oldest' | 'pending_longest' | 'stars' | 'price_low' | 'price_high'
+  const [selectedOfferType, setSelectedOfferType] = useState('all');
+  const [selectedMediaType, setSelectedMediaType] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionInProgressId, setActionInProgressId] = useState(null);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
 
   // ⏱️ Timeline Filter States
   const [timeFilterType, setTimeFilterType] = useState('all');
@@ -62,7 +63,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [profiles, setProfiles] = useState([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [crmSearchQuery, setCrmSearchQuery] = useState('');
-  const [crmFilterTier, setCrmFilterTier] = useState('all'); // 'all' | 'pending_pin' | 'resident' | 'merchant' | 'banned'
+  const [crmFilterTier, setCrmFilterTier] = useState('all');
   const [newMemberPhone, setNewMemberPhone] = useState('');
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberArea, setNewMemberArea] = useState('Ranjeet Nagar');
@@ -73,9 +74,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   // 🚩 Disputes & Reports State
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportReasonFilter, setReportReasonFilter] = useState('all');
 
-  // 💬 Community Audit State (Threads & Reviews)
+  // 💬 Community Audit State
   const [threads, setThreads] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [interactionsLoading, setInteractionsLoading] = useState(false);
@@ -83,7 +83,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   // 📢 Push Broadcast State
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastMsg, setBroadcastMsg] = useState('');
-  const [broadcastRole, setBroadcastRole] = useState('public'); // 'public' | 'resident' | 'merchant'
+  const [broadcastRole, setBroadcastRole] = useState('public');
   const [broadcastTag, setBroadcastTag] = useState('TOWN_ALERT');
   const [isSendingBroadcast, setIsSendingBroadcast] = useState(false);
 
@@ -93,6 +93,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
 
   // 🔍 Review Studio & Full Correction State
   const [inspectingItem, setInspectingItem] = useState(null);
+  const [isRapidReviewMode, setIsRapidReviewMode] = useState(false);
   const [isAdminEditing, setIsAdminEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({
     title: '',
@@ -239,189 +240,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     showNotice('Registry and Moderation queue refreshed.');
   };
 
-  // ── 📲 1-Click WhatsApp PIN Dispatcher ─────────────────────────
-  const handleGenerateAndDispatchPin = async (user) => {
-    setActionLoading(true);
-    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-
-    try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          admin_activation_pin: generatedPin,
-          status: 'pending_activation',
-        })
-        .eq('phone', user.phone);
-
-      if (error) throw error;
-
-      showNotice(`⚡ PIN ${generatedPin} created for ${user.full_name}. Opening WhatsApp...`);
-      fetchProfiles();
-
-      const isSeller = user.is_merchant || user.verification_tier === 'merchant';
-      const message = encodeURIComponent(
-        `Namaste ${user.full_name} ji!\n\n` +
-        `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant (Seller)' : 'Member'} Verification PIN is: *${generatedPin}*\n\n` +
-        `👉 Open the app, enter this 6-digit PIN, and set your 4-digit permanent Security PIN.\n\n` +
-        `Welcome to Aapke Kareeb (${selectedCity})!`
-      );
-
-      window.open(`https://wa.me/91${user.phone}?text=${message}`, '_blank');
-    } catch (err) {
-      console.error('PIN dispatch error:', err);
-      showNotice('⚠️ Failed to generate PIN in database.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // ── 📲 Bulk WhatsApp PIN Dispatcher ────────────────────────────
-  const handleBulkDispatchPins = async () => {
-    const unverified = profiles.filter((p) => !p.is_verified || p.status === 'pending_activation');
-    if (unverified.length === 0) return;
-    if (!window.confirm(`Generate activation PINs for all ${unverified.length} pending user(s)?`)) return;
-
-    setActionLoading(true);
-    let sentCount = 0;
-
-    for (const user of unverified) {
-      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      try {
-        await supabase
-          .from('user_profiles')
-          .update({
-            admin_activation_pin: generatedPin,
-            status: 'pending_activation',
-          })
-          .eq('phone', user.phone);
-
-        sentCount++;
-      } catch (e) {
-        console.error('Bulk dispatch item error:', e);
-      }
-    }
-
-    showNotice(`✓ Generated PINs for ${sentCount} user(s).`);
-    fetchProfiles();
-    setActionLoading(false);
-  };
-
-  // ── 📲 Manual Member Onboarding ───────────────────────────────
-  const handleManualAddMember = async (e) => {
-    e.preventDefault();
-    const cleanPhone = sanitizePhone(newMemberPhone);
-    if (cleanPhone.length !== 10) {
-      showNotice('⚠️ Please enter a valid 10-digit mobile number.');
-      return;
-    }
-    if (!newMemberName.trim()) {
-      showNotice('⚠️ Please enter the full name.');
-      return;
-    }
-
-    setActionLoading(true);
-    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-    const isSeller = newMemberRole === 'merchant';
-
-    try {
-      const payload = {
-        phone: cleanPhone,
-        full_name: newMemberName.trim(),
-        area_name: newMemberArea,
-        city: selectedCity,
-        is_merchant: isSeller,
-        business_name: isSeller ? (newBusinessName || newMemberName).trim() : null,
-        verification_tier: isSeller ? 'merchant' : 'resident',
-        is_verified: false,
-        status: 'pending_activation',
-        admin_activation_pin: generatedPin,
-      };
-
-      const { error } = await supabase
-        .from('user_profiles')
-        .upsert([payload], { onConflict: 'phone' });
-
-      if (error) throw error;
-
-      showNotice(`✓ Registered ${newMemberName}! PIN: ${generatedPin}`);
-      setNewMemberPhone('');
-      setNewMemberName('');
-      setNewBusinessName('');
-      fetchProfiles();
-
-      const message = encodeURIComponent(
-        `Namaste ${newMemberName.trim()} ji!\n\n` +
-        `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant' : 'Member'} Activation PIN is: *${generatedPin}*\n\n` +
-        `👉 Open the app, enter this PIN, and set your 4-digit permanent login code.`
-      );
-      window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
-    } catch (err) {
-      console.error('Manual onboarding error:', err);
-      showNotice('⚠️ Failed to create profile.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // ── 📢 Town Push Broadcast Dispatcher ──────────────────────────
-  const handleSendTownBroadcast = async (e) => {
-    e.preventDefault();
-    if (!broadcastTitle.trim() || !broadcastMsg.trim()) {
-      showNotice('⚠️ Please provide both a title and message for the broadcast.');
-      return;
-    }
-
-    setIsSendingBroadcast(true);
-    try {
-      await saveNotificationToDB({
-        tag: broadcastTag,
-        title: broadcastTitle.trim(),
-        message: broadcastMsg.trim(),
-        recipient_role: broadcastRole,
-        recipient_phone: null,
-        metadata: {
-          broadcastBy: 'Master Admin',
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-      showNotice(`📢 Broadcast sent to ${broadcastRole.toUpperCase()} members across ${selectedCity}!`);
-      setBroadcastTitle('');
-      setBroadcastMsg('');
-    } catch (err) {
-      console.error('Broadcast error:', err);
-      showNotice('⚠️ Failed to dispatch broadcast.');
-    } finally {
-      setIsSendingBroadcast(false);
-    }
-  };
-
-  // ── 📊 Export Verified Directory CSV ──────────────────────────
-  const handleExportDirectoryCSV = () => {
-    const merchants = profiles.filter((p) => p.is_merchant || p.verification_tier === 'merchant');
-    if (merchants.length === 0) {
-      showNotice('⚠️ No merchants found to export.');
-      return;
-    }
-
-    const headers = 'Full Name,Phone,Business Name,Area,City,Status,Trust Score,Created At\n';
-    const rows = merchants
-      .map((m) =>
-        `"${m.full_name}","+91 ${m.phone}","${m.business_name || ''}","${m.area_name || ''}","${m.city || ''}","${m.status || ''}","${m.trust_score || 100}","${m.created_at || ''}"`
-      )
-      .join('\n');
-
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `AapkeKareeb_Merchants_${selectedCity}_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showNotice('📥 Merchant Directory CSV downloaded successfully.');
-  };
-
   // ── ⏱️ Time Filter Logic ──────────────────────────────────────
   const applyTimeFilter = (timestamp) => {
     if (timeFilterType === 'all') return true;
@@ -457,26 +275,20 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       const loc = changes.location || item.location || item.location_name || '';
       const badge = changes.deal_badge || changes.dealBadge || item.deal_badge || item.dealBadge;
 
-      // 1. Sector & Subcategory Filter
       if (selectedCategory !== 'all' && cat !== selectedCategory) return false;
       if (selectedSubCategory !== 'all' && sub !== selectedSubCategory) return false;
-
-      // 2. Colony Filter
       if (selectedColony !== 'all' && !loc.toLowerCase().includes(selectedColony.toLowerCase())) return false;
 
-      // 3. Offer Type Filter
       if (selectedOfferType === 'combo' && (!badge || !badge.includes('🍱'))) return false;
       if (selectedOfferType === 'trial' && !(changes.doorstep_trial ?? item.doorstep_trial)) return false;
       if (selectedOfferType === 'token' && !(changes.token_amount || item.token_amount)) return false;
       if (selectedOfferType === 'discount' && !(changes.original_price || item.original_price)) return false;
 
-      // 4. Media Type Filter
       const photos = changes.images || item.images || [];
       const videos = changes.videos || item.videos || [];
       if (selectedMediaType === 'video' && videos.length === 0) return false;
       if (selectedMediaType === 'photos' && photos.length < 3) return false;
 
-      // 5. Search Query
       if (searchQuery) {
         const q = searchQuery.toLowerCase().trim();
         const matches =
@@ -552,17 +364,36 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     showNotice(nextVal ? `👻 Shadowbanned "${item.title}"` : `✓ Removed shadowban from "${item.title}"`);
   };
 
-  const handleDirectBanPoster = async (phone, name = 'User') => {
-    if (!phone) return;
-    const cleanPhone = sanitizePhone(phone);
-    if (!window.confirm(`⛔ BAN MEMBER: Suspend +91 ${cleanPhone} (${name}) and deactivate all their listings?`)) {
-      return;
+  // 🔄 Bidirectional Ban/Unban Toggle Engine
+  const handleDirectToggleBanPoster = async (userOrPhone, name = 'User', isCurrentlyBanned = false) => {
+    let cleanPhone = '';
+    let userName = name;
+    let bannedState = isCurrentlyBanned;
+
+    if (typeof userOrPhone === 'object' && userOrPhone !== null) {
+      cleanPhone = sanitizePhone(userOrPhone.phone);
+      userName = userOrPhone.full_name || userOrPhone.name || name;
+      bannedState = Boolean(userOrPhone.is_banned || userOrPhone.status === 'banned');
+    } else {
+      cleanPhone = sanitizePhone(userOrPhone);
     }
-    const res = await adminToggleBanUser(cleanPhone, true);
+
+    if (!cleanPhone) return;
+
+    const nextBanStatus = !bannedState;
+    const confirmMsg = nextBanStatus
+      ? `⛔ BAN MEMBER: Suspend +91 ${cleanPhone} (${userName}) and deactivate all their listings?`
+      : `✓ UNBAN MEMBER: Restore +91 ${cleanPhone} (${userName}) and reactivate account?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    const res = await adminToggleBanUser(cleanPhone, nextBanStatus);
     if (res.success) {
       await hydrateFromDB();
       await fetchProfiles();
-      showNotice(`⛔ Banned +91 ${cleanPhone}`);
+      showNotice(nextBanStatus ? `⛔ Banned +91 ${cleanPhone}` : `✓ Unbanned +91 ${cleanPhone}`);
+    } else {
+      showNotice(`⚠️ Ban toggle failed: ${res.error || 'Unknown error'}`);
     }
   };
 
@@ -621,7 +452,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   };
 
   // ── 🔍 Inspector Studio Setup ──────────────────────────────────
-  const handleOpenInspector = (item) => {
+  const handleOpenInspector = (item, rapidMode = false) => {
+    setIsRapidReviewMode(rapidMode);
     const changes = item.pending_changes || {};
     const photos = changes.images || changes.image_urls || item.images || (changes.image ? [changes.image] : [item.image]);
     const cleanPhotos = (photos || []).map((p) => (typeof p === 'string' ? p : p.url || p.preview)).filter(Boolean);
@@ -754,7 +586,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       hyperlocalStore.insertListing(updatedPayload.category || item.category, updatedPayload);
 
       showNotice(`✓ Published "${finalChanges.title || item.title}"`);
-      if (inspectingItem?.id === item.id) {
+
+      // If in Rapid Review mode, auto-advance to the next pending item
+      if (isRapidReviewMode) {
+        const remainingPending = pendingApprovals.filter((p) => p.id !== item.id);
+        if (remainingPending.length > 0) {
+          handleOpenInspector(remainingPending[0], true);
+          return;
+        } else {
+          setIsRapidReviewMode(false);
+          setInspectingItem(null);
+          showNotice('🎉 All pending listings have been reviewed!');
+        }
+      } else if (inspectingItem?.id === item.id) {
         setInspectingItem(null);
         setIsAdminEditing(false);
       }
@@ -780,7 +624,19 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       hyperlocalStore.insertListing(item.category, cleanedPayload);
 
       showNotice(`Rejected changes for "${item.title}"`);
-      if (inspectingItem?.id === item.id) {
+
+      // If in Rapid Review mode, auto-advance to next
+      if (isRapidReviewMode) {
+        const remainingPending = pendingApprovals.filter((p) => p.id !== item.id);
+        if (remainingPending.length > 0) {
+          handleOpenInspector(remainingPending[0], true);
+          return;
+        } else {
+          setIsRapidReviewMode(false);
+          setInspectingItem(null);
+          showNotice('🎉 All pending listings have been reviewed!');
+        }
+      } else if (inspectingItem?.id === item.id) {
         setInspectingItem(null);
         setIsAdminEditing(false);
       }
@@ -791,7 +647,42 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 🎙️ Voice Feedback Recording Handlers
+  // ⚡ Batch Approve All Pending Submissions
+  const handleBatchApproveAllPending = async () => {
+    if (pendingApprovals.length === 0) return;
+    if (!window.confirm(`⚡ BATCH APPROVE: Publish all ${pendingApprovals.length} pending listing(s) immediately?`)) {
+      return;
+    }
+
+    setIsBatchProcessing(true);
+    let approvedCount = 0;
+
+    for (const item of pendingApprovals) {
+      try {
+        const changes = item.pending_changes || {};
+        const updatedPayload = {
+          ...item,
+          ...changes,
+          is_active: true,
+          has_pending_approval: false,
+          pending_changes: null,
+          admin_feedback: null,
+          verification_badge: 'Verified Listing',
+        };
+        await approveListingChanges(item.id, updatedPayload);
+        hyperlocalStore.insertListing(updatedPayload.category || item.category, updatedPayload);
+        approvedCount++;
+      } catch (err) {
+        console.error(`Failed to approve item ${item.id}:`, err);
+      }
+    }
+
+    await hydrateFromDB();
+    setIsBatchProcessing(false);
+    showNotice(`🎉 Successfully approved & published ${approvedCount} listings!`);
+  };
+
+  // 🎙️ Voice Feedback Handlers
   const handleStartAdminVoice = async () => {
     try {
       const stream = await getOptimizedVoiceStream();
@@ -887,6 +778,185 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     } finally {
       setIsSendingFeedback(false);
     }
+  };
+
+  // ── 📲 1-Click WhatsApp PIN Dispatcher ─────────────────────────
+  const handleGenerateAndDispatchPin = async (user) => {
+    setActionLoading(true);
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({
+          admin_activation_pin: generatedPin,
+          status: 'pending_activation',
+        })
+        .eq('phone', user.phone);
+
+      if (error) throw error;
+
+      showNotice(`⚡ PIN ${generatedPin} created for ${user.full_name}. Opening WhatsApp...`);
+      fetchProfiles();
+
+      const isSeller = user.is_merchant || user.verification_tier === 'merchant';
+      const message = encodeURIComponent(
+        `Namaste ${user.full_name} ji!\n\n` +
+          `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant (Seller)' : 'Member'} Verification PIN is: *${generatedPin}*\n\n` +
+          `👉 Open the app, enter this 6-digit PIN, and set your 4-digit permanent Security PIN.\n\n` +
+          `Welcome to Aapke Kareeb (${selectedCity})!`
+      );
+
+      window.open(`https://wa.me/91${user.phone}?text=${message}`, '_blank');
+    } catch (err) {
+      console.error('PIN dispatch error:', err);
+      showNotice('⚠️ Failed to generate PIN in database.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleBulkDispatchPins = async () => {
+    const unverified = profiles.filter((p) => !p.is_verified || p.status === 'pending_activation');
+    if (unverified.length === 0) return;
+    if (!window.confirm(`Generate activation PINs for all ${unverified.length} pending user(s)?`)) return;
+
+    setActionLoading(true);
+    let sentCount = 0;
+
+    for (const user of unverified) {
+      const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+      try {
+        await supabase
+          .from('user_profiles')
+          .update({
+            admin_activation_pin: generatedPin,
+            status: 'pending_activation',
+          })
+          .eq('phone', user.phone);
+
+        sentCount++;
+      } catch (e) {
+        console.error('Bulk dispatch item error:', e);
+      }
+    }
+
+    showNotice(`✓ Generated PINs for ${sentCount} user(s).`);
+    fetchProfiles();
+    setActionLoading(false);
+  };
+
+  const handleManualAddMember = async (e) => {
+    e.preventDefault();
+    const cleanPhone = sanitizePhone(newMemberPhone);
+    if (cleanPhone.length !== 10) {
+      showNotice('⚠️ Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    if (!newMemberName.trim()) {
+      showNotice('⚠️ Please enter the full name.');
+      return;
+    }
+
+    setActionLoading(true);
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    const isSeller = newMemberRole === 'merchant';
+
+    try {
+      const payload = {
+        phone: cleanPhone,
+        full_name: newMemberName.trim(),
+        area_name: newMemberArea,
+        city: selectedCity,
+        is_merchant: isSeller,
+        business_name: isSeller ? (newBusinessName || newMemberName).trim() : null,
+        verification_tier: isSeller ? 'merchant' : 'resident',
+        is_verified: false,
+        status: 'pending_activation',
+        admin_activation_pin: generatedPin,
+      };
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .upsert([payload], { onConflict: 'phone' });
+
+      if (error) throw error;
+
+      showNotice(`✓ Registered ${newMemberName}! PIN: ${generatedPin}`);
+      setNewMemberPhone('');
+      setNewMemberName('');
+      setNewBusinessName('');
+      fetchProfiles();
+
+      const message = encodeURIComponent(
+        `Namaste ${newMemberName.trim()} ji!\n\n` +
+          `Your Aapke Kareeb Alwar ${isSeller ? 'Merchant' : 'Member'} Activation PIN is: *${generatedPin}*\n\n` +
+          `👉 Open the app, enter this PIN, and set your 4-digit permanent login code.`
+      );
+      window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
+    } catch (err) {
+      console.error('Manual onboarding error:', err);
+      showNotice('⚠️ Failed to create profile.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendTownBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim() || !broadcastMsg.trim()) {
+      showNotice('⚠️ Please provide both a title and message for the broadcast.');
+      return;
+    }
+
+    setIsSendingBroadcast(true);
+    try {
+      await saveNotificationToDB({
+        tag: broadcastTag,
+        title: broadcastTitle.trim(),
+        message: broadcastMsg.trim(),
+        recipient_role: broadcastRole,
+        recipient_phone: null,
+        metadata: {
+          broadcastBy: 'Master Admin',
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      showNotice(`📢 Broadcast sent to ${broadcastRole.toUpperCase()} members across ${selectedCity}!`);
+      setBroadcastTitle('');
+      setBroadcastMsg('');
+    } catch (err) {
+      console.error('Broadcast error:', err);
+      showNotice('⚠️ Failed to dispatch broadcast.');
+    } finally {
+      setIsSendingBroadcast(false);
+    }
+  };
+
+  const handleExportDirectoryCSV = () => {
+    const merchants = profiles.filter((p) => p.is_merchant || p.verification_tier === 'merchant');
+    if (merchants.length === 0) {
+      showNotice('⚠️ No merchants found to export.');
+      return;
+    }
+
+    const headers = 'Full Name,Phone,Business Name,Area,City,Status,Trust Score,Created At\n';
+    const rows = merchants
+      .map((m) =>
+        `"${m.full_name}","+91 ${m.phone}","${m.business_name || ''}","${m.area_name || ''}","${m.city || ''}","${m.status || ''}","${m.trust_score || 100}","${m.created_at || ''}"`
+      )
+      .join('\n');
+
+    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `AapkeKareeb_Merchants_${selectedCity}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotice('📥 Merchant Directory CSV downloaded successfully.');
   };
 
   // =========================================================================
@@ -1017,6 +1087,146 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             {dashboardNotice}
           </div>
         )}
+
+        {/* ========================================================================= */}
+        {/* ⚡ DEDICATED SELLER LISTING APPROVAL MODERATION DESK / WIDGET              */}
+        {/* ========================================================================= */}
+        <section className="p-3.5 bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border-2 border-amber-500/50 rounded-3xl shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-sm shadow-md">
+                ⚡
+              </span>
+              <div>
+                <div className="flex items-center space-x-1.5">
+                  <h3 className="text-xs font-black text-slate-100 uppercase tracking-wide">
+                    Listing Approval Desk
+                  </h3>
+                  {pendingApprovals.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] animate-pulse shadow-sm">
+                      {pendingApprovals.length} Pending
+                    </span>
+                  )}
+                </div>
+                <p className="text-[9.5px] text-slate-400">Review & approve provider deals before going live</p>
+              </div>
+            </div>
+
+            {/* Quick Filter Jump */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('pending')}
+              className={`px-2.5 py-1 rounded-xl text-[9.5px] font-black border transition cursor-pointer ${
+                activeTab === 'pending'
+                  ? 'bg-amber-400 text-slate-950 border-amber-400'
+                  : 'bg-slate-800 text-amber-300 border-amber-500/30 hover:bg-slate-700'
+              }`}
+            >
+              👁️ View Queue
+            </button>
+          </div>
+
+          {/* Quick Action Control Bar */}
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={handleBatchApproveAllPending}
+              disabled={isBatchProcessing || pendingApprovals.length === 0}
+              className="py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40"
+            >
+              <span>🚀</span>
+              <span>{isBatchProcessing ? 'Publishing...' : `Batch Approve All (${pendingApprovals.length})`}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (pendingApprovals.length > 0) {
+                  handleOpenInspector(pendingApprovals[0], true);
+                } else {
+                  showNotice('No pending listings to review.');
+                }
+              }}
+              disabled={pendingApprovals.length === 0}
+              className="py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-40"
+            >
+              <span>⚡</span>
+              <span>Start Rapid Studio (1-by-1)</span>
+            </button>
+          </div>
+
+          {/* Pending Listings Quick Stream (Horizontal Scroller) */}
+          {pendingApprovals.length > 0 ? (
+            <div className="pt-2">
+              <span className="text-[9px] font-black text-amber-400/90 uppercase tracking-wider block mb-1.5">
+                ⚡ Awaiting Fast-Track Action:
+              </span>
+              <div className="flex space-x-2.5 overflow-x-auto pb-1 scrollbar-none">
+                {pendingApprovals.slice(0, 6).map((item) => {
+                  const changes = item.pending_changes || {};
+                  const thumb = (changes.images || item.images || [])[0] || item.image;
+                  const price = changes.price || item.price || 'Rate on Request';
+                  const sellerName = changes.sellerName || item.sellerName || item.seller_name;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="min-w-[170px] max-w-[170px] bg-slate-950 border border-slate-800 rounded-2xl p-2.5 flex flex-col justify-between space-y-2 shadow-sm shrink-0"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-slate-900 flex items-center justify-center">
+                          {thumb ? (
+                            <img src={typeof thumb === 'string' ? thumb : thumb.url || thumb.preview} alt="Thumb" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-slate-600 text-[10px]">No Photo</span>
+                          )}
+                          <span className="absolute top-1 left-1 bg-amber-400 text-slate-950 font-black text-[7.5px] px-1.5 py-0.2 rounded-md">
+                            {changes.category || item.category}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h5 className="text-[10.5px] font-black text-slate-100 truncate">
+                            {changes.title || item.title}
+                          </h5>
+                          <p className="text-[8.5px] text-slate-400 truncate">
+                            👤 {sellerName}
+                          </p>
+                          <span className="text-emerald-400 font-black text-[10px]">
+                            {price}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Widget Action Buttons */}
+                      <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-900">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInspector(item, false)}
+                          className="py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-[8.5px] rounded-lg cursor-pointer text-center"
+                        >
+                          🔍 Inspect
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApprove(item)}
+                          disabled={actionInProgressId === item.id}
+                          className="py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[8.5px] rounded-lg cursor-pointer text-center"
+                        >
+                          ✓ Approve
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 rounded-2xl bg-slate-950/60 border border-slate-800 text-center text-slate-400 text-[9.5px] font-bold">
+              ✅ All seller submissions have been reviewed and published live!
+            </div>
+          )}
+        </section>
 
         {/* Top Operational Metrics */}
         <div className="grid grid-cols-4 gap-1.5 text-center">
@@ -1289,7 +1499,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     <div className="grid grid-cols-2 gap-1.5 pt-1">
                       <button
                         type="button"
-                        onClick={() => handleOpenInspector(item)}
+                        onClick={() => handleOpenInspector(item, false)}
                         className="py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-[10.5px] rounded-xl shadow cursor-pointer active:scale-95 transition flex items-center justify-center space-x-1"
                       >
                         <span>🔍 Inspect & Edit</span>
@@ -1330,12 +1540,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════════════════════════════
-            TAB 3: 👥 UNIFIED MEMBER CRM & WHATSAPP DESK
-           ═══════════════════════════════════════════════════════════ */}
+        {/* TAB 3: CRM */}
         {activeTab === 'crm' && (
           <div className="space-y-4 animate-fade-in text-xs">
-            {/* Quick Manual Onboard Box */}
             <div className="p-4 rounded-3xl bg-slate-900 border border-emerald-500/40 shadow-sm space-y-3">
               <div className="flex items-center space-x-2 pb-2 border-b border-slate-800">
                 <span className="text-xl">⚡</span>
@@ -1441,7 +1648,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               </form>
             </div>
 
-            {/* Member Directory Search & Filters */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
@@ -1465,7 +1671,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 placeholder-slate-500 focus:outline-none"
               />
 
-              {/* CRM Filter Pills */}
               <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none text-[9px] font-bold">
                 {[
                   { id: 'all', label: `All (${profiles.length})` },
@@ -1487,7 +1692,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 ))}
               </div>
 
-              {/* Profiles List */}
               <div className="space-y-2.5">
                 {profiles
                   .filter((p) => {
@@ -1539,7 +1743,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                             {user.business_name && <span className="text-amber-300 ml-1">({user.business_name})</span>}
                           </p>
 
-                          {/* Trust Score & Badges */}
                           <div className="flex items-center space-x-2 pt-1">
                             <span className="text-[9px] font-bold text-amber-400">
                               ⭐ Trust: {user.trust_score || 100}
@@ -1568,31 +1771,32 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                         )}
                       </div>
 
-                      {/* CRM Actions */}
                       <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-800/80">
                         <button
                           type="button"
                           onClick={() => handleGenerateAndDispatchPin(user)}
                           disabled={actionLoading}
-                          className="py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] rounded-lg active:scale-95 transition"
+                          className="py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] rounded-lg active:scale-95 transition cursor-pointer"
                         >
                           📲 Send PIN
                         </button>
 
                         <button
                           type="button"
-                          onClick={() => handleDirectBanPoster(user.phone, user.full_name)}
-                          className={`py-1.5 rounded-lg font-bold text-[9.5px] active:scale-95 transition ${
-                            user.is_banned ? 'bg-slate-800 text-slate-300' : 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                          onClick={() => handleDirectToggleBanPoster(user)}
+                          className={`py-1.5 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer ${
+                            user.is_banned
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                              : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800'
                           }`}
                         >
-                          {user.is_banned ? 'Unban User' : '⛔ Ban User'}
+                          {user.is_banned ? '✓ Unban User' : '⛔ Ban User'}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handleDirectDeleteSellerAccount(user.phone, user.full_name, user.id)}
-                          className="py-1.5 bg-slate-950 hover:bg-rose-900 text-slate-400 hover:text-rose-200 border border-slate-800 rounded-lg font-bold text-[9.5px] active:scale-95 transition"
+                          className="py-1.5 bg-slate-950 hover:bg-rose-900 text-slate-400 hover:text-rose-200 border border-slate-800 rounded-lg font-bold text-[9.5px] active:scale-95 transition cursor-pointer"
                         >
                           🗑️ Delete
                         </button>
@@ -1604,9 +1808,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════════════════════════════
-            TAB 4: 🚩 DISPUTES & CONTENT REPORTS
-           ═══════════════════════════════════════════════════════════ */}
+        {/* TAB 4: DISPUTES */}
         {activeTab === 'reports' && (
           <div className="space-y-3 animate-fade-in text-xs">
             <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800 flex items-center justify-between">
@@ -1654,7 +1856,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                           fetchReports();
                           showNotice('Report dismissed.');
                         }}
-                        className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded-lg"
+                        className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded-lg cursor-pointer"
                       >
                         Dismiss Flag
                       </button>
@@ -1662,15 +1864,15 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                       <button
                         type="button"
                         onClick={() => handleDirectDeleteListing(rep.listing_id, rep.listings?.title)}
-                        className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9.5px] rounded-lg"
+                        className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-[9.5px] rounded-lg cursor-pointer"
                       >
                         Delete Listing
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => handleDirectBanPoster(rep.listings?.phone, rep.listings?.seller_name)}
-                        className="px-2.5 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[9.5px] rounded-lg"
+                        onClick={() => handleDirectToggleBanPoster(rep.listings?.phone, rep.listings?.seller_name)}
+                        className="px-2.5 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold text-[9.5px] rounded-lg cursor-pointer"
                       >
                         ⛔ Ban Seller
                       </button>
@@ -1682,9 +1884,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════════════════════════════
-            TAB 5: 💬 COMMUNITY AUDIT & REVIEWS
-           ═══════════════════════════════════════════════════════════ */}
+        {/* TAB 5: INTERACTIONS */}
         {activeTab === 'interactions' && (
           <div className="space-y-3 animate-fade-in text-xs">
             <div className="p-3 bg-slate-900 rounded-2xl border border-slate-800">
@@ -1744,12 +1944,9 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════════════════════════════
-            TAB 6: 📢 TOWN BROADCAST & ZONE HEALTH
-           ═══════════════════════════════════════════════════════════ */}
+        {/* TAB 6: BROADCAST */}
         {activeTab === 'broadcast' && (
           <div className="space-y-4 animate-fade-in text-xs">
-            {/* Push Announcement Box */}
             <form onSubmit={handleSendTownBroadcast} className="p-4 bg-slate-900 border border-amber-500/40 rounded-3xl space-y-3">
               <div className="flex items-center space-x-2 pb-2 border-b border-slate-800">
                 <span className="text-xl">📢</span>
@@ -1816,7 +2013,6 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
               </button>
             </form>
 
-            {/* CSV Export & Colony Health */}
             <div className="p-4 bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -1855,7 +2051,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
       </div>
 
       {/* ========================================================================= */}
-      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL                               */}
+      {/* 👤 1-TAP MERCHANT PORTFOLIO / DOSSIER MODAL                                */}
       {/* ========================================================================= */}
       {selectedSeller && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in select-none">
@@ -1882,39 +2078,50 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </button>
               </div>
 
-              <div className="grid grid-cols-4 gap-1.5 pt-2.5">
-                <button
-                  type="button"
-                  onClick={() => handleDirectBanPoster(selectedSeller.phone, selectedSeller.name)}
-                  className="px-2 py-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/40 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
-                >
-                  ⛔ Ban
-                </button>
+              {(() => {
+                const sellerProf = profiles.find((p) => p.phone === sanitizePhone(selectedSeller.phone));
+                const isBanned = Boolean(sellerProf?.is_banned);
 
-                <button
-                  type="button"
-                  onClick={() => handleDirectPurgeSellerAll(selectedSeller.phone, selectedSeller.name)}
-                  className="px-2 py-1.5 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
-                >
-                  🧹 Purge
-                </button>
+                return (
+                  <div className="grid grid-cols-4 gap-1.5 pt-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleDirectToggleBanPoster(selectedSeller.phone, selectedSeller.name, isBanned)}
+                      className={`px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition ${
+                        isBanned
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-600/40'
+                      }`}
+                    >
+                      {isBanned ? '✓ Unban' : '⛔ Ban'}
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleDirectDemoteSeller(selectedSeller.phone, selectedSeller.name)}
-                  className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
-                >
-                  ⬇️ Demote
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDirectPurgeSellerAll(selectedSeller.phone, selectedSeller.name)}
+                      className="px-2 py-1.5 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                    >
+                      🧹 Purge
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleDirectDeleteSellerAccount(selectedSeller.phone, selectedSeller.name)}
-                  className="px-2 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
-                >
-                  🗑️ Wipe
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDirectDemoteSeller(selectedSeller.phone, selectedSeller.name)}
+                      className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                    >
+                      ⬇️ Demote
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDirectDeleteSellerAccount(selectedSeller.phone, selectedSeller.name)}
+                      className="px-2 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-[9px] font-black cursor-pointer active:scale-95 transition"
+                    >
+                      🗑️ Wipe
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="p-3.5 overflow-y-auto space-y-2.5 flex-1">
@@ -1929,8 +2136,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleOpenInspector(item)}
-                      className="px-2.5 py-1 bg-amber-400 text-slate-950 font-black text-[9.5px] rounded-xl shrink-0"
+                      onClick={() => handleOpenInspector(item, false)}
+                      className="px-2.5 py-1 bg-amber-400 text-slate-950 font-black text-[9.5px] rounded-xl shrink-0 cursor-pointer"
                     >
                       🔍 Inspect
                     </button>
@@ -1953,7 +2160,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
               <div className="min-w-0 pr-2">
                 <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
-                  🔍 MODERATION INSPECTOR {isAdminEditing && '• ✏️ EDIT MODE'}
+                  🔍 MODERATION INSPECTOR {isRapidReviewMode && '• ⚡ RAPID QUEUE'} {isAdminEditing && '• ✏️ EDIT MODE'}
                 </span>
                 <h3 className="text-xs font-black text-slate-100 truncate">
                   {inspectingItem.pending_changes?.title || inspectingItem.title}
@@ -1974,6 +2181,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   onClick={() => {
                     setInspectingItem(null);
                     setIsAdminEditing(false);
+                    setIsRapidReviewMode(false);
                   }}
                   className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 hover:text-slate-100 flex items-center justify-center text-xs cursor-pointer"
                 >
@@ -2125,7 +2333,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                     <button
                       type="button"
                       onClick={handleStartAdminVoice}
-                      className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1"
+                      className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center space-x-1 cursor-pointer"
                     >
                       <span>🎙️ Record Voice Note</span>
                     </button>
@@ -2147,7 +2355,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                   type="button"
                   onClick={() => handleSendFeedbackNote(inspectingItem)}
                   disabled={isSendingFeedback || (!feedbackText.trim() && !recordedVoiceNote)}
-                  className="w-full py-1.5 bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-black"
+                  className="w-full py-1.5 bg-slate-800 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-black cursor-pointer"
                 >
                   📩 Send Note to Merchant
                 </button>
@@ -2161,16 +2369,16 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
                 type="button"
                 onClick={() => handleApprove(inspectingItem)}
                 disabled={actionInProgressId === inspectingItem.id}
-                className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black text-xs rounded-xl shadow-lg active:scale-95 transition"
+                className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black text-xs rounded-xl shadow-lg active:scale-95 transition cursor-pointer"
               >
-                {actionInProgressId === inspectingItem.id ? 'Publishing...' : '✓ Approve & Publish Live'}
+                {actionInProgressId === inspectingItem.id ? 'Publishing...' : '✓ Approve & Next'}
               </button>
 
               <button
                 type="button"
                 onClick={() => handleReject(inspectingItem)}
                 disabled={actionInProgressId === inspectingItem.id}
-                className="px-4 py-2.5 bg-rose-950 text-rose-300 border border-rose-800 font-black text-xs rounded-xl"
+                className="px-4 py-2.5 bg-rose-950 text-rose-300 border border-rose-800 font-black text-xs rounded-xl cursor-pointer"
               >
                 ✕ Reject
               </button>
@@ -2188,7 +2396,7 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
             <button
               type="button"
               onClick={() => setIsLightboxOpen(false)}
-              className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-black text-sm"
+              className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-black text-sm cursor-pointer"
             >
               ✕
             </button>
