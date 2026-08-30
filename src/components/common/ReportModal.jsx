@@ -36,10 +36,11 @@ export default function ReportModal({
     const cleanPhone = sanitizePhone(userPhone || currentUser?.phone) || '9876543210';
     const finalReason = `${selectedReason}${customNotes.trim() ? ` - Details: ${customNotes.trim()}` : ''}`;
     const listingTitle = listing.title || listing.name || 'Reported Listing';
+    const targetListingId = listing.id || listing.listingId;
 
     try {
       const res = await reportListing(
-        listing.id,
+        targetListingId,
         cleanPhone,
         finalReason,
         listingTitle

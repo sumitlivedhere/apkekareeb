@@ -5,7 +5,7 @@ import {
   useListingReviews,
   useListingRatingStats,
 } from '../../store/hyperlocalStore';
-import { uploadVoiceNoteToStorage } from '../../services/listingService';
+import { uploadVoiceNoteToStorage, notifySellerNewReview } from '../../services/listingService';
 import { compressImage } from '../../utils/imageCompressor';
 import { compressVideo } from '../../utils/videoCompressor';
 import {
@@ -18,10 +18,15 @@ export default function ProductReviewSection({
   listingId,
   listingTitle = 'Product',
   sellerName = 'Seller',
+  sellerPhone = '',
 }) {
   const user = getCurrentUserProfile();
   const reviews = useListingReviews(listingId);
   const stats = useListingRatingStats(listingId, 4.8);
+
+  const cleanSellerPhone = sellerPhone
+    ? String(sellerPhone).replace(/\D/g, '').slice(-10)
+    : null;
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [rating, setRating] = useState(5);
@@ -57,6 +62,7 @@ export default function ProductReviewSection({
   const userPhone = user?.phone
     ? String(user.phone).replace(/\D/g, '').slice(-10)
     : null;
+  const isOwner = Boolean(userPhone && cleanSellerPhone && userPhone === cleanSellerPhone);
   const hasAlreadyReviewed = reviews.some(
     (r) => String(r.phone || '').replace(/\D/g, '').slice(-10) === userPhone
   );
@@ -185,6 +191,11 @@ export default function ProductReviewSection({
       return;
     }
 
+    if (isOwner) {
+      setErrorMessage('You cannot review your own business listing.');
+      return;
+    }
+
     if (!isPermanentUser) {
       setErrorMessage('🔒 Verified permanent resident status required. Please verify your 6-digit WhatsApp PIN in Profile.');
       return;
@@ -215,6 +226,18 @@ export default function ProductReviewSection({
       });
 
       if (res.success) {
+        // Dispatch real-time alert to seller
+        if (cleanSellerPhone) {
+          notifySellerNewReview({
+            sellerPhone: cleanSellerPhone,
+            listingId,
+            listingTitle,
+            reviewerName: user?.full_name || 'Verified Resident',
+            rating,
+            hasMedia: attachedPhotos.length > 0 || Boolean(attachedVideo) || Boolean(recordedVoice),
+          });
+        }
+
         setSuccessMessage('🎉 Thank you! Your review has been published.');
         setIsFormOpen(false);
         setCommentText('');

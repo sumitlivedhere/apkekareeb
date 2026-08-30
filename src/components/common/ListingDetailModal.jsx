@@ -55,11 +55,15 @@ export default function ListingDetailModal({
   const [isVideoMuted, setIsVideoMuted] = useState(true);
 
   // 💬 Q&A & Voice Inquiries State
+  const cleanUserPhone = currentUser?.phone ? String(currentUser.phone).replace(/\D/g, '').slice(-10) : '';
+  const cleanSellerPhone = String(item.phone || item.whatsapp || '').replace(/\D/g, '').slice(-10);
+  const isOwner = Boolean(cleanUserPhone && cleanSellerPhone && cleanUserPhone === cleanSellerPhone);
+
   const [userQuery, setUserQuery] = useState('');
   const [userName, setUserName] = useState(() => currentUser?.full_name || '');
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [sellerReplyText, setSellerReplyText] = useState('');
-  const [isSellerMode, setIsSellerMode] = useState(false);
+  const [isSellerMode, setIsSellerMode] = useState(() => isOwner || Boolean(currentUser?.is_merchant));
 
   // 🎙️ Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -189,10 +193,17 @@ export default function ListingDetailModal({
       return;
     }
 
+    if (isOwner) {
+      alert('You cannot add your own business listing to your cart.');
+      return;
+    }
+
     const res = hyperlocalStore.addToCart(item, 1, user.phone);
     if (res.requireAuth) {
       pendingCartAddRef.current = true;
       setIsAuthModalOpen(true);
+    } else if (res.isSelfListing) {
+      alert(res.message);
     } else if (res.success) {
       if ('vibrate' in navigator) navigator.vibrate(40);
     }
@@ -323,6 +334,7 @@ export default function ListingDetailModal({
 
     const sender = userName.trim() || currentUser?.full_name || 'Town User';
     const text = userQuery.trim();
+    const sellerPhoneClean = String(item.phone || item.whatsapp || '').replace(/\D/g, '').slice(-10);
 
     hyperlocalStore.addThreadComment(
       item.id,
@@ -331,18 +343,26 @@ export default function ListingDetailModal({
         text: text,
         type: 'text',
         isPublic: true,
+        userPhone: cleanUserPhone,
       },
       item.title || item.name
     );
 
     if (onNewNotification) {
       onNewNotification({
-        tag: 'NEW INQUIRY',
+        tag: 'NEW COMMENT',
         title: `Question on "${item.title || item.name}"`,
         message: `${sender} asked: "${text}"`,
         time: 'Just now',
         type: 'comment',
         targetId: item.id,
+        recipient_role: 'seller',
+        recipient_phone: sellerPhoneClean,
+        metadata: {
+          listingId: item.id,
+          sellerPhone: sellerPhoneClean,
+          userPhone: cleanUserPhone,
+        },
       });
     }
 
@@ -351,6 +371,9 @@ export default function ListingDetailModal({
 
   const handlePostSellerReply = (commentId) => {
     if (!sellerReplyText.trim()) return;
+
+    const matchingComment = comments.find((c) => String(c.id) === String(commentId));
+    const targetUserPhone = matchingComment?.userPhone || null;
 
     hyperlocalStore.addSellerReply(
       item.id,
@@ -362,6 +385,24 @@ export default function ListingDetailModal({
       },
       item.title || item.name
     );
+
+    if (targetUserPhone && onNewNotification) {
+      onNewNotification({
+        tag: 'SELLER REPLIED',
+        title: `${sellerDisplayName} replied to your question!`,
+        message: `On "${item.title || item.name}": "${sellerReplyText.trim().slice(0, 80)}"`,
+        time: 'Just now',
+        type: 'comment',
+        targetId: item.id,
+        recipient_role: 'user',
+        recipient_phone: targetUserPhone,
+        metadata: {
+          listingId: item.id,
+          sellerPhone: cleanSellerPhone,
+          userPhone: targetUserPhone,
+        },
+      });
+    }
 
     setSellerReplyText('');
     setActiveReplyId(null);
@@ -1154,12 +1195,17 @@ export default function ListingDetailModal({
           setUserName(profile.full_name || userName);
           setIsAuthModalOpen(false);
 
-          // Frictionless Add-to-Cart Completion post-login
+         // Frictionless Add-to-Cart Completion post-login
           if (pendingCartAddRef.current && profile?.phone) {
-            hyperlocalStore.loadUserCart(profile.phone).then(() => {
-              hyperlocalStore.addToCart(item, 1, profile.phone);
+            const loggedInPhone = String(profile.phone).replace(/\D/g, '').slice(-10);
+            if (loggedInPhone !== cleanSellerPhone) {
+              hyperlocalStore.loadUserCart(profile.phone).then(() => {
+                hyperlocalStore.addToCart(item, 1, profile.phone);
+                pendingCartAddRef.current = false;
+              });
+            } else {
               pendingCartAddRef.current = false;
-            });
+            }
           }
         }}
       />

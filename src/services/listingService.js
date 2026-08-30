@@ -32,6 +32,7 @@ export async function saveNotificationToDB(notif) {
   const category = notif.category || notif.metadata?.category || null;
 
   const notifPayload = {
+    user_id: notif.user_id || notif.userId || null,
     tag: notif.tag || 'TOWN_ALERT',
     title: notif.title || 'New Notification',
     message: notif.message || '',
@@ -42,11 +43,12 @@ export async function saveNotificationToDB(notif) {
       targetId: targetId ? String(targetId) : null,
       listingId: targetId ? String(targetId) : null,
       category,
-      audioUrl: notif.metadata?.audioUrl || null,
-      duration: notif.metadata?.duration || null,
-      sellerPhone: sanitizePhone(notif.metadata?.sellerPhone || notif.metadata?.phone),
-      userPhone: sanitizePhone(notif.metadata?.userPhone || notif.metadata?.buyerPhone),
+      audioUrl: notif.metadata?.audioUrl || notif.audioUrl || null,
+      duration: notif.metadata?.duration || notif.duration || null,
+      sellerPhone: sanitizePhone(notif.metadata?.sellerPhone || notif.metadata?.phone || notif.sellerPhone),
+      userPhone: sanitizePhone(notif.metadata?.userPhone || notif.metadata?.buyerPhone || notif.userPhone),
       dealBadge: notif.metadata?.dealBadge || null,
+      tokenAmount: notif.metadata?.tokenAmount || null,
       ...notif.metadata,
     },
     created_at: new Date().toISOString(),
@@ -160,6 +162,20 @@ export async function notifySellerInterest({ sellerPhone, listingId, listingTitl
     recipient_role: 'seller',
     recipient_phone: cleanSellerPhone,
     metadata: { listingId, newCount, sellerPhone: cleanSellerPhone },
+  });
+}
+
+export async function notifySellerNewReview({ sellerPhone, listingId, listingTitle, reviewerName, rating, hasMedia = false }) {
+  const cleanSellerPhone = sanitizePhone(sellerPhone);
+  const stars = '⭐'.repeat(Math.min(5, Math.max(1, Math.round(rating))));
+  return saveNotificationToDB({
+    tag: 'NEW_REVIEW',
+    title: `New Review (${stars}) on "${listingTitle || 'Product'}"`,
+    message: `${reviewerName || 'A customer'} left a ${rating}-star rating${hasMedia ? ' with attached photos/audio' : ''}.`,
+    targetId: listingId,
+    recipient_role: 'seller',
+    recipient_phone: cleanSellerPhone,
+    metadata: { listingId, rating, reviewerName, sellerPhone: cleanSellerPhone },
   });
 }
 
@@ -1078,13 +1094,14 @@ export async function deleteListingFromDB(listingId) {
 
   if (supabase) {
     try {
-      // 1. Cascade delete child records referencing this listing
+      // 1. Cascade delete child records and notifications referencing this listing
       await Promise.allSettled([
         safeDeleteByColumn('user_carts', 'listing_id', listingId),
         safeDeleteByColumn('listing_interests', 'listing_id', listingId),
         safeDeleteByColumn('listing_reports', 'listing_id', listingId),
         safeDeleteByColumn('listing_reviews', 'listing_id', listingId),
         safeDeleteByColumn('listing_threads', 'listing_id', listingId),
+        dismissAdminNotificationsForListing(listingId),
       ]);
 
       // 2. Delete the actual listing record

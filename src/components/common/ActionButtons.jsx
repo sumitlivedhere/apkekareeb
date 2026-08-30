@@ -14,7 +14,7 @@ export default function ActionButtons({
 
   const checkMemberAuthOrPrompt = (actionTitle) => {
     const profile = getCurrentUserProfile();
-    if (profile && profile.is_verified && profile.status === 'active') {
+    if (profile && profile.is_verified && (profile.status === 'active' || !profile.status)) {
       return true;
     }
     setAuthActionTitle(actionTitle);
@@ -42,6 +42,17 @@ export default function ActionButtons({
   const handleCartClick = (e) => {
     e.stopPropagation();
     if (!checkMemberAuthOrPrompt('Sign In to Use Cart')) return;
+
+    const profile = getCurrentUserProfile();
+    const userPhone = profile?.phone ? String(profile.phone).replace(/\D/g, '').slice(-10) : null;
+    const sellerPhone = String(listing.phone || listing.whatsapp || '').replace(/\D/g, '').slice(-10);
+
+    // Guard: Merchant cannot add their own item to cart
+    if (userPhone && sellerPhone && userPhone === sellerPhone) {
+      alert('You cannot add your own business listing to your cart.');
+      return;
+    }
+
     if (onToggleCart) onToggleCart(listing);
   };
 

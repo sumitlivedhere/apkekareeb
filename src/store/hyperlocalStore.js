@@ -1068,7 +1068,29 @@ class HyperlocalEngineStore {
     }, 0);
   }
 
-  addToCart(listingItem, quantity = 1, explicitPhone = null) {
+  // Helper: Groups cart items by merchant phone for multi-vendor split checkouts
+  getCartBySeller() {
+    const items = this.state.cart || [];
+    return items.reduce((acc, item) => {
+      const vendorKey = item.sellerPhone || item.phone || 'store';
+      if (!acc[vendorKey]) {
+        acc[vendorKey] = {
+          sellerName: item.sellerName || 'Local Merchant',
+          sellerPhone: vendorKey,
+          whatsapp: item.whatsapp || vendorKey,
+          location: item.location || 'Town Center',
+          timing: item.timing || '09:00 AM - 09:00 PM',
+          items: [],
+          subtotal: 0,
+        };
+      }
+      acc[vendorKey].items.push(item);
+      acc[vendorKey].subtotal += (item.numericPrice || parseNumericPrice(item.price)) * (item.quantity || 1);
+      return acc;
+    }, {});
+  }
+
+ addToCart(listingItem, quantity = 1, explicitPhone = null) {
     if (!listingItem || !listingItem.id) return { success: false, message: 'Invalid listing' };
 
     const currentUser = getCurrentUserProfile();
@@ -1083,6 +1105,17 @@ class HyperlocalEngineStore {
     }
 
     const cleanPhone = sanitizePhone(phone);
+    const sellerPhone = sanitizePhone(listingItem.phone || listingItem.whatsapp);
+
+    // Guard: Prevent merchant from carting their own products
+    if (cleanPhone && sellerPhone && cleanPhone === sellerPhone) {
+      return {
+        success: false,
+        isSelfListing: true,
+        message: 'You cannot add your own business listing to your personal cart.',
+      };
+    }
+
     this.state.activeUserPhone = cleanPhone;
     const cart = [...(this.state.cart || [])];
     const targetId = String(listingItem.id);
@@ -1096,16 +1129,24 @@ class HyperlocalEngineStore {
       cart.push({
         id: targetId,
         listingId: targetId,
+        userId: listingItem.user_id || listingItem.userId || null,
         title: listingItem.title || listingItem.name || 'Listing Item',
         price: listingItem.price || listingItem.rates || 'Contact for Price',
+        originalPrice: listingItem.original_price || listingItem.originalPrice || null,
         numericPrice: parseNumericPrice(listingItem.price || listingItem.rates),
         image: listingItem.image || listingItem.image_url || (listingItem.images && listingItem.images[0]) || null,
-        sellerName: listingItem.sellerName || listingItem.providerName || 'Verified Merchant',
-        phone: sanitizePhone(listingItem.phone || listingItem.whatsapp) || '9876543210',
+        sellerName: listingItem.sellerName || listingItem.seller_name || listingItem.providerName || 'Verified Merchant',
+        sellerPhone: sellerPhone || '9876543210',
+        phone: sellerPhone || '9876543210',
         whatsapp: sanitizePhone(listingItem.whatsapp || listingItem.phone) || '9876543210',
         category: listingItem.category || 'general',
-        subCategory: listingItem.subCategory || 'all',
-        location: listingItem.location || 'Town Center',
+        subCategory: listingItem.subCategory || listingItem.sub_category || 'all',
+        location: listingItem.location || listingItem.location_name || 'Town Center',
+        city: listingItem.city || 'Alwar',
+        timing: listingItem.timing || listingItem.activeHours || '09:00 AM - 09:00 PM',
+        dealBadge: listingItem.deal_badge || listingItem.dealBadge || null,
+        tokenAmount: listingItem.token_amount || listingItem.tokenAmount || null,
+        doorstepTrial: Boolean(listingItem.doorstep_trial ?? listingItem.doorstepTrial),
         quantity: Math.max(1, Number(quantity)),
         addedAt: new Date().toISOString(),
       });
@@ -1133,7 +1174,6 @@ class HyperlocalEngineStore {
         });
     }
 
-    const sellerPhone = sanitizePhone(listingItem.phone || listingItem.whatsapp);
     const buyerLocality = currentUser?.area_name || currentUser?.city || 'your area';
     const residentTier = currentUser?.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
     const listingTitle = listingItem.title || listingItem.name || 'Your Product';
@@ -1273,6 +1313,7 @@ export const useHyperlocalStore = () => ({
   interests: hyperlocalStore.state.interests,
   reviews: hyperlocalStore.state.reviews,
   cart: hyperlocalStore.state.cart,
+  getCartBySeller: () => hyperlocalStore.getCartBySeller(),
   toggleInterestOnce: (lid, title, seller) => hyperlocalStore.toggleInterestOnce(lid, 0, title, seller),
   hasUserInterested: (lid) => hyperlocalStore.hasUserInterested(lid),
   addListingReview: (lid, data) => hyperlocalStore.addListingReview(lid, data),
@@ -1470,6 +1511,15 @@ export function initRealtimeSubscriptions() {
 
           if (activePhone && rowPhone && rowPhone === activePhone) {
             hyperlocalStore.loadUserCart(activePhone);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          if (payload.new) {
+            hyperlocalStore.addNotification(payload.new);
           }
         }
       )

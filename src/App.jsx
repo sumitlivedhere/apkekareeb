@@ -149,14 +149,14 @@ export default function App() {
     }
   };
 
-  // 🛒 Synchronize User-Specific Cart whenever Auth changes
+  // 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
   useEffect(() => {
     if (currentUser?.phone) {
       hyperlocalStore.loadUserCart(currentUser.phone);
     } else {
       hyperlocalStore.resetCartOnLogout();
     }
-  }, [currentUser]);
+  }, [currentUser?.phone, currentUser?.role]);
 
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
@@ -1228,9 +1228,10 @@ export default function App() {
           }
           const upgradedSeller = Boolean(
             profile?.is_merchant === true ||
-            profile?.verification_tier === 'verified_merchant'
+            profile?.verification_tier === 'verified_merchant' ||
+            profile?.role === 'seller'
           );
-          if (upgradedSeller) {
+          if (upgradedSeller && authActionTitle.includes('Post')) {
             setIsListingModalOpen(true);
           } else if (authActionTitle.includes('Business')) {
             navigateTo({ screen: 'provider-dashboard', searchQuery: '' });

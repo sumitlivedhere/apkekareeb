@@ -222,12 +222,15 @@ export async function loginWith4DigitPin(phone, pin) {
 
       const sessionProfile = {
         id: user.id,
+        user_id: user.id,
         phone: user.phone,
         full_name: user.full_name,
         area_name: user.area_name || 'Town Center',
         city: user.city || 'Alwar',
+        role: user.is_merchant ? 'seller' : 'user',
         is_merchant: Boolean(user.is_merchant),
         is_verified: true,
+        status: user.status || 'active',
         business_name: user.business_name || null,
         verification_tier:
           user.verification_tier || (user.is_merchant ? 'merchant' : 'resident'),
@@ -401,12 +404,15 @@ export async function verifyActivationPinAndSetPermanentPin({
 
       const sessionProfile = {
         id: user.id,
+        user_id: user.id,
         phone: user.phone,
         full_name: user.full_name,
         area_name: user.area_name || 'Town Center',
         city: user.city || 'Alwar',
+        role: user.is_merchant ? 'seller' : 'user',
         is_merchant: Boolean(user.is_merchant),
         is_verified: true,
+        status: 'active',
         business_name: user.business_name || null,
         verification_tier: user.is_merchant ? 'merchant' : 'resident',
       };
@@ -606,6 +612,10 @@ export async function adminDemoteMerchant(phone) {
 export async function logoutUser() {
   setLocalUserProfile(null);
   sessionStorage.removeItem(BUSINESS_SESSION_KEY);
+  try {
+    const { hyperlocalStore } = await import('../store/hyperlocalStore');
+    hyperlocalStore.resetCartOnLogout();
+  } catch {}
   if (supabase) {
     try {
       await supabase.auth.signOut();

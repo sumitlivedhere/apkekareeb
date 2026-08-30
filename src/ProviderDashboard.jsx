@@ -7,6 +7,8 @@ import {
   submitSellerEditProposal,
   sendSellerReplyToAdmin,
   uploadVoiceNoteToStorage,
+  saveReplyToDB,
+  notifyUserSellerReply,
 } from './services/listingService';
 import {
   getOptimizedVoiceStream,
@@ -258,15 +260,23 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
   };
 
-  // 1. Strictly Filtered Merchant Listings
+  // 1. Strictly Filtered Merchant Listings (by Phone, WhatsApp, and User ID)
   const myListings = useMemo(() => {
     if (!isAuthorized || !sellerPhone) return [];
 
     const clean = sellerPhone;
+    const currentUserId = currentUser?.id || currentUser?.user_id;
+
     const list = (allListings || []).filter((item) => {
       const p1 = sanitizePhone(item.phone);
       const p2 = sanitizePhone(item.pending_changes?.phone);
-      return p1 === clean || p2 === clean;
+      const p3 = sanitizePhone(item.whatsapp);
+      const itemUserId = item.user_id || item.userId;
+
+      const matchesPhone = p1 === clean || p2 === clean || p3 === clean;
+      const matchesUser = currentUserId && itemUserId && String(currentUserId) === String(itemUserId);
+
+      return matchesPhone || matchesUser;
     });
 
     if (sortByInterest) {
@@ -275,7 +285,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
       );
     }
     return list;
-  }, [allListings, sellerPhone, isAuthorized, sortByInterest]);
+  }, [allListings, sellerPhone, currentUser, isAuthorized, sortByInterest]);
 
   // 2. Customer Inquiries Aggregation
   const userInquiries = useMemo(() => {
@@ -291,12 +301,13 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         if (comm.created_at && now - new Date(comm.created_at).getTime() > FIVE_DAYS_MS) {
           return;
         }
-        inquiries.push({
+       inquiries.push({
           ...comm,
           listingId: listing.id,
           listingTitle: listing.title || listing.name,
           listingPrice: listing.price || listing.rates || listing.startingPackage,
           listingImage: listing.image || (listing.images && listing.images[0]),
+          userPhone: sanitizePhone(comm.userPhone || comm.phone || comm.metadata?.userPhone),
         });
       });
     });
@@ -835,6 +846,43 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     );
   }
 
+
+  // 💬 Unified Reply Handler with Buyer Notification Dispatch
+  const handleSendReplyToBuyer = (inq, text, audioPayload = null) => {
+    const cleanText = (text || '').trim();
+    if (!cleanText && !audioPayload) return;
+
+    const replyObj = audioPayload || {
+      type: 'text',
+      text: cleanText,
+      timestamp: 'Just now',
+      sellerName: currentUser?.business_name || currentUser?.full_name || 'You (Owner)',
+    };
+
+    hyperlocalStore.addSellerReply(
+      inq.listingId,
+      inq.id,
+      replyObj,
+      inq.listingTitle
+    );
+
+    if (inq.userPhone) {
+      notifyUserSellerReply({
+        userPhone: inq.userPhone,
+        listingId: inq.listingId,
+        listingTitle: inq.listingTitle,
+        sellerName: currentUser?.business_name || currentUser?.full_name || 'Merchant',
+        replyText: cleanText,
+        audioUrl: audioPayload?.audioUrl || null,
+        duration: audioPayload?.duration || null,
+      });
+    }
+
+    setReplyInputs((p) => ({ ...p, [inq.id]: '' }));
+    setThreadUpdateTick((p) => p + 1);
+    showNotice('Reply sent to customer!');
+  };
+
   // =========================================================================
   // 🌟 AUTHORIZED DASHBOARD VIEW
   // =========================================================================
@@ -1051,15 +1099,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                         <button
                           key={chip}
                           type="button"
-                          onClick={() => {
-                            hyperlocalStore.addSellerReply(inq.listingId, inq.id, {
-                              type: 'text',
-                              text: chip,
-                              timestamp: 'Just now',
-                              sellerName: currentUser?.full_name || 'You (Owner)',
-                            }, inq.listingTitle);
-                            setThreadUpdateTick((p) => p + 1);
-                          }}
+                          onClick={() => handleSendReplyToBuyer(inq, chip)}
                           className="text-[9.5px] bg-slate-800 hover:bg-amber-400 hover:text-slate-950 text-slate-300 px-2.5 py-1 rounded-lg font-bold shrink-0 transition border border-slate-700 cursor-pointer active:scale-95"
                         >
                           + {chip}
@@ -1072,23 +1112,15 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                         type="text"
                         value={replyInputs[inq.id] || ''}
                         onChange={(e) => setReplyInputs({ ...replyInputs, [inq.id]: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSendReplyToBuyer(inq, replyInputs[inq.id] || '');
+                        }}
                         placeholder="Type reply or tap instant chips above..."
                         className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-hidden focus:border-amber-400"
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          const text = (replyInputs[inq.id] || '').trim();
-                          if (!text) return;
-                          hyperlocalStore.addSellerReply(inq.listingId, inq.id, {
-                            type: 'text',
-                            text,
-                            timestamp: 'Just now',
-                            sellerName: currentUser?.full_name || 'You (Owner)',
-                          }, inq.listingTitle);
-                          setReplyInputs((p) => ({ ...p, [inq.id]: '' }));
-                          setThreadUpdateTick((p) => p + 1);
-                        }}
+                        onClick={() => handleSendReplyToBuyer(inq, replyInputs[inq.id] || '')}
                         className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl active:scale-95 transition cursor-pointer shrink-0 shadow-md"
                       >
                         Send

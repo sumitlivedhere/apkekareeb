@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   getCurrentUserProfile,
   checkUserExistence,
@@ -8,6 +8,7 @@ import {
   logoutUser,
   sanitizePhone,
 } from '../../services/authService';
+import { useCartSlice, hyperlocalStore } from '../../store/hyperlocalStore';
 import { useTheme } from '../../context/ThemeContext';
 import { CITY_ZONES } from '../../data/cityZones';
 
@@ -17,6 +18,47 @@ export default function UserAuthDashboard({ selectedCity = 'Alwar', onBack, onAu
 
   // Navigation: 'overview' | 'phone' | 'login_pin' | 'request_activation' | 'enter_pin'
   const [authStep, setAuthStep] = useState(() => (getCurrentUserProfile()?.is_verified ? 'overview' : 'phone'));
+  const [residentActiveTab, setResidentActiveTab] = useState('profile'); // 'profile' | 'inquiries' | 'cart'
+
+  // 🛒 User-Scoped Personal Cart & Inquiry Hooks
+  const residentCart = useCartSlice();
+  const allListings = hyperlocalStore.getAllListings();
+
+  // 💬 Filter inquiries asked BY this resident (Isolated from seller leads)
+  const myInquiries = useMemo(() => {
+    if (!currentUser) return [];
+    const clean = sanitizePhone(currentUser.phone);
+    const threadsMap = hyperlocalStore.state.threads || {};
+    const results = [];
+
+    Object.keys(threadsMap).forEach((listingId) => {
+      const listingThreads = threadsMap[listingId] || [];
+      const parentListing = allListings.find((l) => String(l.id) === String(listingId));
+
+      listingThreads.forEach((comm) => {
+        const commPhone = sanitizePhone(comm.userPhone || comm.phone);
+        const matchesPhone = Boolean(commPhone && clean && commPhone === clean);
+        const matchesName = Boolean(
+          comm.userName &&
+          currentUser.full_name &&
+          comm.userName.trim().toLowerCase() === currentUser.full_name.trim().toLowerCase()
+        );
+
+        if (matchesPhone || matchesName) {
+          results.push({
+            ...comm,
+            listingId,
+            listingTitle: parentListing?.title || parentListing?.name || comm.listingTitle || 'Product / Listing',
+            listingImage: parentListing?.image || (parentListing?.images && parentListing?.images[0]),
+            sellerName: parentListing?.sellerName || parentListing?.seller_name || 'Merchant',
+            sellerPhone: parentListing?.phone || parentListing?.whatsapp,
+          });
+        }
+      });
+    });
+
+    return results.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [currentUser, allListings]);
 
   // Fields
   const [phone, setPhone] = useState('');
@@ -263,27 +305,28 @@ export default function UserAuthDashboard({ selectedCity = 'Alwar', onBack, onAu
           </div>
         )}
 
-        {/* ─── 1. VERIFIED PROFILE OVERVIEW ─── */}
+        {/* ─── 1. VERIFIED RESIDENT PROFILE & ACTIVITY OVERVIEW ─── */}
         {currentUser && authStep === 'overview' && (
-          <div className="space-y-4 animate-fade-in text-xs">
-            <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-5 space-y-4 shadow-xl">
+          <div className="space-y-3.5 animate-fade-in text-xs">
+            {/* Resident Card Header */}
+            <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-4.5 space-y-3 shadow-xl">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-500 text-slate-950 text-2xl flex items-center justify-center font-black shadow-lg">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-500 text-slate-950 text-xl flex items-center justify-center font-black shadow-lg">
                     {isMerchantUser ? '🏪' : '👤'}
                   </div>
                   <div>
-                    <h2 className="text-base font-black text-slate-100 leading-tight">
+                    <h2 className="text-sm font-black text-slate-100 leading-tight">
                       {currentUser.full_name || 'Resident Member'}
                     </h2>
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    <p className="text-[11px] text-cyan-300 font-mono mt-0.5">
                       📱 +91 {currentUser.phone}
                     </p>
                   </div>
                 </div>
 
                 <span
-                  className={`text-[9.5px] font-black uppercase px-2.5 py-1 rounded-full border ${
+                  className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
                     isMerchantUser
                       ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
                       : 'bg-emerald-400/20 text-emerald-300 border-emerald-400/40'
@@ -293,36 +336,167 @@ export default function UserAuthDashboard({ selectedCity = 'Alwar', onBack, onAu
                 </span>
               </div>
 
-              <div className="pt-2 border-t border-slate-800 space-y-1 text-slate-300">
-                <p>📍 <strong>Locality:</strong> {currentUser.area_name || 'Town Center'}, {currentUser.city || 'Alwar'}</p>
-                {currentUser.business_name && (
-                  <p>🏬 <strong>Shop Name:</strong> {currentUser.business_name}</p>
-                )}
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-300">
+                <span>📍 {currentUser.area_name || 'Town Center'}, {currentUser.city || 'Alwar'}</span>
+                <span className="text-amber-400 font-bold font-mono">⭐ Trust: {currentUser.trust_score || 100}</span>
               </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  resetAlerts();
-                  setPhone(currentUser.phone);
-                  setAuthStep('enter_pin');
-                }}
-                className="py-3 bg-slate-900 border border-slate-800 hover:border-amber-400 text-amber-300 font-bold rounded-2xl text-xs active:scale-95 transition cursor-pointer"
-              >
-                Reset PIN 🔑
-              </button>
+            {/* Merchant Role Isolation Notice */}
+            {isMerchantUser && (
+              <div className="p-3 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent border border-amber-500/40 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-wider block">
+                    SELLER ACCOUNT ACTIVE
+                  </span>
+                  <p className="text-[10.5px] font-black text-slate-100 mt-0.5">
+                    🏪 {currentUser.business_name || 'Your Storefront'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="px-3 py-1.5 bg-amber-400 text-slate-950 font-black text-[10px] rounded-xl shadow cursor-pointer active:scale-95 transition"
+                >
+                  Open Business Hub ➔
+                </button>
+              </div>
+            )}
 
+            {/* 3-Way Resident Activity Tabs */}
+            <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 text-[10.5px] font-bold">
               <button
                 type="button"
-                onClick={handleLogout}
-                className="py-3 bg-rose-950/60 border border-rose-800/80 text-rose-300 font-bold rounded-2xl text-xs active:scale-95 transition cursor-pointer"
+                onClick={() => setResidentActiveTab('profile')}
+                className={`flex-1 py-1.5 rounded-xl transition cursor-pointer text-center ${
+                  residentActiveTab === 'profile' ? 'bg-amber-400 text-slate-950 font-black shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
               >
-                Log Out 🔒
+                👤 Profile
+              </button>
+              <button
+                type="button"
+                onClick={() => setResidentActiveTab('inquiries')}
+                className={`flex-1 py-1.5 rounded-xl transition cursor-pointer text-center flex items-center justify-center space-x-1 ${
+                  residentActiveTab === 'inquiries' ? 'bg-amber-400 text-slate-950 font-black shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>💬 My Queries</span>
+                {myInquiries.length > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.2 bg-slate-950 text-amber-300 rounded-full font-mono">
+                    {myInquiries.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setResidentActiveTab('cart')}
+                className={`flex-1 py-1.5 rounded-xl transition cursor-pointer text-center flex items-center justify-center space-x-1 ${
+                  residentActiveTab === 'cart' ? 'bg-amber-400 text-slate-950 font-black shadow-md' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>🛍️ Cart</span>
+                {residentCart.length > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.2 bg-slate-950 text-amber-300 rounded-full font-mono">
+                    {residentCart.length}
+                  </span>
+                )}
               </button>
             </div>
+
+            {/* Tab A: Profile & Security */}
+            {residentActiveTab === 'profile' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetAlerts();
+                      setPhone(currentUser.phone);
+                      setAuthStep('enter_pin');
+                    }}
+                    className="py-2.5 bg-slate-900 border border-slate-800 hover:border-amber-400 text-amber-300 font-bold rounded-2xl text-xs active:scale-95 transition cursor-pointer text-center"
+                  >
+                    Reset Security PIN 🔑
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="py-2.5 bg-rose-950/60 border border-rose-800/80 text-rose-300 font-bold rounded-2xl text-xs active:scale-95 transition cursor-pointer text-center"
+                  >
+                    Log Out 🔒
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab B: My Queries & Inquiries */}
+            {residentActiveTab === 'inquiries' && (
+              <div className="space-y-2.5">
+                {myInquiries.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-400 space-y-1">
+                    <span className="text-2xl block">💬</span>
+                    <p className="font-bold text-slate-300">No questions asked yet.</p>
+                    <p className="text-[10px]">Your comments and inquiries to local merchants will appear here.</p>
+                  </div>
+                ) : (
+                  myInquiries.map((inq, idx) => (
+                    <div key={inq.id || idx} className="p-3 bg-slate-900 border border-slate-800 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                        <span className="font-black text-slate-100 truncate max-w-[200px]">
+                          🛍️ {inq.listingTitle}
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-mono">{inq.timestamp || 'Recent'}</span>
+                      </div>
+
+                      <div className="p-2 bg-slate-950 rounded-xl text-[11px] text-slate-300 italic">
+                        "{inq.text}"
+                      </div>
+
+                      {inq.sellerReply ? (
+                        <div className="p-2 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-[10.5px] text-emerald-200 space-y-0.5">
+                          <span className="text-[9px] font-black text-emerald-400 block">
+                            👑 Reply from {inq.sellerName}:
+                          </span>
+                          <p>{inq.sellerReply.text || inq.sellerReply}</p>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-amber-400 font-bold block">
+                          ⏳ Waiting for merchant reply...
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Tab C: My Personal Cart */}
+            {residentActiveTab === 'cart' && (
+              <div className="space-y-2.5">
+                {residentCart.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-400 space-y-1">
+                    <span className="text-2xl block">🛍️</span>
+                    <p className="font-bold text-slate-300">Your cart is empty.</p>
+                    <p className="text-[10px]">Add products or service deals from local shops in {selectedCity}.</p>
+                  </div>
+                ) : (
+                  residentCart.map((item) => (
+                    <div key={item.id} className="p-3 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
+                      <div className="min-w-0 pr-2">
+                        <h4 className="text-xs font-black text-slate-100 truncate">{item.title}</h4>
+                        <span className="text-emerald-400 font-bold text-[10.5px]">{item.price}</span>
+                        <span className="text-slate-400 text-[9px] block">🏪 {item.sellerName || 'Local Merchant'}</span>
+                      </div>
+                      <span className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-amber-400 font-mono font-bold text-xs">
+                        Qty: {item.quantity || 1}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -18,24 +18,26 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
     currentUser && currentUser.is_verified && currentUser.status === 'active'
   );
 
-  // Group items by Seller for multi-merchant checkout
+  // Group items strictly by Seller Phone for multi-vendor checkout
   const groupedBySeller = useMemo(() => {
     if (!currentUser) return [];
     const map = {};
     cartItems.forEach((item) => {
-      const sellerKey = item.phone || item.sellerName || 'General_Merchant';
-      if (!map[sellerKey]) {
-        map[sellerKey] = {
+      const sellerPhoneKey = item.sellerPhone || item.phone || 'General_Merchant';
+      if (!map[sellerPhoneKey]) {
+        map[sellerPhoneKey] = {
           sellerName: item.sellerName || 'Verified Merchant',
-          phone: item.phone || '',
-          whatsapp: item.whatsapp || item.phone || '',
+          sellerPhone: sellerPhoneKey,
+          phone: sellerPhoneKey,
+          whatsapp: item.whatsapp || sellerPhoneKey,
           location: item.location || 'Town Center',
+          timing: item.timing || '09:00 AM - 09:00 PM',
           items: [],
           subtotal: 0,
         };
       }
-      map[sellerKey].items.push(item);
-      map[sellerKey].subtotal += (item.numericPrice || 0) * (item.quantity || 1);
+      map[sellerPhoneKey].items.push(item);
+      map[sellerPhoneKey].subtotal += (item.numericPrice || 0) * (item.quantity || 1);
     });
     return Object.values(map);
   }, [cartItems, currentUser]);
@@ -45,37 +47,61 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
     return cartItems.reduce((sum, item) => sum + (item.numericPrice || 0) * (item.quantity || 1), 0);
   }, [cartItems, currentUser]);
 
-  // Dispatch individual seller order via formatted WhatsApp contract
-  const handleDispatchWhatsAppOrder = (sellerGroup) => {
+  // Dispatch individual seller order via WhatsApp & trigger in-app notification
+  const handleDispatchWhatsAppOrder = async (sellerGroup) => {
     if (!currentUser || !isVerifiedMember) {
       if (onOpenAuth) onOpenAuth();
       return;
     }
 
     const itemsSummary = sellerGroup.items
-      .map(
-        (i, idx) =>
-          `${idx + 1}. *${i.title}*\n   Qty: ${i.quantity} | Rate: ${i.price}`
-      )
+      .map((i, idx) => {
+        let details = `${idx + 1}. *${i.title}*\n   Qty: ${i.quantity} | Rate: ${i.price}`;
+        if (i.dealBadge) details += `\n   🏷️ Deal: ${i.dealBadge}`;
+        if (i.tokenAmount) details += `\n   🔒 Advance Token: ${i.tokenAmount}`;
+        if (i.doorstepTrial) details += `\n   🚪 Doorstep Trial Requested`;
+        return details;
+      })
       .join('\n\n');
 
     const buyerName = currentUser?.full_name || 'Resident Member';
     const buyerPhone = currentUser?.phone || '';
-    const buyerLocality = currentUser?.area_name || 'Town Center';
+    const buyerLocality = currentUser?.area_name || currentUser?.city || 'Town Center';
 
     const message =
       `🛍️ *NEW AAPKE KAREEB ORDER & BOOKING*\n` +
       `----------------------------------------\n` +
       `Namaste *${sellerGroup.sellerName}*! 🙏\n\n` +
-      `I want to place an order / booking for the following selected item(s):\n\n` +
+      `I want to place an order / booking for the following item(s):\n\n` +
       `${itemsSummary}\n\n` +
       `----------------------------------------\n` +
       (sellerGroup.subtotal > 0 ? `💰 *Estimated Total: ₹${sellerGroup.subtotal.toLocaleString('en-IN')}*\n` : '') +
       `👤 *Customer:* ${buyerName} (+91 ${buyerPhone})\n` +
       `📍 *Delivery / Locality:* ${buyerLocality}\n\n` +
-      `Please confirm availability, delivery timing, and payment details. Dhanyawaad!`;
+      `Please confirm availability, delivery schedule (${sellerGroup.timing}), and payment details. Dhanyawaad!`;
 
-    const targetPhone = String(sellerGroup.whatsapp || sellerGroup.phone).replace(/\D/g, '').slice(-10);
+    // 1. Dispatch In-App Alert to Seller Dashboard
+    const targetPhone = String(sellerGroup.whatsapp || sellerGroup.phone || sellerGroup.sellerPhone).replace(/\D/g, '').slice(-10);
+    const sellerAlert = {
+      tag: 'ORDER_INTENT',
+      title: `🛍️ New Order Inquiry from ${buyerName}`,
+      message: `${sellerGroup.items.length} item(s) selected by ${buyerName} (+91 ${buyerPhone}) in ${buyerLocality}.`,
+      time: 'Just now',
+      type: 'order',
+      targetId: sellerGroup.items[0]?.listingId || null,
+      recipient_role: 'seller',
+      recipient_phone: targetPhone,
+      metadata: {
+        buyerName,
+        buyerPhone,
+        buyerLocality,
+        itemsCount: sellerGroup.items.length,
+        subtotal: sellerGroup.subtotal,
+      },
+    };
+    hyperlocalStore.addNotification(sellerAlert);
+
+    // 2. Open WhatsApp Direct Order
     const url = `https://wa.me/91${targetPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -256,12 +282,22 @@ export default function CartDrawer({ isOpen, onClose, onOpenAuth }) {
                               <h5 className="text-[11.5px] font-black leading-snug truncate">
                                 {item.title}
                               </h5>
-                              <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-bold block">
-                                {item.price}
-                              </span>
-                              <span className="text-[8.5px] text-slate-400 uppercase font-semibold">
-                                {item.category}
-                              </span>
+                              <div className="flex items-center space-x-1.5 flex-wrap">
+                                <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                  {item.price}
+                                </span>
+                                {item.dealBadge && (
+                                  <span className="text-[8.5px] bg-rose-500/10 text-rose-500 font-black px-1.5 py-0.2 rounded-md">
+                                    {item.dealBadge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-1 text-[8.5px] text-slate-400 font-semibold">
+                                <span className="uppercase">{item.category}</span>
+                                {item.doorstepTrial && (
+                                  <span className="text-amber-500 font-bold">• 🚪 Trial Avail</span>
+                                )}
+                              </div>
                             </div>
                           </div>
 

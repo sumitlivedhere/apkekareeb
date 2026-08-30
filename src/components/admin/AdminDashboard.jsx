@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useAllListingsSlice, hyperlocalStore, hydrateFromDB } from '../../store/hyperlocalStore';
+import { useAllListingsSlice, hyperlocalStore, hydrateFromDB, useNotificationSlice } from '../../store/hyperlocalStore';
 import { supabase } from '../../services/supabaseClient';
 import {
   approveListingChanges,
@@ -37,7 +37,8 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   const [dashboardNotice, setDashboardNotice] = useState('');
   const [isWidescreen, setIsWidescreen] = useState(false);
 
-  const allListings = useAllListingsSlice();
+ const allListings = useAllListingsSlice();
+  const adminNotifications = useNotificationSlice('admin');
 
   // 🌟 7-Way Unified Tab Switcher
   // 'pending' | 'approved' | 'all' | 'crm' | 'reports' | 'interactions' | 'broadcast'
@@ -197,12 +198,52 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
   }, []);
 
   useEffect(() => {
-    if (isAdminAuth) {
-      hydrateFromDB();
-      fetchProfiles();
-      fetchReports();
-      fetchInteractions();
-    }
+    if (!isAdminAuth) return;
+
+    hydrateFromDB();
+    fetchProfiles();
+    fetchReports();
+    fetchInteractions();
+
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('admin-dashboard-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'listing_reports' },
+        (payload) => {
+          fetchReports();
+          if (payload.eventType === 'INSERT') {
+            showNotice('🚩 New listing dispute report received!');
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_profiles' },
+        (payload) => {
+          fetchProfiles();
+          if (payload.eventType === 'INSERT') {
+            showNotice(`👤 New registration: ${payload.new?.full_name || 'Member'}`);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: 'recipient_role=eq.admin' },
+        (payload) => {
+          if (payload.new) {
+            hyperlocalStore.addNotification(payload.new);
+            showNotice(`🔔 Admin Alert: ${payload.new.title}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [isAdminAuth, fetchProfiles, fetchReports, fetchInteractions]);
 
   const showNotice = (msg) => {
@@ -361,6 +402,18 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
     }
     const updated = { ...item, is_shadowbanned: nextVal };
     hyperlocalStore.insertListing(item.category, updated);
+
+    // Record audit notification
+    saveNotificationToDB({
+      tag: nextVal ? 'SHADOWBAN_APPLIED' : 'SHADOWBAN_REMOVED',
+      title: nextVal ? `Shadowban Applied: "${item.title}"` : `Shadowban Removed: "${item.title}"`,
+      message: `Listing ID ${item.id} (+91 ${sanitizePhone(item.phone)}) shadowban set to ${nextVal}.`,
+      targetId: item.id,
+      recipient_role: 'admin',
+      recipient_phone: null,
+      metadata: { listingId: item.id, sellerPhone: sanitizePhone(item.phone), isShadowbanned: nextVal },
+    });
+
     showNotice(nextVal ? `👻 Shadowbanned "${item.title}"` : `✓ Removed shadowban from "${item.title}"`);
   };
 
@@ -1283,11 +1336,14 @@ export default function AdminDashboard({ onBack, selectedCity = 'Alwar' }) {
           <button
             type="button"
             onClick={() => setActiveTab('reports')}
-            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer flex items-center space-x-1.5 ${
               activeTab === 'reports' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:text-rose-300'
             }`}
           >
-            🚩 Disputes ({reports.length})
+            <span>🚩 Disputes ({reports.length})</span>
+            {adminNotifications.filter((n) => n.tag === 'FLAGGED_REPORT' && !n.is_read).length > 0 && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            )}
           </button>
 
           <button

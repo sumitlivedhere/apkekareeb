@@ -18,8 +18,16 @@ export default function ListingInteractiveCard({
   // 🛒 User-Scoped Cart integration
   const currentUser = getCurrentUserProfile();
   const cart = useCartSlice();
-  const cartItem = currentUser ? (cart || []).find((i) => String(i.id) === String(item.id)) : null;
+  const cartItem = currentUser
+    ? (cart || []).find((i) => String(i.id) === String(item.id) || String(i.listingId) === String(item.id))
+    : null;
   const cartQty = cartItem ? cartItem.quantity : 0;
+
+  const isOwner = Boolean(
+    currentUser?.phone &&
+    (item.phone || item.whatsapp) &&
+    String(currentUser.phone).replace(/\D/g, '').slice(-10) === String(item.phone || item.whatsapp).replace(/\D/g, '').slice(-10)
+  );
 
   const handleAddToCart = (e) => {
     e.stopPropagation();
@@ -27,7 +35,14 @@ export default function ListingInteractiveCard({
       if (onOpenAuth) onOpenAuth();
       return;
     }
-    hyperlocalStore.addToCart(item, 1);
+    if (isOwner) {
+      alert('You cannot add your own business listing to your cart.');
+      return;
+    }
+    const res = hyperlocalStore.addToCart(item, 1, currentUser.phone);
+    if (res?.isSelfListing) {
+      alert(res.message);
+    }
   };
 
   const handleUpdateQuantity = (e, newQty) => {
@@ -36,7 +51,7 @@ export default function ListingInteractiveCard({
       if (onOpenAuth) onOpenAuth();
       return;
     }
-    hyperlocalStore.updateCartQuantity(item.id, newQty);
+    hyperlocalStore.updateCartQuantity(item.id, newQty, currentUser.phone);
   };
 
   // Gallery array resolution
@@ -302,11 +317,15 @@ export default function ListingInteractiveCard({
         )}
       </div>
 
-      {/* Action Buttons with Deal Context Pre-filled */}
+      {/* Action Buttons with Deal & Listing Context */}
       <ActionButtons
+        listing={item}
         phone={item.phone || '9876543201'}
         whatsapp={item.whatsapp || item.phone || '919876543210'}
         message={whatsAppMessage}
+        selectedCity={selectedCity}
+        isInCart={cartQty > 0}
+        onToggleCart={!isOwner ? () => (cartQty > 0 ? handleUpdateQuantity({ stopPropagation: () => {} }, 0) : handleAddToCart({ stopPropagation: () => {} })) : null}
       />
     </article>
   );
