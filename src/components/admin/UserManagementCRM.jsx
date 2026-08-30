@@ -2,15 +2,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   getAllUsersForAdmin,
   markUserPinDispatched,
-  generateActivationPin,
   adminToggleBanUser,
   adminDeleteUser,
   adminDeleteAllSellerListings,
   adminDemoteMerchant,
+  sanitizePhone,
 } from '../../services/authService';
+import { supabase } from '../../services/supabaseClient';
+import { CITY_ZONES } from '../../data/cityZones';
 
 export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'pending_pin' | 'tier1' | 'tier2' | 'tier3' | 'banned'
   const [usersData, setUsersData] = useState({
     tier1Users: [],
     tier2Users: [],
@@ -19,8 +21,13 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
     totalCount: 0,
     allUsers: [],
   });
+
+  // Search, Filter & Sorter State
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedColony, setSelectedColony] = useState('all');
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'oldest' | 'trust_high' | 'trust_low' | 'name_asc'
   const [isLoading, setIsLoading] = useState(true);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
   const [copiedPhone, setCopiedPhone] = useState(null);
   const [actionNotice, setActionNotice] = useState('');
 
@@ -47,81 +54,175 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
     }
   };
 
+  // ── Multi-Parameter Search, Filter & Sort Pipeline ────────────
   const displayedUsers = useMemo(() => {
-    let list = [];
-    if (activeTab === 'tier1') list = usersData.tier1Users;
-    else if (activeTab === 'tier2') list = usersData.tier2Users;
-    else if (activeTab === 'tier3') list = usersData.tier3Merchants;
-    else if (activeTab === 'banned') list = usersData.bannedUsers;
-    else list = usersData.allUsers;
+    let list = usersData.allUsers || [];
 
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return list;
+    // Tab Segmentation
+    if (activeTab === 'pending_pin') {
+      list = list.filter((u) => !u.is_verified || u.status === 'pending_activation');
+    } else if (activeTab === 'tier1') {
+      list = usersData.tier1Users || [];
+    } else if (activeTab === 'tier2') {
+      list = usersData.tier2Users || [];
+    } else if (activeTab === 'tier3') {
+      list = usersData.tier3Merchants || [];
+    } else if (activeTab === 'banned') {
+      list = usersData.bannedUsers || [];
+    }
 
-    return list.filter(
-      (u) =>
-        (u.full_name || '').toLowerCase().includes(q) ||
-        (u.phone || '').includes(q) ||
-        (u.admin_activation_pin || '').toLowerCase().includes(q) ||
-        (u.area_name || '').toLowerCase().includes(q) ||
-        (u.business_name || '').toLowerCase().includes(q)
-    );
-  }, [activeTab, usersData, searchQuery]);
+    // Colony / Locality Filter
+    if (selectedColony !== 'all') {
+      list = list.filter((u) => (u.area_name || '').toLowerCase() === selectedColony.toLowerCase());
+    }
 
-  // 💬 Generate & Send User PIN (...U)
-  const handleSendUserPin = async (user) => {
-    const pinCode = generateActivationPin('user');
-    await markUserPinDispatched(user.phone, pinCode);
+    // Search Query (Mobile, Name, PIN, Colony, Shop Name)
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (u) =>
+          (u.full_name || '').toLowerCase().includes(q) ||
+          String(u.phone || '').includes(q) ||
+          String(u.admin_activation_pin || '').toLowerCase().includes(q) ||
+          (u.area_name || '').toLowerCase().includes(q) ||
+          (u.business_name || '').toLowerCase().includes(q)
+      );
+    }
 
-    const message = `Namaste ${user.full_name}! 🙏\n\nWelcome to Aapke Kareeb (${user.city || selectedCity})!\n\nAapka Authorized Resident Activation PIN hai: *${pinCode}*\n\nKripya Aapke Kareeb App me apna profile kholiye aur yeh 6-digit PIN darj karke apna Verified Resident status unlock karein.\n\nDhanyawaad!`;
-    const whatsappUrl = `https://wa.me/91${user.phone}?text=${encodeURIComponent(message)}`;
+    // Sorters
+    return [...list].sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      if (sortBy === 'oldest') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      if (sortBy === 'trust_high') return (b.trust_score || 100) - (a.trust_score || 100);
+      if (sortBy === 'trust_low') return (a.trust_score || 100) - (b.trust_score || 100);
+      if (sortBy === 'name_asc') return (a.full_name || '').localeCompare(b.full_name || '');
+      return 0;
+    });
+  }, [activeTab, usersData, searchQuery, selectedColony, sortBy]);
 
-    setNotice(`Dispatched User PIN (${pinCode}) to +91 ${user.phone}`);
-    window.open(whatsappUrl, '_blank');
+  // ── 📲 1-Click WhatsApp PIN Dispatcher ─────────────────────────
+  const handleDispatchPin = async (user, roleType = 'resident') => {
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      setNotice('⚠️ Invalid 10-digit mobile number.');
+      return;
+    }
+
+    setActionLoadingId(user.id || user.phone);
+    const pinCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    try {
+      await markUserPinDispatched(cleanPhone, pinCode);
+
+      const isSeller = roleType === 'merchant' || user.is_merchant || user.verification_tier === 'merchant';
+      const message = encodeURIComponent(
+        `Namaste ${user.full_name || 'Member'} ji! 🙏\n\n` +
+        `Welcome to Aapke Kareeb (${user.city || selectedCity})!\n\n` +
+        `Your 6-Digit ${isSeller ? 'Merchant (Seller)' : 'Resident'} Activation PIN is: *${pinCode}*\n\n` +
+        `👉 1. Open the Aapke Kareeb app.\n` +
+        `👉 2. Enter this 6-digit PIN under 'Activate Account'.\n` +
+        `👉 3. Set your personal 4-digit Security PIN to complete setup.\n\n` +
+        `Dhanyawaad!`
+      );
+
+      const whatsappUrl = `https://wa.me/91${cleanPhone}?text=${message}`;
+
+      setNotice(`✓ PIN (${pinCode}) dispatched to +91 ${cleanPhone}. Opening WhatsApp...`);
+      window.open(whatsappUrl, '_blank');
+      await loadUsers();
+    } catch (err) {
+      console.error('Failed to dispatch PIN:', err);
+      setNotice('⚠️ Error saving PIN in database.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // ── 🛡️ Trust Score Adjuster (+10 / -10) ─────────────────────────
+  const handleAdjustTrustScore = async (user, delta) => {
+    const cleanPhone = sanitizePhone(user.phone);
+    const currentScore = user.trust_score !== undefined && user.trust_score !== null ? user.trust_score : 100;
+    const newScore = Math.max(0, Math.min(100, currentScore + delta));
+
+    if (supabase) {
+      await supabase
+        .from('user_profiles')
+        .update({ trust_score: newScore })
+        .eq('phone', cleanPhone);
+    }
+    setNotice(`Updated Trust Score to ${newScore} for ${user.full_name}`);
     loadUsers();
   };
 
-  // 🏪 Generate & Send Seller PIN (...S)
-  const handleSendSellerPin = async (user) => {
-    const pinCode = generateActivationPin('seller');
-    await markUserPinDispatched(user.phone, pinCode);
-
-    const message = `Namaste ${user.full_name}! 🙏\n\nAapke Kareeb (${user.city || selectedCity}) me aapko Seller / Merchant Onboarding ke liye invite kiya gaya hai!\n\nAapka Merchant Activation PIN hai: *${pinCode}*\n\n1. App me jakar yeh PIN darj karein.\n2. Verification ke baad apna man-pasand Permanent PIN set karein.\n\nIske baad aap apni dukan ke items aur offers post kar sakenge!\n\nDhanyawaad!`;
-    const whatsappUrl = `https://wa.me/91${user.phone}?text=${encodeURIComponent(message)}`;
-
-    setNotice(`Dispatched Seller PIN (${pinCode}) to +91 ${user.phone}`);
-    window.open(whatsappUrl, '_blank');
-    loadUsers();
-  };
-
+  // ── ⛔ Ban / Unban User ───────────────────────────────────────
   const handleToggleBan = async (user) => {
     const shouldBan = !user.is_banned;
-    if (!window.confirm(shouldBan ? `Block & ban +91 ${user.phone}?` : `Unban +91 ${user.phone}?`)) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!window.confirm(shouldBan ? `Block & ban +91 ${cleanPhone} (${user.full_name})?` : `Unban +91 ${cleanPhone}?`)) return;
 
-    await adminToggleBanUser(user.phone, shouldBan);
-    setNotice(shouldBan ? `⛔ Banned +91 ${user.phone}` : `✓ Unbanned +91 ${user.phone}`);
-    loadUsers();
+    setActionLoadingId(user.id || user.phone);
+    const res = await adminToggleBanUser(cleanPhone, shouldBan);
+    setActionLoadingId(null);
+
+    if (res.success) {
+      setNotice(shouldBan ? `⛔ Banned +91 ${cleanPhone}` : `✓ Unbanned +91 ${cleanPhone}`);
+      loadUsers();
+    } else {
+      setNotice(`⚠️ Action failed: ${res.error}`);
+    }
   };
 
+  // ── 🗑️ Guaranteed Cascading User Deletion ───────────────────────
   const handleDeleteUser = async (user) => {
-    if (!window.confirm(`Permanently delete ${user.full_name} (+91 ${user.phone})?`)) return;
-    await adminDeleteUser(user.id, user.phone);
-    setNotice(`🗑️ Deleted ${user.full_name}`);
-    loadUsers();
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!window.confirm(`⚠️ PERMANENT CASCADE DELETE: Permanently delete ${user.full_name} (+91 ${cleanPhone}) and all their listings, inquiries, and reviews?`)) {
+      return;
+    }
+
+    setActionLoadingId(user.id || user.phone);
+    const res = await adminDeleteUser(user.id, cleanPhone);
+    setActionLoadingId(null);
+
+    if (res.success) {
+      setNotice(`🗑️ Completely deleted ${user.full_name} (+91 ${cleanPhone})`);
+      loadUsers();
+    } else {
+      setNotice(`⚠️ Delete failed: ${res.error}`);
+    }
   };
 
+  // ── 🧹 Purge Seller Catalog ───────────────────────────────────
   const handlePurgeSellerListings = async (user) => {
-    if (!window.confirm(`Delete ALL inventory listings posted by ${user.business_name || user.full_name}?`)) return;
-    await adminDeleteAllSellerListings(user.phone);
-    setNotice(`🧹 Purged all listings for +91 ${user.phone}`);
-    loadUsers();
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!window.confirm(`Delete ALL inventory listings posted by ${user.business_name || user.full_name} (+91 ${cleanPhone})?`)) return;
+
+    setActionLoadingId(user.id || user.phone);
+    const res = await adminDeleteAllSellerListings(cleanPhone);
+    setActionLoadingId(null);
+
+    if (res.success) {
+      setNotice(`🧹 Purged all listings for +91 ${cleanPhone}`);
+      loadUsers();
+    } else {
+      setNotice(`⚠️ Purge failed: ${res.error}`);
+    }
   };
 
+  // ── ⬇️ Demote Verified Merchant to Resident ───────────────────
   const handleDemoteSeller = async (user) => {
-    if (!window.confirm(`Demote ${user.full_name} from Merchant to Resident?`)) return;
-    await adminDemoteMerchant(user.phone);
-    setNotice(`⬇️ Demoted ${user.full_name}`);
-    loadUsers();
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!window.confirm(`Demote ${user.full_name} (+91 ${cleanPhone}) from Verified Merchant to Basic Resident?`)) return;
+
+    setActionLoadingId(user.id || user.phone);
+    const res = await adminDemoteMerchant(cleanPhone);
+    setActionLoadingId(null);
+
+    if (res.success) {
+      setNotice(`⬇️ Demoted ${user.full_name} to Resident`);
+      loadUsers();
+    } else {
+      setNotice(`⚠️ Demotion failed: ${res.error}`);
+    }
   };
 
   const handleCopyText = (text, phone) => {
@@ -140,11 +241,11 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
           <div className="flex items-center space-x-2">
             <span className="text-base">👑</span>
             <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider">
-              PIN-BASED RESIDENT & MERCHANT REGISTRY
+              UNIFIED MEMBER DIRECTORY & WHATSAPP DESK
             </span>
           </div>
           <h2 className="text-sm font-black text-slate-100 mt-0.5">
-            Total Users: {usersData.totalCount} • {selectedCity}
+            Total Registered Users: {usersData.totalCount} • {selectedCity}
           </h2>
         </div>
 
@@ -155,7 +256,7 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
           className="self-start sm:self-auto px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer active:scale-95 transition flex items-center space-x-1"
         >
           <span>🔄</span>
-          <span>{isLoading ? 'Loading...' : 'Refresh'}</span>
+          <span>{isLoading ? 'Loading...' : 'Refresh Registry'}</span>
         </button>
       </div>
 
@@ -167,72 +268,73 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
 
       {/* Mode Filter Tabs */}
       <div className="space-y-2.5">
-        <div className="grid grid-cols-5 gap-1 bg-slate-950 p-1 rounded-2xl border border-slate-800 text-[10px] font-bold">
-          <button
-            type="button"
-            onClick={() => setActiveTab('all')}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              activeTab === 'all' ? 'bg-slate-800 text-amber-300 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            All ({usersData.totalCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('tier1')}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              activeTab === 'tier1' ? 'bg-amber-400 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Tier 1 ({usersData.tier1Users.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('tier2')}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              activeTab === 'tier2' ? 'bg-emerald-400 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Verified ({usersData.tier2Users.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('tier3')}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              activeTab === 'tier3' ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Sellers ({usersData.tier3Merchants.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('banned')}
-            className={`py-1.5 rounded-xl transition cursor-pointer text-center ${
-              activeTab === 'banned' ? 'bg-rose-500 text-white font-black' : 'text-rose-400 hover:text-rose-300'
-            }`}
-          >
-            ⛔ ({usersData.bannedUsers.length})
-          </button>
+        <div className="flex items-center space-x-1 overflow-x-auto pb-1 scrollbar-none bg-slate-950 p-1 rounded-2xl border border-slate-800 text-[10px] font-bold">
+          {[
+            { id: 'all', label: `All (${usersData.totalCount})` },
+            { id: 'pending_pin', label: `Pending PIN (${(usersData.allUsers || []).filter((p) => !p.is_verified || p.status === 'pending_activation').length})` },
+            { id: 'tier1', label: `Tier 1 Basic (${(usersData.tier1Users || []).length})` },
+            { id: 'tier2', label: `Verified Residents (${(usersData.tier2Users || []).length})` },
+            { id: 'tier3', label: `Merchants (${(usersData.tier3Merchants || []).length})` },
+            { id: 'banned', label: `⛔ Banned (${(usersData.bannedUsers || []).length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer text-center ${
+                activeTab === tab.id
+                  ? 'bg-amber-400 text-slate-950 font-black shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search by Mobile, Name, PIN, or Locality..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs focus:border-amber-400 outline-none placeholder:text-slate-500"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
-            >
-              ✕
-            </button>
-          )}
+        {/* Search, Colony Dropdown & Sorter Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="relative sm:col-span-1">
+            <input
+              type="text"
+              placeholder="Search by Mobile, Name, PIN, Shop..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs focus:border-amber-400 outline-none placeholder:text-slate-500 font-bold"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <select
+            value={selectedColony}
+            onChange={(e) => setSelectedColony(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 font-bold focus:outline-none"
+          >
+            <option value="all">All Alwar Colonies</option>
+            {Object.keys(CITY_ZONES).map((z) => (
+              <option key={z} value={z}>{z}</option>
+            ))}
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 font-bold focus:outline-none"
+          >
+            <option value="newest">Sort: Newest Joined First</option>
+            <option value="oldest">Sort: Oldest Members First</option>
+            <option value="trust_high">Sort: Highest Trust Score ⭐</option>
+            <option value="trust_low">Sort: Lowest Trust Score ⚠️</option>
+            <option value="name_asc">Sort: Name (A to Z)</option>
+          </select>
         </div>
       </div>
 
@@ -243,15 +345,17 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
         </div>
       ) : displayedUsers.length === 0 ? (
         <div className="py-10 text-center bg-slate-950/60 rounded-2xl border border-slate-800 text-xs text-slate-500">
-          No records match your selection.
+          No user records match your filter criteria.
         </div>
       ) : (
-        <div className="space-y-3 max-h-[520px] overflow-y-auto pr-0.5">
+        <div className="space-y-3 max-h-[580px] overflow-y-auto pr-0.5">
           {displayedUsers.map((user) => {
-            const isMerchant = user.is_merchant || user.verification_tier === 'verified_merchant';
-            const isTier2 = user.verification_tier === 'verified_resident';
-            const isBanned = user.is_banned === true;
-            const currentPin = user.admin_activation_pin || '';
+            const cleanUserPhone = sanitizePhone(user.phone);
+            const isMerchant = Boolean(user.is_merchant || user.verification_tier === 'verified_merchant' || user.verification_tier === 'merchant');
+            const isVerifiedResident = Boolean(user.is_verified && !isMerchant);
+            const isBanned = Boolean(user.is_banned);
+            const currentPin = user.admin_activation_pin ? String(user.admin_activation_pin).trim() : '';
+            const isProcessing = actionLoadingId === (user.id || user.phone);
 
             return (
               <div
@@ -263,19 +367,19 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
                 }`}
               >
                 <div className="flex items-start justify-between">
-                  <div className="space-y-1 flex-1 min-w-0">
+                  <div className="space-y-1 flex-1 min-w-0 pr-2">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="font-black text-slate-100 text-sm truncate">
-                        {user.full_name || 'Resident User'}
+                        {user.full_name || 'Resident Member'}
                       </span>
 
                       <span
-                        className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md ${
+                        className={`text-[8.5px] font-black uppercase px-2 py-0.5 rounded-md ${
                           isBanned
                             ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                             : isMerchant
                             ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
-                            : isTier2
+                            : isVerifiedResident
                             ? 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/30'
                             : 'bg-slate-800 text-slate-400 border border-slate-700'
                         }`}
@@ -283,115 +387,159 @@ export default function UserManagementCRM({ selectedCity = 'Alwar' }) {
                         {isBanned
                           ? '⛔ BANNED'
                           : isMerchant
-                          ? '🏪 Merchant'
-                          : isTier2
-                          ? '⭐ Verified User'
-                          : '👤 Tier 1 Resident'}
+                          ? '🏪 Verified Merchant'
+                          : isVerifiedResident
+                          ? '⭐ Verified Resident'
+                          : '👤 Tier 1 Basic'}
                       </span>
+
+                      {!user.is_verified && !isBanned && (
+                        <span className="text-[8px] font-black bg-amber-950 text-amber-400 border border-amber-500/30 px-1.5 py-0.2 rounded animate-pulse">
+                          Awaiting PIN
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono flex-wrap">
-                      <span>📱 +91 {user.phone}</span>
+                      <span className="text-cyan-300 font-bold">📱 +91 {cleanUserPhone}</span>
                       <span>📍 {user.area_name || 'Town Center'}, {user.city || selectedCity}</span>
                     </div>
 
                     {user.business_name && (
                       <div className="text-[11px] text-amber-300 font-semibold pt-0.5">
-                        🏪 {user.business_name}
+                        🏬 Shop: {user.business_name}
                       </div>
                     )}
 
-                    {/* Suffix-Differentiated PIN Badge */}
+                    {/* Active PIN Badge */}
                     {currentPin && (
-                      <div className="flex items-center space-x-2 pt-0.5">
-                        <span className="text-[10px] text-slate-400 font-semibold">
-                          {currentPin.endsWith('S') ? 'Seller PIN:' : 'User PIN:'}
-                        </span>
-                        <span
-                          className={`font-mono font-black px-2 py-0.5 rounded-md border tracking-wider text-[11px] ${
-                            currentPin.endsWith('S')
-                              ? 'text-amber-300 bg-amber-950/90 border-amber-400/60'
-                              : 'text-emerald-300 bg-emerald-950/90 border-emerald-400/60'
-                          }`}
-                        >
+                      <div className="flex items-center space-x-2 pt-1">
+                        <span className="text-[10px] text-slate-400 font-semibold">Active WhatsApp PIN:</span>
+                        <span className="font-mono font-black px-2 py-0.5 rounded-md border tracking-wider text-[11px] text-amber-300 bg-amber-950/90 border-amber-400/60">
                           {currentPin}
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleCopyText(currentPin, user.phone)}
+                          onClick={() => handleCopyText(currentPin, cleanUserPhone)}
                           className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
                         >
-                          {copiedPhone === user.phone ? '✓ Copied!' : 'Copy'}
+                          {copiedPhone === cleanUserPhone ? '✓ Copied!' : 'Copy'}
                         </button>
                       </div>
                     )}
                   </div>
+
+                  {/* Trust Score Controls */}
+                  <div className="flex flex-col items-end space-y-1 shrink-0">
+                    <span className="text-[9.5px] font-black text-amber-400">
+                      ⭐ Trust: {user.trust_score !== undefined ? user.trust_score : 100}
+                    </span>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => handleAdjustTrustScore(user, 10)}
+                        title="Increase trust score by 10"
+                        className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-black text-[9px] rounded"
+                      >
+                        +10
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAdjustTrustScore(user, -10)}
+                        title="Deduct trust score by 10"
+                        className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-rose-400 font-black text-[9px] rounded"
+                      >
+                        -10
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Action Toolbar */}
+                {/* Context-Aware Action Toolbar */}
                 <div className="flex items-center justify-between flex-wrap gap-1.5 pt-2 border-t border-slate-800/80">
                   <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                    {/* User PIN Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleSendUserPin(user)}
-                      className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer flex items-center space-x-1"
-                      title="Generate and send 6-digit Authorized User PIN ending with 'U'"
-                    >
-                      <span>👤</span>
-                      <span>Send User PIN (...U)</span>
-                    </button>
+                    {/* Dynamic PIN Dispatch Buttons */}
+                    {isMerchant ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDispatchPin(user, 'merchant')}
+                        disabled={isProcessing}
+                        className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer flex items-center space-x-1"
+                      >
+                        <span>📲</span>
+                        <span>{currentPin ? 'Resend Merchant PIN' : 'Send Merchant PIN'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDispatchPin(user, 'resident')}
+                        disabled={isProcessing}
+                        className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer flex items-center space-x-1"
+                      >
+                        <span>📲</span>
+                        <span>{currentPin ? 'Resend Resident PIN' : 'Send Resident PIN'}</span>
+                      </button>
+                    )}
 
-                    {/* Seller PIN Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleSendSellerPin(user)}
-                      className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl active:scale-95 transition cursor-pointer flex items-center space-x-1"
-                      title="Generate and send 6-digit Seller PIN ending with 'S'"
-                    >
-                      <span>🏪</span>
-                      <span>Send Seller PIN (...S)</span>
-                    </button>
-
+                    {/* Merchant Specific Tool Buttons */}
                     {isMerchant && (
                       <>
                         <button
                           type="button"
                           onClick={() => handlePurgeSellerListings(user)}
+                          disabled={isProcessing}
                           className="px-2 py-1.5 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-600/50 font-bold text-[10px] rounded-xl cursor-pointer"
-                          title="Purge listings"
+                          title="Delete all listings posted by this merchant"
                         >
-                          🧹 Purge
+                          🧹 Purge Catalog
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDemoteSeller(user)}
+                          disabled={isProcessing}
                           className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-xl cursor-pointer"
-                          title="Demote to Resident"
+                          title="Demote to basic resident member"
                         >
                           ⬇️ Demote
                         </button>
                       </>
                     )}
+
+                    {/* Resident Upgrade Option */}
+                    {!isMerchant && (
+                      <button
+                        type="button"
+                        onClick={() => handleDispatchPin(user, 'merchant')}
+                        disabled={isProcessing}
+                        className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold text-[10px] rounded-xl cursor-pointer"
+                        title="Send Merchant verification PIN to upgrade this user"
+                      >
+                        ⭐ Invite as Seller
+                      </button>
+                    )}
                   </div>
 
+                  {/* Danger Zone: Ban & Cascade Delete */}
                   <div className="flex items-center space-x-1.5">
                     <button
                       type="button"
                       onClick={() => handleToggleBan(user)}
+                      disabled={isProcessing}
                       className={`px-2.5 py-1.5 font-black text-[10px] rounded-xl border transition active:scale-95 cursor-pointer ${
                         isBanned
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                          : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
                       }`}
                     >
                       {isBanned ? '✓ Unban' : '⛔ Ban'}
                     </button>
+                    
                     <button
                       type="button"
                       onClick={() => handleDeleteUser(user)}
-                      className="px-2 py-1.5 bg-slate-900 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 border border-slate-800 font-bold text-[10px] rounded-xl transition cursor-pointer"
-                      title="Permanently delete user"
+                      disabled={isProcessing}
+                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 border border-slate-800 font-bold text-[10px] rounded-xl transition cursor-pointer"
+                      title="Permanently cascade delete this user and all their listings/interactions"
                     >
                       🗑️
                     </button>

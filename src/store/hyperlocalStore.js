@@ -131,7 +131,7 @@ export const CATEGORY_SLICE_MAP = {
 };
 
 /**
- * Sanitizes image URLs and filters blob paths
+ * Sanitizes image URLs and filters temporary blob paths
  */
 export function sanitizeImageUrl(url, category = 'property') {
   if (!url || typeof url !== 'string') return getCategoryFallback(category);
@@ -282,11 +282,18 @@ export function normalizeDBListing(item) {
     priceForTwo: priceVal,
     startingPackage: priceVal,
     deal_type: item.deal_type || item.dealType || null,
+    dealType: item.deal_type || item.dealType || null,
     deal_badge: item.deal_badge || item.dealBadge || null,
+    dealBadge: item.deal_badge || item.dealBadge || null,
     deal_details: item.deal_details || item.dealDetails || null,
+    dealDetails: item.deal_details || item.dealDetails || null,
     original_price: item.original_price || item.originalPrice || null,
+    originalPrice: item.original_price || item.originalPrice || null,
     token_amount: item.token_amount || item.tokenAmount || null,
+    tokenAmount: item.token_amount || item.tokenAmount || null,
     doorstep_trial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
+    doorstepTrial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
+    deal_expires_at: item.deal_expires_at || null,
     sellerName: personOrBiz,
     seller_name: personOrBiz,
     driverName: personOrBiz,
@@ -359,7 +366,7 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
 
   const isSellerOnBusinessHub =
     currentScreen === 'provider-dashboard' ||
-    Boolean(currentUser?.is_merchant || currentUser?.verification_tier === 'verified_merchant');
+    Boolean(currentUser?.is_merchant || currentUser?.verification_tier === 'verified_merchant' || currentUser?.verification_tier === 'merchant');
 
   const activeRole = isAdminMode || currentScreen === 'admin-dashboard'
     ? 'admin'
@@ -518,12 +525,31 @@ class HyperlocalEngineStore {
 
   removeListing(listingId) {
     const targetStr = String(listingId);
+
+    // 1. Remove from all bucket slices
     Object.keys(this.state).forEach((key) => {
       if (Array.isArray(this.state[key])) {
         this.state[key] = this.state[key].filter((item) => String(item?.id) !== targetStr);
         this.notify(key);
       }
     });
+
+    // 2. Clear threads, reviews, interests & cart references
+    if (this.state.threads[targetStr]) {
+      delete this.state.threads[targetStr];
+      this.notify(`thread:${targetStr}`);
+    }
+    if (this.state.reviews[targetStr]) {
+      delete this.state.reviews[targetStr];
+      saveStoredReviewsMap(this.state.reviews);
+      this.notify(`reviews:${targetStr}`);
+    }
+    if (this.state.interests[targetStr] !== undefined) {
+      delete this.state.interests[targetStr];
+      this.notify(`interest:${targetStr}`);
+    }
+
+    this.removeNotificationsForTarget(targetStr);
     this.notify('all');
   }
 
@@ -972,12 +998,10 @@ class HyperlocalEngineStore {
     const cleanPhone = sanitizePhone(phone);
     this.state.activeUserPhone = cleanPhone;
 
-    // 1. Load from Phone-Scoped LocalStorage
     const localCart = getStoredCartForUser(cleanPhone);
     this.state.cart = localCart;
     this.notify('cart');
 
-    // 2. Fetch and Merge from Database (user_carts table)
     if (supabase) {
       try {
         const { data, error } = await supabase
@@ -1092,7 +1116,6 @@ class HyperlocalEngineStore {
     this.notify('cart');
     this.notify('all');
 
-    // 1. Sync Item to Supabase
     if (supabase) {
       supabase
         .from('user_carts')
@@ -1110,7 +1133,6 @@ class HyperlocalEngineStore {
         });
     }
 
-    // 2. Dispatch Anonymous Lead Alert to Seller
     const sellerPhone = sanitizePhone(listingItem.phone || listingItem.whatsapp);
     const buyerLocality = currentUser?.area_name || currentUser?.city || 'your area';
     const residentTier = currentUser?.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
@@ -1265,7 +1287,7 @@ export const useHyperlocalStore = () => ({
 
 let isHydrating = false;
 let lastHydrateTimestamp = 0;
-const HYDRATE_COOLDOWN_MS = 6000;
+const HYDRATE_COOLDOWN_MS = 4000;
 
 /**
  * Hydrate Store from Supabase with Connection Throttling & Fast Timeouts
@@ -1290,7 +1312,7 @@ export async function hydrateFromDB() {
       .from('listings')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(80);
+      .limit(100);
 
     const { data: listingsData } = await Promise.race([listingsFetch, timeoutPromise]);
     if (listingsData && listingsData.length > 0) {
@@ -1302,9 +1324,9 @@ export async function hydrateFromDB() {
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(40);
+      .limit(50);
 
-    const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]);
+    const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]).catch(() => ({ data: null }));
     if (notifsData) {
       hyperlocalStore.state.notifications = notifsData.map((n) => ({
         id: n.id,
@@ -1359,7 +1381,9 @@ export function initRealtimeSubscriptions() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'listings' },
         (payload) => {
-          if (payload.new) {
+          if (payload.eventType === 'DELETE' && payload.old?.id) {
+            hyperlocalStore.removeListing(payload.old.id);
+          } else if (payload.new) {
             hyperlocalStore.hydrateBulk([payload.new]);
           }
         }
@@ -1617,7 +1641,7 @@ export function useNotificationSlice(explicitScope = null) {
       return rawNotifs.filter(
         (n) =>
           n.recipient_role === 'admin' ||
-          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN'].includes(n.tag)
+          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN', 'TOWN_ALERT'].includes(n.tag)
       );
     }
 

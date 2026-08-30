@@ -10,7 +10,7 @@ const ADMIN_SESSION_KEY = 'townhub_admin_authenticated';
 export const sanitizePhone = (phone) => String(phone || '').replace(/\D/g, '').slice(-10);
 
 /**
- * Generates a 6-digit activation PIN with optional role suffix
+ * Generates a clean 6-digit numeric activation PIN
  */
 export function generateActivationPin(type = 'user') {
   const random6 = Math.floor(100000 + Math.random() * 900000).toString();
@@ -176,7 +176,6 @@ export async function loginWith4DigitPin(phone, pin) {
         return { success: false, error: '⛔ This mobile number is suspended by Admin.' };
       }
 
-      // Validate PIN hash
       const isPinValid =
         user.secret_pin_hash === pinHash ||
         user.resident_pin_hash === pinHash ||
@@ -213,7 +212,6 @@ export async function loginWith4DigitPin(phone, pin) {
 
       setLocalUserProfile(sessionProfile);
 
-      // Async update last login
       supabase
         .from('user_profiles')
         .update({ last_login_at: new Date().toISOString() })
@@ -402,14 +400,19 @@ export async function verifyActivationPinAndSetPermanentPin({
 }
 
 /* ========================================================================= */
-/* 👑 MASTER ADMIN CRM CONTROLS                                              */
+/* 👑 MASTER ADMIN CRM CONTROLS & SAFE CASCADE DELETION ENGINE              */
 /* ========================================================================= */
 
+/**
+ * Toggle ban state for user profile and deactivates all active listings
+ */
 export async function adminToggleBanUser(phone, shouldBan = true) {
   const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone) return { success: false, error: 'Invalid phone number' };
+
   if (supabase) {
     try {
-      await supabase
+      const { error: userError } = await supabase
         .from('user_profiles')
         .update({
           is_banned: shouldBan,
@@ -417,36 +420,113 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
         })
         .eq('phone', cleanPhone);
 
+      if (userError) throw userError;
+
       if (shouldBan) {
         await supabase
           .from('listings')
           .update({ is_active: false })
           .eq('phone', cleanPhone);
       }
+      return { success: true };
     } catch (err) {
       console.error('Toggle ban error:', err);
+      return { success: false, error: err.message };
     }
   }
   return { success: true };
 }
 
+/**
+ * Guaranteed Cascading User Deletion Pipeline
+ * Cleanly removes child records in exact foreign key order before deleting user_profiles
+ */
 export async function adminDeleteUser(userId, phone) {
   const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone && !userId) return { success: false, error: 'User identifier required' };
+
   if (supabase) {
     try {
-      if (userId) {
-        await supabase.from('listing_reports').delete().eq('reporter_id', userId).catch(() => {});
+      // 1. Resolve user ID if only phone was provided
+      let resolvedUserId = userId;
+      if (!resolvedUserId && cleanPhone) {
+        const { data: userRec } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('phone', cleanPhone)
+          .maybeSingle();
+        resolvedUserId = userRec?.id || null;
       }
-      await supabase.from('user_profiles').delete().eq('phone', cleanPhone);
+
+      // 2. Fetch all listings owned by this user
+      let listingIds = [];
+      const { data: userListings } = await supabase
+        .from('listings')
+        .select('id')
+        .or(`phone.eq.${cleanPhone}${resolvedUserId ? `,user_id.eq.${resolvedUserId}` : ''}`);
+
+      if (userListings && userListings.length > 0) {
+        listingIds = userListings.map((l) => l.id);
+      }
+
+      // 3. Cascade delete child records tied to listings
+      if (listingIds.length > 0) {
+        await supabase.from('user_carts').delete().in('listing_id', listingIds).catch(() => {});
+        await supabase.from('listing_interests').delete().in('listing_id', listingIds).catch(() => {});
+        await supabase.from('listing_reports').delete().in('listing_id', listingIds).catch(() => {});
+        await supabase.from('listing_reviews').delete().in('listing_id', listingIds).catch(() => {});
+        await supabase.from('listing_threads').delete().in('listing_id', listingIds).catch(() => {});
+      }
+
+      // 4. Cascade delete child records tied directly to user phone / ID
+      if (cleanPhone) {
+        await supabase.from('user_carts').delete().eq('phone', cleanPhone).catch(() => {});
+        await supabase.from('listing_interests').delete().eq('phone', cleanPhone).catch(() => {});
+        await supabase.from('listing_reports').delete().eq('reporter_phone', cleanPhone).catch(() => {});
+        await supabase.from('listing_reviews').delete().eq('phone', cleanPhone).catch(() => {});
+        await supabase.from('notifications').delete().eq('recipient_phone', cleanPhone).catch(() => {});
+      }
+
+      if (resolvedUserId) {
+        await supabase.from('listing_reports').delete().eq('reporter_id', resolvedUserId).catch(() => {});
+        await supabase.from('listing_reviews').delete().eq('user_id', resolvedUserId).catch(() => {});
+        await supabase.from('listing_threads').delete().eq('user_id', resolvedUserId).catch(() => {});
+        await supabase.from('notifications').delete().eq('user_id', resolvedUserId).catch(() => {});
+      }
+
+      // 5. Delete all listings
+      if (listingIds.length > 0) {
+        await supabase.from('listings').delete().in('id', listingIds).catch(() => {});
+      }
+      if (cleanPhone) {
+        await supabase.from('listings').delete().eq('phone', cleanPhone).catch(() => {});
+      }
+
+      // 6. Delete user profile record
+      const { error: deleteUserError } = await supabase
+        .from('user_profiles')
+        .delete()
+        .or(`phone.eq.${cleanPhone}${resolvedUserId ? `,id.eq.${resolvedUserId}` : ''}`);
+
+      if (deleteUserError) throw deleteUserError;
+
+      return { success: true };
     } catch (err) {
-      console.error('Delete user error:', err);
+      console.error('Cascading user deletion error:', err);
+      return { success: false, error: err.message };
     }
   }
+
   return { success: true };
 }
 
+/**
+ * Cascading Purge of all listings owned by a seller
+ */
 export async function adminDeleteAllSellerListings(phone) {
   const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone) return { success: false, error: 'Phone number required' };
+
   if (supabase) {
     try {
       const { data: listings } = await supabase
@@ -456,32 +536,44 @@ export async function adminDeleteAllSellerListings(phone) {
 
       if (listings && listings.length > 0) {
         const ids = listings.map((l) => l.id);
-        await supabase.from('listing_threads').delete().in('listing_id', ids).catch(() => {});
-        await supabase.from('listing_reports').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('user_carts').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listing_interests').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listing_reports').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listing_reviews').delete().in('listing_id', ids).catch(() => {});
+        await supabase.from('listing_threads').delete().in('listing_id', ids).catch(() => {});
         await supabase.from('listings').delete().in('id', ids);
       }
+      return { success: true };
     } catch (err) {
       console.error('Purge listings error:', err);
+      return { success: false, error: err.message };
     }
   }
   return { success: true };
 }
 
+/**
+ * Demote Verified Merchant to Basic Resident
+ */
 export async function adminDemoteMerchant(phone) {
   const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone) return { success: false, error: 'Phone number required' };
+
   if (supabase) {
     try {
-      await supabase
+      const { error } = await supabase
         .from('user_profiles')
         .update({
           is_merchant: false,
           verification_tier: 'resident',
         })
         .eq('phone', cleanPhone);
+
+      if (error) throw error;
+      return { success: true };
     } catch (err) {
       console.error('Demote merchant error:', err);
+      return { success: false, error: err.message };
     }
   }
   return { success: true };
@@ -501,10 +593,6 @@ export function logoutAdmin() {
   sessionStorage.removeItem(ADMIN_SESSION_KEY);
   localStorage.removeItem(ADMIN_SESSION_KEY);
 }
-
-/* ========================================================================= */
-/* 👑 MASTER ADMIN USER MANAGEMENT CRM EXPORTS                               */
-/* ========================================================================= */
 
 /**
  * Fetch categorized user lists for Master Admin CRM
@@ -546,34 +634,39 @@ export async function getAllUsersForAdmin() {
 }
 
 /**
- * Update/Upsert Admin Activation PIN for pre-invited or manual members
+ * Update/Upsert Admin Activation PIN for manual onboarding
  */
 export async function markUserPinDispatched(phone, pinCode) {
   const cleanPhone = sanitizePhone(phone);
+  if (!cleanPhone) return { success: false, error: 'Phone number required' };
 
   if (supabase) {
     try {
-      await supabase
+      const cleanNumericPin = String(pinCode).trim().replace(/[US]$/i, '');
+      const { error } = await supabase
         .from('user_profiles')
         .upsert(
           {
             phone: cleanPhone,
             full_name: 'Invited Member',
             area_name: 'Town Center',
-            admin_activation_pin: pinCode,
+            admin_activation_pin: cleanNumericPin,
             status: 'pending_activation',
             last_login_at: new Date().toISOString(),
           },
           { onConflict: 'phone' }
         );
+
+      if (error) throw error;
+      return { success: true };
     } catch (err) {
-      console.warn('markUserPinDispatched error:', err);
+      console.error('markUserPinDispatched error:', err);
+      return { success: false, error: err.message };
     }
   }
 
   return { success: true };
 }
-
 
 // ── Backward-Compatibility Export Aliases ─────────────────────
 export const registerTier1User = async ({ phone, fullName, areaName, pin, city }) => {

@@ -324,16 +324,20 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     setIsPostModalOpen(true);
   };
 
-  // 🗑️ Delete Listing Handler
+  // 🗑️ Cascading Delete Listing Handler
   const handleDeleteMerchantListing = async (listingId, title) => {
     if (!window.confirm(`Are you sure you want to permanently delete "${title}"?`)) {
       return;
     }
 
     try {
-      await deleteListingFromDB(listingId);
-      hyperlocalStore.removeListing(listingId);
-      showNotice('Listing deleted successfully.');
+      const res = await deleteListingFromDB(listingId);
+      if (res.success) {
+        hyperlocalStore.removeListing(listingId);
+        showNotice('Listing deleted successfully.');
+      } else {
+        alert(`Failed to delete listing: ${res.error}`);
+      }
     } catch (err) {
       console.error('Delete failed:', err);
       alert('Failed to delete listing from database.');
@@ -1231,7 +1235,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           {isRecordingAdmin ? (
                             <div className="flex items-center justify-between p-2 bg-rose-950/60 border border-rose-500/50 rounded-xl animate-pulse">
                               <span className="text-[10px] font-bold text-rose-300">
-                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}${adminRecordingSecs}
+                                🎙️ Recording Voice: 0:{adminRecordingSecs < 10 ? '0' : ''}{adminRecordingSecs}
                               </span>
                               <div className="flex items-center space-x-1.5">
                                 <button type="button" onClick={handleCancelVoiceToAdmin} className="px-2 py-0.5 bg-slate-800 text-slate-300 text-[9px] rounded-lg cursor-pointer">Cancel</button>
@@ -1287,7 +1291,7 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                     )}
 
                     <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px] flex-wrap gap-y-1.5">
-                      <span className="text-slate-500 font-semibold truncate max-w-[140px]">📍 {item.location || selectedCity}</span>
+                      <span className="text-slate-500 font-semibold truncate max-w-[140px]">📍 {item.location || item.location_name || selectedCity}</span>
                       
                       <div className="flex items-center space-x-1.5">
                         <button
