@@ -5,6 +5,7 @@ import {
   useRoleFilteredNotifications,
   useCartCount,
   useAllListingsSlice,
+  useSellerProfileSlice,
   hyperlocalStore,
   hydrateFromDB,
   initRealtimeSubscriptions,
@@ -28,6 +29,7 @@ const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboa
 // Lazy Loaded Modals & Admin Dashboard
 const ContextualListingModal = lazy(() => import('./components/ContextualListingModal'));
 const ListingDetailModal = lazy(() => import('./components/common/ListingDetailModal'));
+const SellerProfileModal = lazy(() => import('./components/common/SellerProfileModal'));
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
 
 // Code-Split Lazy Loaded Category Hubs
@@ -91,6 +93,30 @@ const INITIAL_NAV_STATE = {
   searchQuery: '',
 };
 
+const CATEGORY_HUB_MAP = {
+  property: 'property-hub',
+  vehicles: 'vehicle-hub',
+  electronics: 'electronics-hub',
+  fashion: 'fashion-hub',
+  furniture: 'furniture-hub',
+  kaarigar: 'kaarigar-hub',
+  medical: 'medical-hub',
+  transporters: 'transporter-hub',
+  'white-collar': 'white-collar-hub',
+  education: 'education-hub',
+  restaurants: 'restaurants-hub',
+  malls: 'malls-hub',
+  shaadi: 'shaadi-hub',
+  festival: 'festival-hub',
+  construction: 'construction-hub',
+  advertising: 'advertising-hub',
+  community: 'community-hub',
+  market: 'market-hub',
+  recommerce: 'buysell-hub',
+  fitness: 'fitness-hub',
+  creators: 'creators-hub',
+};
+
 export default function App() {
   const { isDark, toggleTheme } = useTheme();
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
@@ -111,6 +137,9 @@ export default function App() {
 
   // 🏪 Prompt State for Non-Sellers Attempting to Post
   const [isBusinessPromptOpen, setIsBusinessPromptOpen] = useState(false);
+
+  // 🏬 Seller Profile Storefront Hook
+  const { isSellerProfileOpen, closeSellerProfile } = useSellerProfileSlice();
 
   // 🛒 User-Scoped Cart & Notification Overlay State
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -161,7 +190,9 @@ export default function App() {
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
   useEffect(() => {
-    if (isCartOpen) {
+    if (isSellerProfileOpen) {
+      activeModalCloserRef.current = () => closeSellerProfile();
+    } else if (isCartOpen) {
       activeModalCloserRef.current = () => setIsCartOpen(false);
     } else if (deepLinkedItem) {
       activeModalCloserRef.current = () => {
@@ -184,6 +215,7 @@ export default function App() {
       activeModalCloserRef.current = null;
     }
   }, [
+    isSellerProfileOpen,
     isCartOpen,
     deepLinkedItem,
     selectedDetailItem,
@@ -192,6 +224,7 @@ export default function App() {
     isAuthModalOpen,
     isAdminKeyModalOpen,
     isBusinessPromptOpen,
+    closeSellerProfile,
   ]);
 
   // Boot hydration & Realtime Socket listeners
@@ -224,9 +257,6 @@ export default function App() {
   // Mobile Hardware & Gesture PopState Listener
   useEffect(() => {
     const handlePopState = (e) => {
-      if (e.state && e.state.modal) {
-        return;
-      }
       if (activeModalCloserRef.current) {
         activeModalCloserRef.current();
         return;
@@ -253,15 +283,17 @@ export default function App() {
   // 🛡️ Merchant & Admin Authorization Check
   const isSeller = Boolean(
     currentUser?.is_merchant === true ||
-    currentUser?.verification_tier === 'verified_merchant'
+    currentUser?.verification_tier === 'verified_merchant' ||
+    currentUser?.verification_tier === 'merchant' ||
+    currentUser?.role === 'seller'
   );
   const isAuthorizedToPost = Boolean(isAdminUnlocked || isSeller);
 
-  // 🔔 Calculate Unread Alerts
+  // 🔔 Calculate Unread Alerts strictly for active role
   const roleFilteredAlerts = useRoleFilteredNotifications(
     currentUser,
     currentScreen,
-    currentScreen === 'admin-dashboard'
+    currentScreen === 'admin-dashboard' || isAdminUnlocked
   );
 
   const unreadNotifCount = useMemo(
@@ -289,17 +321,11 @@ export default function App() {
     setHistory((prev) => {
       const branchCut = prev.slice(0, historyIndex + 1);
       const nextHistory = [...branchCut, nextState];
-      let finalHistory = nextHistory;
-      let nextIdx = historyIndex + 1;
-
-      if (nextHistory.length > 6) {
-        finalHistory = nextHistory.slice(nextHistory.length - 6);
-        nextIdx = 5;
-      }
+      const nextIdx = branchCut.length;
 
       window.history.pushState({ idx: nextIdx }, '');
       setHistoryIndex(nextIdx);
-      return finalHistory;
+      return nextHistory;
     });
   };
 
@@ -307,7 +333,11 @@ export default function App() {
   const canGoForward = historyIndex < history.length - 1;
 
   const goBack = () => {
-    if (canGoBack) window.history.back();
+    if (canGoBack) {
+      window.history.back();
+    } else {
+      navigateTo({ screen: 'home', searchQuery: '' });
+    }
   };
 
   const goForward = () => {
@@ -318,16 +348,29 @@ export default function App() {
     navigateTo({ screen: 'home', searchQuery: '' });
   };
 
+  /**
+   * 🌟 Deterministic Subcategories Page Back Navigation
+   * Returns directly to the category's subcategory selection hub in 1 tap
+   */
+  const handleBackToCategoryHub = (catId = selectedCategory) => {
+    const targetCat = catId || selectedCategory || 'property';
+    const targetHub = CATEGORY_HUB_MAP[targetCat] || 'town-hub';
+    navigateTo({
+      screen: targetHub,
+      category: targetCat,
+      subCategory: 'all',
+      searchQuery: '',
+    });
+  };
+
   const handleNewNotification = (notif) => {
     hyperlocalStore.addNotification(notif);
   };
 
   const handleOpenPostModal = () => {
     if (isAuthorizedToPost) {
-      window.history.pushState({ modal: true }, '');
       setIsListingModalOpen(true);
     } else {
-      window.history.pushState({ modal: true }, '');
       setIsBusinessPromptOpen(true);
     }
   };
@@ -336,51 +379,98 @@ export default function App() {
     if (isAuthorizedToPost) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
     } else {
-      window.history.pushState({ modal: true }, '');
       setIsBusinessPromptOpen(true);
     }
   };
 
-  // 🔔 Deep Link Router on Alert Tap
+  // 🔔 Deep Link Router on Alert Tap (Silences unread count immediately & routes by persona)
   const handleSelectNotification = (notif) => {
+    if (!notif) return;
+
+    // 1. 🔕 Immediately mark as read to silent the bell count and persist state
+    if (typeof hyperlocalStore.markNotificationRead === 'function') {
+      hyperlocalStore.markNotificationRead(notif.id);
+    }
     setIsNotificationsOpen(false);
 
-    if (
-      notif.tag === 'PENDING_APPROVAL' ||
-      notif.tag === 'EDIT_PROPOSAL' ||
-      notif.tag === 'FLAGGED_REPORT' ||
-      notif.tag === 'SELLER_PIN_REQUEST' ||
-      notif.tag === 'USER_PIN_REQUEST'
-    ) {
+    // 2. Normalize tag format (handles spaces, underscores, lowercase)
+    const rawTag = notif.tag || '';
+    const cleanTag = String(rawTag).toUpperCase().replace(/[\s-]+/g, '_');
+
+    // 3. Resolve target listing ID from top-level or metadata attributes
+    const targetListingId =
+      notif.targetId ||
+      notif.metadata?.targetId ||
+      notif.metadata?.listingId ||
+      null;
+
+    const allItems = hyperlocalStore.getAllListings() || [];
+    const matchedListing = targetListingId
+      ? allItems.find((i) => String(i.id) === String(targetListingId))
+      : null;
+
+    // 👑 4. ADMIN ALERTS ROUTE
+    const adminTags = [
+      'NEW_ENLISTMENT',
+      'PENDING_APPROVAL',
+      'EDIT_PROPOSAL',
+      'FLAGGED_REPORT',
+      'REPORT',
+      'NEW_USER_PIN',
+      'USER_PIN_REQUEST',
+      'SELLER_PIN_REQUEST',
+      'SELLER_FEEDBACK_REPLY',
+      'SELLER_VOICE_REPLY',
+    ];
+
+    if (adminTags.includes(cleanTag) || notif.recipient_role === 'admin') {
       navigateTo({ screen: 'admin-dashboard', searchQuery: '' });
       return;
     }
 
-    if (
-      (notif.tag === 'USER_COMMENT' ||
-        notif.tag === 'VOICE_INQUIRY' ||
-        notif.tag === 'LISTING_APPROVED' ||
-        notif.tag === 'LISTING_REJECTED' ||
-        notif.tag === 'INTEREST_ALERT' ||
-        notif.tag === 'CART_ADDITION') &&
-      notif.targetId
-    ) {
+    // 🏪 5. SELLER / MERCHANT ALERTS ROUTE
+    const sellerDashboardTags = [
+      'CART_ADDITION',
+      'INTEREST_REGISTERED',
+      'INTEREST_ALERT',
+      'ADMIN_FEEDBACK',
+      'ADMIN_VOICE_NOTE',
+      'LISTING_APPROVED',
+      'APPROVED',
+      'LISTING_REJECTED',
+      'REJECTED',
+      'NEW_REVIEW',
+    ];
+
+    if (sellerDashboardTags.includes(cleanTag) && isSeller) {
       navigateTo({ screen: 'provider-dashboard', searchQuery: '' });
       return;
     }
 
-    if (notif.targetId) {
-      const allItems = hyperlocalStore.getAllListings();
-      const matched = allItems.find((i) => String(i.id) === String(notif.targetId));
-      if (matched) {
-        window.history.pushState({ modal: true }, '');
-        setSelectedDetailItem(matched);
+    // 👤 6. RESIDENT USER ROUTE (Directly view replies or inquiries on listing)
+    if (
+      cleanTag === 'SELLER_REPLIED' ||
+      cleanTag === 'SELLER_REPLY' ||
+      cleanTag === 'USER_COMMENT' ||
+      cleanTag === 'NEW_COMMENT' ||
+      cleanTag === 'VOICE_INQUIRY'
+    ) {
+      if (matchedListing) {
+        setSelectedDetailItem(matchedListing);
         return;
       }
     }
 
-    if (notif.category) {
-      handleOpenFeed(notif.category, notif.subCategory || 'all');
+    // 🎯 7. GENERAL MATCHED LISTING FALLBACK
+    if (matchedListing) {
+      setSelectedDetailItem(matchedListing);
+      return;
+    }
+
+    // 📢 8. CATEGORY FEED FALLBACK
+    const targetCategory = notif.category || notif.metadata?.category;
+    if (targetCategory) {
+      handleOpenFeed(targetCategory, notif.subCategory || notif.metadata?.subCategory || 'all');
     }
   };
 
@@ -388,6 +478,7 @@ export default function App() {
   const handleTouchStart = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
+      isSellerProfileOpen ||
       isCartOpen ||
       isListingModalOpen ||
       isNotificationsOpen ||
@@ -405,6 +496,7 @@ export default function App() {
   const handleTouchEnd = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
+      isSellerProfileOpen ||
       isCartOpen ||
       isListingModalOpen ||
       isNotificationsOpen ||
@@ -434,32 +526,8 @@ export default function App() {
   };
 
   const handleOpenCategory = (catId, sub = 'all') => {
-    const hubMap = {
-      property: 'property-hub',
-      vehicles: 'vehicle-hub',
-      electronics: 'electronics-hub',
-      fashion: 'fashion-hub',
-      furniture: 'furniture-hub',
-      kaarigar: 'kaarigar-hub',
-      medical: 'medical-hub',
-      transporters: 'transporter-hub',
-      'white-collar': 'white-collar-hub',
-      education: 'education-hub',
-      restaurants: 'restaurants-hub',
-      malls: 'malls-hub',
-      shaadi: 'shaadi-hub',
-      festival: 'festival-hub',
-      construction: 'construction-hub',
-      advertising: 'advertising-hub',
-      community: 'community-hub',
-      market: 'market-hub',
-      recommerce: 'buysell-hub',
-      fitness: 'fitness-hub',
-      creators: 'creators-hub',
-    };
-
     navigateTo({
-      screen: hubMap[catId] || 'town-hub',
+      screen: CATEGORY_HUB_MAP[catId] || 'town-hub',
       category: catId,
       subCategory: sub,
       searchQuery: '',
@@ -516,131 +584,128 @@ export default function App() {
       {/* 🌟 1. Sticky Header (Hidden on Admin Dashboard) */}
       {!isAdminScreen && (
         <header
-        className={`sticky top-0 z-40 backdrop-blur-md px-3 py-2 border-b flex items-center justify-between shadow-md transition-colors ${
-          isDark
-            ? 'bg-slate-950/90 border-slate-800 text-slate-100'
-            : 'bg-white/90 border-slate-200 text-slate-900'
-        }`}
-      >
-        {/* Left: Resident Profile & Theme Switcher */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
-            className={`px-2.5 py-1.5 border rounded-xl text-[10px] font-bold cursor-pointer active:scale-95 transition flex items-center space-x-1.5 shadow-xs ${
-              isDark
-                ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-200'
-                : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-            }`}
-            title="Open Resident Profile & Login"
-          >
-            <span>👤</span>
-            <span className="truncate max-w-[55px]">
-              {currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}
-            </span>
-          </button>
-
-          {/* Theme Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center text-xs font-bold transition cursor-pointer active:scale-90 ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-amber-300 hover:bg-slate-800'
-                : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
-            }`}
-            title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
-          >
-            {isDark ? '☀️' : '🌙'}
-          </button>
-        </div>
-
-        {/* Center: Brand Header */}
-        <div
-          onClick={() => {
-            handleSecretAdminTap();
-            navigateTo({ screen: 'home', searchQuery: '' });
-          }}
-          className="flex flex-col items-center justify-center cursor-pointer active:scale-95 transition mx-1 text-center select-none"
+          className={`sticky top-0 z-40 backdrop-blur-md px-3 py-2 border-b flex items-center justify-between shadow-md transition-colors ${
+            isDark
+              ? 'bg-slate-950/90 border-slate-800 text-slate-100'
+              : 'bg-white/90 border-slate-200 text-slate-900'
+          }`}
         >
-          <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none">
-            Aapke
-          </span>
-          <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none mt-0.5">
-            Kareeb
-          </span>
-        </div>
-
-        {/* Right Action Cluster */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          {/* Post Here Button */}
-          {currentScreen !== 'home' &&
-            currentScreen !== 'provider-dashboard' &&
-            currentScreen !== 'admin-dashboard' &&
-            currentScreen !== 'user-auth-dashboard' && (
-              <button
-                type="button"
-                onClick={handleOpenPostModal}
-                className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
-                title="Post in this Category"
-              >
-                <span>+</span>
-                <span>Post Here</span>
-              </button>
-            )}
-
-          {/* 🛒 User-Scoped Shopping Cart Button */}
-          <button
-            type="button"
-            onClick={() => setIsCartOpen(true)}
-            className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
-              cartCount > 0
-                ? 'bg-amber-400/20 border-amber-400/80 text-amber-300 shadow-md'
-                : isDark
-                ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
-                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
-            }`}
-            title="Open Cart & Selected Items"
-          >
-            <span className="text-sm">🛍️</span>
-            {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
-                <span className="relative inline-flex items-center justify-center rounded-full h-3.5 w-3.5 bg-amber-400 text-[8.5px] font-black text-slate-950 shadow-xs">
-                  {cartCount}
-                </span>
+          {/* Left: Resident Profile & Theme Switcher */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigateTo({ screen: 'user-auth-dashboard', searchQuery: '' })}
+              className={`px-2.5 py-1.5 border rounded-xl text-[10px] font-bold cursor-pointer active:scale-95 transition flex items-center space-x-1.5 shadow-xs ${
+                isDark
+                  ? 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-200'
+                  : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+              }`}
+              title="Open Resident Profile & Login"
+            >
+              <span>👤</span>
+              <span className="truncate max-w-[55px]">
+                {currentUser ? currentUser.full_name?.split(' ')[0] : 'Login'}
               </span>
-            )}
-          </button>
+            </button>
 
-          {/* 🔔 Live Alerts Button */}
-          <button
-            type="button"
+            {/* Theme Toggle Button */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center text-xs font-bold transition cursor-pointer active:scale-90 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-800 text-amber-300 hover:bg-slate-800'
+                  : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+              }`}
+              title={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
+            >
+              {isDark ? '☀️' : '🌙'}
+            </button>
+          </div>
+
+          {/* Center: Brand Header */}
+          <div
             onClick={() => {
-              window.history.pushState({ modal: true }, '');
-              setIsNotificationsOpen(true);
+              handleSecretAdminTap();
+              navigateTo({ screen: 'home', searchQuery: '' });
             }}
-            className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
-              unreadNotifCount > 0
-                ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-400/70 shadow-md shadow-amber-500/20'
-                : isDark
-                ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
-                : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
-            }`}
-            title="Open Alwar Alerts"
+            className="flex flex-col items-center justify-center cursor-pointer active:scale-95 transition mx-1 text-center select-none"
           >
-            <span className={`text-sm ${unreadNotifCount > 0 ? 'animate-bounce' : ''}`}>🔔</span>
+            <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none">
+              Aapke
+            </span>
+            <span className="text-[11px] font-black tracking-wider text-amber-400 uppercase leading-none mt-0.5">
+              Kareeb
+            </span>
+          </div>
 
-            {unreadNotifCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex items-center justify-center rounded-full h-3 w-3 bg-rose-600 text-[8px] font-black text-white">
-                  {unreadNotifCount}
+          {/* Right Action Cluster */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            {/* Post Here Button */}
+            {currentScreen !== 'home' &&
+              currentScreen !== 'provider-dashboard' &&
+              currentScreen !== 'admin-dashboard' &&
+              currentScreen !== 'user-auth-dashboard' && (
+                <button
+                  type="button"
+                  onClick={handleOpenPostModal}
+                  className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-[10px] rounded-xl shadow-md active:scale-95 transition cursor-pointer flex items-center space-x-1"
+                  title="Post in this Category"
+                >
+                  <span>+</span>
+                  <span>Post Here</span>
+                </button>
+              )}
+
+            {/* 🛒 User-Scoped Shopping Cart Button */}
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
+                cartCount > 0
+                  ? 'bg-amber-400/20 border-amber-400/80 text-amber-300 shadow-md'
+                  : isDark
+                  ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
+                  : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
+              }`}
+              title="Open Cart & Selected Items"
+            >
+              <span className="text-sm">🛍️</span>
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+                  <span className="relative inline-flex items-center justify-center rounded-full h-3.5 w-3.5 bg-amber-400 text-[8.5px] font-black text-slate-950 shadow-xs">
+                    {cartCount}
+                  </span>
                 </span>
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
+              )}
+            </button>
+
+            {/* 🔔 Live Alerts Button */}
+            <button
+              type="button"
+              onClick={() => setIsNotificationsOpen(true)}
+              className={`relative flex items-center justify-center w-8 h-8 rounded-xl transition cursor-pointer active:scale-90 border ${
+                unreadNotifCount > 0
+                  ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-amber-400/70 shadow-md shadow-amber-500/20'
+                  : isDark
+                  ? 'bg-slate-900/90 border-slate-800 hover:bg-slate-800 text-slate-300'
+                  : 'bg-slate-100 border-slate-300 hover:bg-slate-200 text-slate-700'
+              }`}
+              title="Open Alwar Alerts"
+            >
+              <span className={`text-sm ${unreadNotifCount > 0 ? 'animate-bounce' : ''}`}>🔔</span>
+
+              {unreadNotifCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex items-center justify-center rounded-full h-3 w-3 bg-rose-600 text-[8px] font-black text-white">
+                    {unreadNotifCount}
+                  </span>
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
       )}
 
       {/* 🌟 2. Main Active View Router */}
@@ -652,10 +717,7 @@ export default function App() {
             onRefreshLocation={detectLocation}
             onSelectCategory={handleOpenCategory}
             onSelectIntent={(category, subCategory) => handleOpenFeed(category, subCategory)}
-            onSelectItem={(item) => {
-              window.history.pushState({ modal: true }, '');
-              setSelectedDetailItem(item);
-            }}
+            onSelectItem={(item) => setSelectedDetailItem(item)}
             searchQuery={searchQuery}
             onSearchChange={(q) => navigateTo({ searchQuery: q })}
           />
@@ -812,10 +874,10 @@ export default function App() {
 
           {currentScreen === 'festival-hub' && (
             <FestivalHub
+              selectedCategory={selectedCategory}
+              selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
-              onSelectSubCategory={(sub) => handleOpenFeed('festival', sub)}
-              onSelectFestivalCategory={(sub) => handleOpenFeed('festival', sub)}
-              onPostClick={handleOpenPostModal}
+              searchQuery={searchQuery}
               onBack={goToHome}
             />
           )}
@@ -883,14 +945,14 @@ export default function App() {
             />
           )}
 
-          {/* Feeds */}
+          {/* 🌟 Category Listings Feeds (Deterministic Back to Category Hub) */}
           {currentScreen === 'listings' && (
             <ListingsFeed
               selectedCategory={selectedCategory}
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub(selectedCategory)}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -899,7 +961,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('property')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -908,7 +970,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('medical')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -917,7 +979,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('kaarigar')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -926,7 +988,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('transporters')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -935,7 +997,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('white-collar')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -944,7 +1006,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('education')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -953,7 +1015,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('restaurants')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -962,7 +1024,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('malls')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -971,7 +1033,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('shaadi')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -981,7 +1043,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('festival')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -990,7 +1052,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('construction')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -999,7 +1061,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('advertising')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1008,7 +1070,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('community')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1017,7 +1079,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('market')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1026,7 +1088,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('recommerce')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1035,7 +1097,7 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('fitness')}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1044,14 +1106,14 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={goBack}
+              onBack={() => handleBackToCategoryHub('creators')}
               onNewNotification={handleNewNotification}
             />
           )}
         </Suspense>
       </main>
 
-     {/* 🌟 3. Bottom Navigation Bar (Hidden on Admin Dashboard) */}
+      {/* 🌟 3. Bottom Navigation Bar (Hidden on Admin Dashboard) */}
       {!isAdminScreen && (
         <footer
           className={`fixed bottom-0 left-0 right-0 max-w-md mx-auto backdrop-blur-md border-t px-6 py-2 z-30 flex items-center justify-around shadow-2xl transition-colors ${
@@ -1060,49 +1122,49 @@ export default function App() {
               : 'bg-white/95 border-slate-200'
           }`}
         >
-        <button
-          type="button"
-          onClick={() => navigateTo({ screen: 'home', searchQuery: '' })}
-          className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
-            currentScreen === 'home'
-              ? 'text-amber-500 font-black'
-              : isDark
-              ? 'text-slate-400 hover:text-slate-200'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <span className="text-lg">🏛️</span>
-          <span className="text-[10px] font-bold">ALWAR</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => navigateTo({ screen: 'home', searchQuery: '' })}
+            className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
+              currentScreen === 'home'
+                ? 'text-amber-500 font-black'
+                : isDark
+                ? 'text-slate-400 hover:text-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-lg">🏛️</span>
+            <span className="text-[10px] font-bold">ALWAR</span>
+          </button>
 
-        {/* Floating Post Button */}
-        <button
-          type="button"
-          onClick={handleOpenPostModal}
-          className={`w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg active:scale-95 hover:scale-105 transition -mt-5 ring-4 cursor-pointer ${
-            isDark ? 'ring-slate-950' : 'ring-white'
-          }`}
-          title={isAuthorizedToPost ? 'Post Listing / Business' : 'Open for Business side'}
-        >
-          +
-        </button>
+          {/* Floating Post Button */}
+          <button
+            type="button"
+            onClick={handleOpenPostModal}
+            className={`w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-lg active:scale-95 hover:scale-105 transition -mt-5 ring-4 cursor-pointer ${
+              isDark ? 'ring-slate-950' : 'ring-white'
+            }`}
+            title={isAuthorizedToPost ? 'Post Listing / Business' : 'Open for Business side'}
+          >
+            +
+          </button>
 
-        {/* Business Hub Button */}
-        <button
-          type="button"
-          onClick={handleOpenBusinessHub}
-          className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
-            currentScreen === 'provider-dashboard'
-              ? 'text-amber-500 font-black'
-              : isDark
-              ? 'text-slate-400 hover:text-slate-200'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <span className="text-lg">📊</span>
-          <span className="text-[10px] font-bold">My Business</span>
-        </button>
-      </footer>
+          {/* Business Hub Button */}
+          <button
+            type="button"
+            onClick={handleOpenBusinessHub}
+            className={`flex flex-col items-center cursor-pointer transition active:scale-90 ${
+              currentScreen === 'provider-dashboard'
+                ? 'text-amber-500 font-black'
+                : isDark
+                ? 'text-slate-400 hover:text-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span className="text-lg">📊</span>
+            <span className="text-[10px] font-bold">My Business</span>
+          </button>
+        </footer>
       )}
 
       {/* 🌟 4. Modals & Drawers */}
@@ -1116,6 +1178,7 @@ export default function App() {
               window.history.replaceState({}, document.title, window.location.pathname);
             }}
             onNewNotification={handleNewNotification}
+            onSelectListing={(item) => setDeepLinkedItem(item)}
           />
         )}
 
@@ -1139,8 +1202,17 @@ export default function App() {
               if (activeModalCloserRef.current) activeModalCloserRef.current();
             }}
             onNewNotification={handleNewNotification}
+            onSelectListing={(item) => setSelectedDetailItem(item)}
           />
         )}
+
+        {/* 🏬 Global Public Seller Storefront Modal */}
+        <SellerProfileModal
+          selectedCity={selectedCity}
+          onSelectListing={(item) => {
+            setSelectedDetailItem(item);
+          }}
+        />
       </Suspense>
 
       {/* 🛒 User-Scoped Shopping Cart Drawer */}

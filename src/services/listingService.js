@@ -17,15 +17,122 @@ export function isValidDatabaseId(id) {
 /**
  * Clean 10-digit Indian mobile number helper
  */
-const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
+export const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
+
+/**
+ * Detect generic development/dummy placeholder phone numbers
+ */
+export const DUMMY_PHONES = new Set([
+  '9876543210',
+  '9876543201',
+  '9876543200',
+  '1234567890',
+  '9999999999',
+  '0000000000',
+  '1111111111',
+]);
+
+export function isPlaceholderPhone(phone) {
+  if (!phone) return true;
+  const clean = sanitizePhone(phone);
+  if (!clean || clean.length < 10) return true;
+  if (DUMMY_PHONES.has(clean)) return true;
+  if (/^(\d)\1{9}$/.test(clean)) return true;
+  return false;
+}
+
+/**
+ * Cleans names by stripping parentheticals like (Direct Owner), (Owner), (Verified)
+ */
+export function cleanSellerName(name) {
+  if (!name || typeof name !== 'string') return '';
+  return name
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Checks if two seller or business names are compatible
+ */
+export function areSellerNamesCompatible(nameA, nameB) {
+  const a = cleanSellerName(nameA);
+  const b = cleanSellerName(nameB);
+  if (!a || !b) return true;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+
+  const stopWords = new Set(['the', 'and', 'or', 'of', 'in', 'at', 'store', 'shop', 'centre', 'center', 'services', 'service', 'direct', 'owner']);
+  const tokensA = a.split(' ').filter((t) => t.length > 2 && !stopWords.has(t));
+  const tokensB = b.split(' ').filter((t) => t.length > 2 && !stopWords.has(t));
+
+  if (tokensA.length === 0 || tokensB.length === 0) return false;
+  return tokensA.some((t) => tokensB.includes(t));
+}
+
+/**
+ * Strict Multi-Factor Seller Matcher
+ */
+export function isSellerMatch(item, sellerIdentifier) {
+  if (!item || !sellerIdentifier) return false;
+
+  const rawPhone = typeof sellerIdentifier === 'object'
+    ? sellerIdentifier.phone || sellerIdentifier.whatsapp
+    : sellerIdentifier;
+  const targetPhone = sanitizePhone(rawPhone);
+  const targetUserId = typeof sellerIdentifier === 'object'
+    ? sellerIdentifier.userId || sellerIdentifier.user_id
+    : null;
+  const targetName = typeof sellerIdentifier === 'object'
+    ? sellerIdentifier.sellerName || sellerIdentifier.seller_name || sellerIdentifier.businessName || sellerIdentifier.name
+    : (typeof sellerIdentifier === 'string' && !targetPhone ? sellerIdentifier : null);
+
+  const itemPhone = sanitizePhone(item.phone || item.whatsapp);
+  const itemUserId = item.userId || item.user_id;
+  const itemName = item.sellerName || item.seller_name || item.name;
+
+  // 1. Authoritative UUID match when both are present
+  if (targetUserId && itemUserId && isValidDatabaseId(targetUserId) && isValidDatabaseId(itemUserId)) {
+    return String(targetUserId) === String(itemUserId);
+  }
+
+  const cleanTarget = cleanSellerName(targetName);
+  const cleanItem = cleanSellerName(itemName);
+
+  // 2. Exact or Strong Token Name Match
+  if (cleanTarget && cleanItem) {
+    if (cleanTarget === cleanItem) return true;
+    if (cleanTarget.length >= 4 && cleanItem.length >= 4) {
+      if (cleanTarget.includes(cleanItem) || cleanItem.includes(cleanTarget)) {
+        return true;
+      }
+    }
+    if (areSellerNamesCompatible(cleanTarget, cleanItem)) {
+      if (targetPhone && itemPhone && targetPhone === itemPhone) return true;
+      if (!targetPhone || !itemPhone) return true;
+    }
+  }
+
+  // 3. Phone Match (Only if real non-dummy number AND names do NOT conflict)
+  const isTargetDummy = isPlaceholderPhone(targetPhone);
+  const isItemDummy = isPlaceholderPhone(itemPhone);
+
+  if (!isTargetDummy && !isItemDummy && targetPhone === itemPhone) {
+    if (cleanTarget && cleanItem && !areSellerNamesCompatible(cleanTarget, cleanItem)) {
+      return false; // Conflicting identities (e.g. Sunil Sharma vs Amit Kumar)
+    }
+    return true;
+  }
+
+  return false;
+}
 
 /* ========================================================================= */
 /* 🔔 1. PERSONA-AWARE NOTIFICATION DISPATCH ENGINE                          */
 /* ========================================================================= */
 
-/**
- * Universal In-App & Supabase Notification Dispatcher
- */
 export async function saveNotificationToDB(notif) {
   const cleanRecipientPhone = sanitizePhone(notif.recipient_phone);
   const targetId = notif.targetId || notif.metadata?.targetId || notif.metadata?.listingId || null;
@@ -36,7 +143,7 @@ export async function saveNotificationToDB(notif) {
     tag: notif.tag || 'TOWN_ALERT',
     title: notif.title || 'New Notification',
     message: notif.message || '',
-    recipient_role: notif.recipient_role || 'public', // 'admin' | 'seller' | 'user' | 'public'
+    recipient_role: notif.recipient_role || 'public',
     recipient_phone: cleanRecipientPhone,
     is_read: false,
     metadata: {
@@ -75,7 +182,6 @@ export async function saveNotificationToDB(notif) {
   return notifPayload;
 }
 
-// 👑 ADMIN ALERTS DISPATCHERS
 export async function notifyAdminPendingApproval({ listingId, listingTitle, sellerName, sellerPhone, category, isEdit = false, dealBadge = null }) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const titleText = isEdit
@@ -119,7 +225,6 @@ export async function notifyAdminReportedListing({ listingId, listingTitle, repo
   });
 }
 
-// 🏪 SELLER / MERCHANT ALERTS DISPATCHERS
 export async function notifySellerComment({ sellerPhone, listingId, listingTitle, commenterName, commentText, audioUrl = null, duration = null }) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const hasAudio = Boolean(audioUrl);
@@ -179,7 +284,6 @@ export async function notifySellerNewReview({ sellerPhone, listingId, listingTit
   });
 }
 
-// 👤 RESIDENT / USER ALERTS DISPATCHERS
 export async function notifyUserSellerReply({ userPhone, listingId, listingTitle, sellerName, replyText, audioUrl = null, duration = null }) {
   const cleanUserPhone = sanitizePhone(userPhone);
   const isAudio = Boolean(audioUrl);
@@ -198,9 +302,6 @@ export async function notifyUserSellerReply({ userPhone, listingId, listingTitle
 /* 📸 2. MULTIMEDIA UPLOAD PIPELINE                                          */
 /* ========================================================================= */
 
-/**
- * Upload Photos directly to Supabase Storage ('listing-images' bucket)
- */
 export async function uploadListingImagesToStorage(files = [], options = {}) {
   if (!files || files.length === 0) return [];
 
@@ -269,9 +370,6 @@ export async function uploadListingImagesToStorage(files = [], options = {}) {
   }
 }
 
-/**
- * Upload Videos directly to Supabase Storage
- */
 export async function uploadListingVideosToStorage(videoItems = []) {
   if (!videoItems || videoItems.length === 0) return [];
   const uploadedVideos = [];
@@ -335,9 +433,6 @@ export async function uploadListingVideosToStorage(videoItems = []) {
   return uploadedVideos;
 }
 
-/**
- * Upload Voice Note to Supabase Storage
- */
 export async function uploadVoiceNoteToStorage(audioBlobOrFile) {
   if (!audioBlobOrFile) return null;
   if (typeof audioBlobOrFile === 'string' && audioBlobOrFile.startsWith('http')) return audioBlobOrFile;
@@ -372,9 +467,6 @@ export async function uploadVoiceNoteToStorage(audioBlobOrFile) {
 /* 📦 3. LISTING CRUD & PROPOSAL PIPELINE                                    */
 /* ========================================================================= */
 
-/**
- * Submit Seller Edit Proposal
- */
 export async function submitSellerEditProposal(listingId, proposedData) {
   if (!supabase) return { success: true };
   try {
@@ -435,9 +527,6 @@ export async function submitSellerEditProposal(listingId, proposedData) {
   }
 }
 
-/**
- * Create New Listing Draft
- */
 export async function createListingInDB(listingData) {
   const cleanSellerPhone = sanitizePhone(listingData.phone);
   const cleanWhatsapp = sanitizePhone(listingData.whatsapp || listingData.phone);
@@ -529,9 +618,6 @@ export async function createListingInDB(listingData) {
   }
 }
 
-/**
- * Admin Approves Listing / Changes
- */
 export async function approveListingChanges(listingId, approvedData) {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
   try {
@@ -596,15 +682,11 @@ export async function approveListingChanges(listingId, approvedData) {
   }
 }
 
-/**
- * Admin Rejects Changes with Feedback Reason (Preserves Audio Feedback JSON)
- */
 export async function rejectListingChanges(listingId, rejectionReason = '', sellerPhone = '') {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
   try {
     const reasonText = rejectionReason || 'Listing was not approved based on town guidelines. Please review and resubmit.';
     
-    // Check if existing feedback has an audio note attached so we don't erase it
     const { data: currentListing } = await supabase
       .from('listings')
       .select('admin_feedback, phone, title, category')
@@ -650,9 +732,6 @@ export async function rejectListingChanges(listingId, rejectionReason = '', sell
   }
 }
 
-/**
- * Dismiss Admin Pending Review Notifications for a Listing
- */
 export async function dismissAdminNotificationsForListing(listingId) {
   if (!listingId) return;
   try {
@@ -675,9 +754,6 @@ export async function dismissAdminNotificationsForListing(listingId) {
   }
 }
 
-/**
- * Admin Sends Direct Feedback Note (Text or Voice) to Seller
- */
 export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedbackPayload) {
   if (!supabase || !listingId) return { success: true };
   try {
@@ -718,9 +794,6 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
   }
 }
 
-/**
- * Seller Replies Back to Admin (Text or Voice)
- */
 export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayload) {
   if (!supabase || !listingId) return { success: true };
   try {
@@ -911,6 +984,86 @@ export async function reportListing(listingId, reporterPhone, reason, listingTit
 /* 🌐 5. FEED FETCHING, PUBLISHING & CASCADING REMOVAL                       */
 /* ========================================================================= */
 
+export function formatListingRow(row, selectedCity = 'Alwar') {
+  if (!row) return null;
+
+  const rowImages =
+    row.image_urls && row.image_urls.length > 0
+      ? row.image_urls
+      : row.image_url
+      ? [row.image_url]
+      : [getCategoryFallback(row.category)];
+
+  const rowVideos = Array.isArray(row.videos) ? row.videos : [];
+  const rowVideoUrls = Array.isArray(row.video_urls) ? row.video_urls : [];
+
+  return {
+    id: row.id,
+    userId: row.user_id || null,
+    user_id: row.user_id || null,
+    category: row.category,
+    subCategory: row.sub_category,
+    sub_category: row.sub_category,
+    bucketKey: row.bucket_key || 'listings',
+    bucket_key: row.bucket_key || 'listings',
+    title: row.title,
+    name: row.title,
+    description: row.description || '',
+    price: row.price || 'Contact for Price',
+    originalPrice: row.original_price || null,
+    original_price: row.original_price || null,
+    dealType: row.deal_type || null,
+    deal_type: row.deal_type || null,
+    dealBadge: row.deal_badge || null,
+    deal_badge: row.deal_badge || null,
+    dealDetails: row.deal_details || null,
+    deal_details: row.deal_details || null,
+    tokenAmount: row.token_amount || null,
+    token_amount: row.token_amount || null,
+    doorstepTrial: Boolean(row.doorstep_trial),
+    doorstep_trial: Boolean(row.doorstep_trial),
+    rates: row.price || 'Contact for Price',
+    startingPackage: row.price || 'Contact for Price',
+    sellerName: row.seller_name,
+    seller_name: row.seller_name,
+    phone: row.phone,
+    whatsapp: row.whatsapp || row.phone,
+    location: row.location_name,
+    location_name: row.location_name,
+    city: row.city || selectedCity,
+    lat: row.lat !== undefined && row.lat !== null ? Number(row.lat) : null,
+    lng: row.lng !== undefined && row.lng !== null ? Number(row.lng) : null,
+    timing: row.timing || '09:00 AM - 09:00 PM',
+    activeHours: row.timing || '09:00 AM - 09:00 PM',
+    capacity: row.capacity || 'Ready Stock',
+    stockCount: row.stock_count || row.capacity || 'Ready Stock',
+    stock_count: row.stock_count || null,
+    condition: row.condition || 'Brand New',
+    image: rowImages[0],
+    image_url: rowImages[0],
+    images: rowImages,
+    image_urls: rowImages,
+    videos: rowVideos,
+    video_urls: rowVideoUrls.length > 0 ? rowVideoUrls : rowVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean),
+    interestCount: row.interest_count || 0,
+    interest_count: row.interest_count || 0,
+    rating: Number(row.rating || 5.0),
+    reviewsCount: Number(row.reviews_count || 0),
+    reviews_count: Number(row.reviews_count || 0),
+    verificationBadge: row.verification_badge || 'Verified Listing',
+    verification_badge: row.verification_badge || 'Verified Listing',
+    has_pending_approval: Boolean(row.has_pending_approval),
+    pending_changes: row.pending_changes || null,
+    admin_feedback: row.admin_feedback || null,
+    seller_feedback_reply: row.seller_feedback_reply || null,
+    is_active: row.is_active !== undefined ? Boolean(row.is_active) : true,
+    createdAt: row.created_at,
+    created_at: row.created_at,
+    updatedAt: row.updated_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
   if (!supabase) return null;
   try {
@@ -922,72 +1075,7 @@ export async function fetchLiveListingsFromSupabase(selectedCity = 'Alwar') {
 
     if (error) throw error;
 
-    return (data || []).map((row) => {
-      const rowImages =
-        row.image_urls && row.image_urls.length > 0
-          ? row.image_urls
-          : row.image_url
-          ? [row.image_url]
-          : [getCategoryFallback(row.category)];
-
-      const rowVideos = Array.isArray(row.videos) ? row.videos : [];
-      const rowVideoUrls = Array.isArray(row.video_urls) ? row.video_urls : [];
-
-      return {
-        id: row.id,
-        category: row.category,
-        subCategory: row.sub_category,
-        bucketKey: row.bucket_key || 'listings',
-        title: row.title,
-        name: row.title,
-        description: row.description || '',
-        price: row.price || 'Contact for Price',
-        originalPrice: row.original_price || null,
-        original_price: row.original_price || null,
-        dealType: row.deal_type || null,
-        deal_type: row.deal_type || null,
-        dealBadge: row.deal_badge || null,
-        deal_badge: row.deal_badge || null,
-        dealDetails: row.deal_details || null,
-        deal_details: row.deal_details || null,
-        tokenAmount: row.token_amount || null,
-        token_amount: row.token_amount || null,
-        doorstepTrial: Boolean(row.doorstep_trial),
-        doorstep_trial: Boolean(row.doorstep_trial),
-        rates: row.price || 'Contact for Price',
-        startingPackage: row.price || 'Contact for Price',
-        sellerName: row.seller_name,
-        seller_name: row.seller_name,
-        phone: row.phone,
-        whatsapp: row.whatsapp || row.phone,
-        location: row.location_name,
-        location_name: row.location_name,
-        city: row.city || selectedCity,
-        lat: row.lat,
-        lng: row.lng,
-        timing: row.timing || '09:00 AM - 09:00 PM',
-        activeHours: row.timing || '09:00 AM - 09:00 PM',
-        capacity: row.capacity || 'Ready Stock',
-        stockCount: row.capacity || 'Ready Stock',
-        condition: row.condition || 'Brand New',
-        image: rowImages[0],
-        image_url: rowImages[0],
-        images: rowImages,
-        image_urls: rowImages,
-        videos: rowVideos,
-        video_urls: rowVideoUrls.length > 0 ? rowVideoUrls : rowVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean),
-        interestCount: row.interest_count || 0,
-        interest_count: row.interest_count || 0,
-        rating: Number(row.rating || 5.0),
-        reviewsCount: Number(row.reviews_count || 0),
-        has_pending_approval: Boolean(row.has_pending_approval),
-        pending_changes: row.pending_changes || null,
-        admin_feedback: row.admin_feedback || null,
-        seller_feedback_reply: row.seller_feedback_reply || null,
-        is_active: row.is_active,
-        createdAt: row.created_at,
-      };
-    });
+    return (data || []).map((row) => formatListingRow(row, selectedCity));
   } catch (err) {
     console.warn('Supabase fetch error:', err.message);
     return null;
@@ -1072,10 +1160,6 @@ export function getCategoryFallback(catId) {
   return fallbacks[catId] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
 }
 
-
-/**
- * Safe query deletion helper to avoid Supabase thenable .catch() errors
- */
 async function safeDeleteByColumn(table, column, value) {
   if (!supabase || value === undefined || value === null || value === '') return;
   try {
@@ -1086,15 +1170,11 @@ async function safeDeleteByColumn(table, column, value) {
   }
 }
 
-/**
- * Deletes a listing and safely cascade-deletes all associated child records
- */
 export async function deleteListingFromDB(listingId) {
   if (!listingId) return { success: false, error: 'Listing ID is required.' };
 
   if (supabase) {
     try {
-      // 1. Cascade delete child records and notifications referencing this listing
       await Promise.allSettled([
         safeDeleteByColumn('user_carts', 'listing_id', listingId),
         safeDeleteByColumn('listing_interests', 'listing_id', listingId),
@@ -1104,7 +1184,6 @@ export async function deleteListingFromDB(listingId) {
         dismissAdminNotificationsForListing(listingId),
       ]);
 
-      // 2. Delete the actual listing record
       const { error: listingError } = await supabase
         .from('listings')
         .delete()
@@ -1112,7 +1191,6 @@ export async function deleteListingFromDB(listingId) {
 
       if (listingError) throw listingError;
 
-      // 3. Remove listing from client-side Zustand/local store
       if (typeof hyperlocalStore?.removeListing === 'function') {
         hyperlocalStore.removeListing(listingId);
       }
@@ -1124,7 +1202,6 @@ export async function deleteListingFromDB(listingId) {
     }
   }
 
-  // Fallback for local session / mock data
   if (typeof hyperlocalStore?.removeListing === 'function') {
     hyperlocalStore.removeListing(listingId);
   }
@@ -1193,5 +1270,221 @@ export async function clearUserCartInDB(phone) {
     await supabase.from('user_carts').delete().eq('phone', cleanPhone);
   } catch (err) {
     console.warn('Failed to clear cart in DB:', err.message);
+  }
+}
+
+/* ========================================================================= */
+/* 🏬 6. SELLER PROFILE & STOREFRONT AGGREGATION ENGINE                      */
+/* ========================================================================= */
+
+export async function fetchSellerProfileFromDB(sellerIdentifier) {
+  if (!sellerIdentifier) return null;
+
+  const rawPhone = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.phone || sellerIdentifier.whatsapp) 
+    : sellerIdentifier;
+  const cleanPhone = sanitizePhone(rawPhone);
+  const isDummy = isPlaceholderPhone(cleanPhone);
+  const userId = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.userId || sellerIdentifier.user_id) 
+    : null;
+  const sellerName = typeof sellerIdentifier === 'object'
+    ? (sellerIdentifier.sellerName || sellerIdentifier.seller_name || sellerIdentifier.businessName || sellerIdentifier.name)
+    : (typeof sellerIdentifier === 'string' && !cleanPhone ? sellerIdentifier : null);
+  const locationFallback = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.locationName || sellerIdentifier.location || sellerIdentifier.areaName) 
+    : 'Town Center';
+  const badgeFallback = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.verificationBadge || sellerIdentifier.verification_badge) 
+    : 'Verified Merchant';
+
+  if (supabase) {
+    try {
+      let profileQuery = supabase.from('user_profiles').select('*');
+      if (userId && isValidDatabaseId(userId)) {
+        profileQuery = profileQuery.eq('id', userId);
+      } else if (cleanPhone && !isDummy) {
+        profileQuery = profileQuery.eq('phone', cleanPhone);
+      } else if (sellerName) {
+        profileQuery = profileQuery.ilike('business_name', `%${cleanSellerName(sellerName)}%`);
+      }
+
+      const { data: profile, error: profileErr } = await profileQuery.limit(1).maybeSingle();
+
+      if (!profileErr && profile) {
+        return {
+          id: profile.id,
+          userId: profile.id,
+          fullName: profile.full_name || sellerName || 'Merchant',
+          businessName: profile.business_name || profile.full_name || sellerName || 'Local Business',
+          phone: profile.phone || cleanPhone || '',
+          whatsapp: profile.phone || cleanPhone || '',
+          city: profile.city || 'Alwar',
+          areaName: profile.area_name || locationFallback || 'Town Center',
+          locationName: profile.area_name || locationFallback || 'Town Center',
+          trustScore: profile.trust_score ?? 100,
+          verificationTier: profile.verification_tier || 'merchant',
+          isMerchant: Boolean(profile.is_merchant),
+          isVerified: Boolean(profile.is_verified),
+          verificationBadge: profile.custom_badge || (profile.is_verified ? 'Verified Business' : 'Unverified'),
+          upiId: profile.upi_id || null,
+          upiName: profile.upi_name || null,
+          listingsCount: profile.listings_count || 0,
+          createdAt: profile.created_at || new Date().toISOString(),
+        };
+      }
+
+      let listingQuery = supabase
+        .from('listings')
+        .select('seller_name, phone, whatsapp, location_name, verification_badge, user_id, rating, created_at')
+        .order('created_at', { ascending: false });
+
+      if (cleanPhone && !isDummy) {
+        listingQuery = listingQuery.or(`phone.eq.${cleanPhone},whatsapp.eq.${cleanPhone}`);
+      } else if (userId && isValidDatabaseId(userId)) {
+        listingQuery = listingQuery.eq('user_id', userId);
+      } else if (sellerName) {
+        listingQuery = listingQuery.ilike('seller_name', `%${cleanSellerName(sellerName)}%`);
+      }
+
+      const { data: listingMeta, error: listMetaErr } = await listingQuery.limit(1).maybeSingle();
+
+      if (!listMetaErr && listingMeta) {
+        return {
+          id: listingMeta.user_id || `seller_${cleanPhone || Date.now()}`,
+          userId: listingMeta.user_id || null,
+          fullName: listingMeta.seller_name || sellerName || 'Merchant',
+          businessName: listingMeta.seller_name || sellerName || 'Local Business',
+          phone: listingMeta.phone || cleanPhone || '',
+          whatsapp: listingMeta.whatsapp || listingMeta.phone || cleanPhone || '',
+          city: 'Alwar',
+          areaName: listingMeta.location_name || locationFallback || 'Town Center',
+          locationName: listingMeta.location_name || locationFallback || 'Town Center',
+          trustScore: 100,
+          verificationTier: 'merchant',
+          isMerchant: true,
+          isVerified: true,
+          verificationBadge: listingMeta.verification_badge || badgeFallback || 'Verified Business',
+          upiId: null,
+          upiName: null,
+          listingsCount: 1,
+          createdAt: listingMeta.created_at || new Date().toISOString(),
+        };
+      }
+    } catch (err) {
+      console.warn('Notice fetching seller profile:', err.message);
+    }
+  }
+
+  return {
+    id: userId || `seller_${cleanPhone || 'local'}`,
+    userId: userId || null,
+    fullName: sellerName || 'Verified Merchant',
+    businessName: sellerName || 'Local Business',
+    phone: cleanPhone || '9876543210',
+    whatsapp: cleanPhone || '9876543210',
+    city: 'Alwar',
+    areaName: locationFallback || 'Town Center',
+    locationName: locationFallback || 'Town Center',
+    trustScore: 100,
+    verificationTier: 'merchant',
+    isMerchant: true,
+    isVerified: true,
+    verificationBadge: badgeFallback || 'Verified Storefront',
+    upiId: null,
+    upiName: null,
+    listingsCount: 1,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchSellerListingsFromDB(sellerIdentifier) {
+  if (!sellerIdentifier) return [];
+
+  const rawPhone = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.phone || sellerIdentifier.whatsapp) 
+    : sellerIdentifier;
+  const cleanPhone = sanitizePhone(rawPhone);
+  const isDummy = isPlaceholderPhone(cleanPhone);
+  const userId = typeof sellerIdentifier === 'object' 
+    ? (sellerIdentifier.userId || sellerIdentifier.user_id) 
+    : null;
+  const sellerName = typeof sellerIdentifier === 'object'
+    ? (sellerIdentifier.sellerName || sellerIdentifier.seller_name || sellerIdentifier.businessName || sellerIdentifier.name)
+    : (typeof sellerIdentifier === 'string' && !cleanPhone ? sellerIdentifier : null);
+
+  if (supabase) {
+    try {
+      let query = supabase
+        .from('listings')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (cleanPhone && !isDummy) {
+        query = query.or(`phone.eq.${cleanPhone},whatsapp.eq.${cleanPhone}`);
+      } else if (userId && isValidDatabaseId(userId)) {
+        query = query.eq('user_id', userId);
+      } else if (sellerName) {
+        query = query.ilike('seller_name', `%${cleanSellerName(sellerName)}%`);
+      }
+
+      const { data, error } = await query;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const rows = data.map((row) => formatListingRow(row));
+        return rows.filter((item) => isSellerMatch(item, sellerIdentifier));
+      }
+    } catch (err) {
+      console.warn('Notice fetching seller listings from DB:', err.message);
+    }
+  }
+
+  // Fallback search across local client-side memory store
+  try {
+    const all = typeof hyperlocalStore?.getAllListings === 'function' 
+      ? hyperlocalStore.getAllListings() 
+      : [];
+    return all.filter((item) => isSellerMatch(item, sellerIdentifier));
+  } catch (storeErr) {
+    console.warn('Notice searching local store fallback for seller:', storeErr.message);
+  }
+
+  return [];
+}
+
+export const getSellerProfile = fetchSellerProfileFromDB;
+export const getListingsBySeller = fetchSellerListingsFromDB;
+export const normalizeListing = formatListingRow;
+
+/**
+ * Persists read status for a notification to Supabase
+ */
+export async function markNotificationAsReadInDB(notifId) {
+  if (!supabase || !isValidDatabaseId(notifId)) return;
+  try {
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notifId);
+  } catch (err) {
+    console.warn('Notice syncing notification read state:', err.message);
+  }
+}
+
+/**
+ * Batch marks notifications as read in Supabase
+ */
+export async function markAllNotificationsAsReadInDB(notifIds = []) {
+  if (!supabase || !Array.isArray(notifIds) || notifIds.length === 0) return;
+  const validIds = notifIds.filter(isValidDatabaseId);
+  if (validIds.length === 0) return;
+
+  try {
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .in('id', validIds);
+  } catch (err) {
+    console.warn('Notice batch syncing read notifications:', err.message);
   }
 }

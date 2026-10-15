@@ -4,6 +4,37 @@
  * 100% Free: High-Precision Haversine Distance + Nominatim Resolver
  */
 
+// Converts "27°35'01.43\"N" or "76°38'02.46\"E" to decimal degrees
+export function dmsToDecimal(dmsStr) {
+  if (typeof dmsStr === 'number') return dmsStr;
+  if (!dmsStr || typeof dmsStr !== 'string') return 0;
+
+  const match = dmsStr.trim().match(/(\d+)°\s*(\d+)'\s*([\d.]+)"?\s*([NSEWnsew])?/);
+  if (!match) {
+    const fallback = parseFloat(dmsStr);
+    return isNaN(fallback) ? 0 : fallback;
+  }
+
+  const degrees = parseFloat(match[1]);
+  const minutes = parseFloat(match[2]);
+  const seconds = parseFloat(match[3]);
+  const direction = match[4] ? match[4].toUpperCase() : null;
+
+  let dd = degrees + minutes / 60 + seconds / 3600;
+  if (direction === 'S' || direction === 'W') {
+    dd = -dd;
+  }
+  return parseFloat(dd.toFixed(6));
+}
+
+// Helper to convert coordinate pair strings: ("27°35'01.43\"N", "76°38'02.46\"E")
+export function parseCoords(latDms, lngDms) {
+  return {
+    lat: dmsToDecimal(latDms),
+    lng: dmsToDecimal(lngDms)
+  };
+}
+
 export const CITY_ZONES = {
   // ═════════════════════════════════════════════════════════════════
   // 1. RANJEET NAGAR, STATION ROAD & DAUDPUR CORRIDOR

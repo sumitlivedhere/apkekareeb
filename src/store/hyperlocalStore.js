@@ -30,6 +30,7 @@ import { getCurrentUserProfile } from '../services/authService';
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 const USER_INTERESTS_STORAGE_KEY = 'aapkekareeb_user_interests';
 const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
+const USER_NOTIFS_STORAGE_KEY = 'aapkekareeb_read_notifs';
 
 const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
 
@@ -91,6 +92,69 @@ function saveStoredReviewsMap(data) {
     localStorage.setItem(USER_REVIEWS_STORAGE_KEY, JSON.stringify(data));
   } catch {}
 }
+
+// 🔕 Persistent Read Notifications Local Storage Helpers
+export function getStoredReadNotifs() {
+  try {
+    const raw = localStorage.getItem(USER_NOTIFS_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveStoredReadNotif(id) {
+  if (!id) return;
+  try {
+    const set = getStoredReadNotifs();
+    set.add(String(id));
+    localStorage.setItem(USER_NOTIFS_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+export function saveStoredAllReadNotifs(ids = []) {
+  try {
+    const set = getStoredReadNotifs();
+    ids.forEach((id) => set.add(String(id)));
+    localStorage.setItem(USER_NOTIFS_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+// 👑 Strict Classification Sets for Persona Isolation
+export const ADMIN_TAGS = new Set([
+  'NEW ENLISTMENT',
+  'NEW_ENLISTMENT',
+  'EDIT PROPOSAL',
+  'EDIT_PROPOSAL',
+  'FLAGGED_REPORT',
+  'REPORT',
+  'NEW_USER_PIN',
+  'USER_PIN_REQUEST',
+  'SELLER_PIN_REQUEST',
+  'SELLER FEEDBACK REPLY',
+  'SELLER_FEEDBACK_REPLY',
+  'SELLER VOICE REPLY',
+  'SELLER_VOICE_REPLY',
+]);
+
+export const SELLER_TAGS = new Set([
+  'VOICE INQUIRY',
+  'VOICE_INQUIRY',
+  'NEW COMMENT',
+  'USER_COMMENT',
+  'APPROVED',
+  'LISTING_APPROVED',
+  'ADMIN FEEDBACK',
+  'ADMIN_FEEDBACK',
+  'ADMIN VOICE NOTE',
+  'REJECTED',
+  'LISTING_REJECTED',
+  'INTEREST REGISTERED',
+  'INTEREST_REGISTERED',
+  'INTEREST_ALERT',
+  'NEW_REVIEW',
+  'CART_ADDITION',
+]);
 
 /**
  * Parses numeric price from text strings (e.g., '₹1,500', '1.69 Lakh', '₹500/day')
@@ -255,9 +319,12 @@ export function normalizeDBListing(item) {
   const isActive = item.is_active !== undefined ? Boolean(item.is_active) : true;
   const hasPendingApproval = Boolean(item.has_pending_approval);
   const pendingChanges = item.pending_changes || null;
+  const resolvedBadge = item.verification_badge || item.verificationBadge || (hasPendingApproval ? '⏳ Pending Approval' : 'Verified Listing');
 
   return {
     id: String(item.id || `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
+    userId: item.user_id || item.userId || null,
+    user_id: item.user_id || item.userId || null,
     title: nameVal,
     name: nameVal,
     category: catId,
@@ -305,6 +372,7 @@ export function normalizeDBListing(item) {
     city: resolvedCity,
     location: rawLocation,
     location_name: rawLocation,
+    locationName: rawLocation,
     landmark: item.landmark || rawLocation || 'Main Road',
     distance: item.distance || '0.1 km away',
     lat: item.lat !== undefined && item.lat !== null ? Number(item.lat) : null,
@@ -338,7 +406,8 @@ export function normalizeDBListing(item) {
     reviewsCount: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
     reviews_count: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
     verified: item.verified !== undefined ? item.verified : true,
-    verification_badge: item.verification_badge || (hasPendingApproval ? '⏳ Pending Approval' : 'Verified Listing'),
+    verification_badge: resolvedBadge,
+    verificationBadge: resolvedBadge,
     badge: item.badge || (hasPendingApproval ? '⏳ Pending Approval' : '🟢 Verified Listing'),
     experience: item.experience || '5+ Years Exp',
     timing: item.timing || item.activeHours || '09:00 AM - 09:00 PM',
@@ -358,39 +427,6 @@ export function normalizeDBListing(item) {
     isNew: Boolean(item.isNew),
     created_at: item.created_at || new Date().toISOString(),
   };
-}
-
-export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
-  const allNotifications = useNotificationSlice();
-  const userPhone = sanitizePhone(currentUser?.phone);
-
-  const isSellerOnBusinessHub =
-    currentScreen === 'provider-dashboard' ||
-    Boolean(currentUser?.is_merchant || currentUser?.verification_tier === 'verified_merchant' || currentUser?.verification_tier === 'merchant');
-
-  const activeRole = isAdminMode || currentScreen === 'admin-dashboard'
-    ? 'admin'
-    : isSellerOnBusinessHub
-    ? 'seller'
-    : currentUser
-    ? 'user'
-    : 'public';
-
-  return (allNotifications || []).filter((notif) => {
-    const role = notif.recipient_role || notif.role || 'public';
-    const targetPhone = sanitizePhone(notif.recipient_phone);
-
-    if (activeRole === 'admin') {
-      return role === 'admin';
-    }
-    if (activeRole === 'seller') {
-      return role === 'seller' && (!targetPhone || targetPhone === userPhone);
-    }
-    if (activeRole === 'user') {
-      return (role === 'user' && targetPhone === userPhone) || role === 'public';
-    }
-    return role === 'public';
-  });
 }
 
 class HyperlocalEngineStore {
@@ -461,6 +497,10 @@ class HyperlocalEngineStore {
       cart: getStoredCartForUser(initialPhone),
       activeUserPhone: initialPhone,
       notifications: [],
+
+      // 🏬 Public Seller Storefront State
+      selectedSeller: null,
+      isSellerProfileOpen: false,
     };
     this.listeners = new Set();
 
@@ -484,11 +524,33 @@ class HyperlocalEngineStore {
   }
 
   getAllListings() {
-    const buckets = Object.values(this.state).filter(Array.isArray);
+    const listingKeys = [
+      'listings',
+      'propertyListings',
+      'fitnessListings',
+      'medicalListings',
+      'creatorsListings',
+      'marketProducts',
+      'kaarigarWorkers',
+      'transportFirms',
+      'individualTransporters',
+      'communityDrives',
+      'shaadiVendors',
+      'festivalOffers',
+      'advertisingProviders',
+      'educationListings',
+      'constructionListings',
+      'mallsStores',
+      'restaurantsList',
+      'whiteCollarListings',
+      'reCommerceListings',
+    ];
+
     const seenIds = new Set();
     const combined = [];
 
-    buckets.forEach((bucket) => {
+    listingKeys.forEach((key) => {
+      const bucket = this.state[key] || [];
       bucket.forEach((item) => {
         if (item && item.id && !seenIds.has(String(item.id))) {
           seenIds.add(String(item.id));
@@ -499,6 +561,88 @@ class HyperlocalEngineStore {
 
     return combined;
   }
+
+  /* ========================================================================= */
+  /* 🏬 SELLER STOREFRONT CONTROLS                                             */
+  /* ========================================================================= */
+
+  openSellerProfile(sellerData) {
+    if (!sellerData) return;
+    this.state.selectedSeller = sellerData;
+    this.state.isSellerProfileOpen = true;
+    this.notify('sellerProfile');
+  }
+
+  closeSellerProfile() {
+    this.state.selectedSeller = null;
+    this.state.isSellerProfileOpen = false;
+    this.notify('sellerProfile');
+  }
+
+  getListingsBySeller(sellerIdentifier) {
+    if (!sellerIdentifier) return [];
+    const all = this.getAllListings();
+
+    const targetPhone = sanitizePhone(
+      typeof sellerIdentifier === 'object'
+        ? sellerIdentifier.phone || sellerIdentifier.whatsapp
+        : sellerIdentifier
+    );
+    const targetUserId = typeof sellerIdentifier === 'object'
+      ? sellerIdentifier.userId || sellerIdentifier.user_id
+      : null;
+    const targetName = (
+      typeof sellerIdentifier === 'object'
+        ? sellerIdentifier.sellerName || sellerIdentifier.seller_name || sellerIdentifier.businessName || sellerIdentifier.name
+        : (typeof sellerIdentifier === 'string' ? sellerIdentifier : '')
+    ) || '';
+
+    const cleanTarget = targetName.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
+    const DUMMY_SET = new Set(['9876543210', '9876543201', '9876543200', '1234567890', '9999999999', '0000000000']);
+    const isTargetDummy = !targetPhone || DUMMY_SET.has(targetPhone) || /^(\d)\1{9}$/.test(targetPhone);
+
+    return all.filter((item) => {
+      const itemPhone = sanitizePhone(item.phone || item.whatsapp);
+      const itemUserId = item.userId || item.user_id;
+      const itemName = (item.sellerName || item.seller_name || item.name || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
+
+      // 1. Authoritative User ID match
+      if (targetUserId && itemUserId && targetUserId === itemUserId) return true;
+
+      // 2. Strict / Token Name match
+      if (cleanTarget && itemName) {
+        if (cleanTarget === itemName) return true;
+        if (cleanTarget.length >= 4 && itemName.length >= 4) {
+          if (cleanTarget.includes(itemName) || itemName.includes(cleanTarget)) return true;
+        }
+
+        const tokensT = cleanTarget.split(' ').filter((t) => t.length > 2);
+        const tokensI = itemName.split(' ').filter((t) => t.length > 2);
+        if (tokensT.length > 0 && tokensI.length > 0) {
+          const hasOverlap = tokensT.some((t) => tokensI.includes(t));
+          if (hasOverlap) return true;
+        }
+      }
+
+      // 3. Real Phone Match (ONLY if non-dummy AND names are not completely conflicting)
+      const isItemDummy = !itemPhone || DUMMY_SET.has(itemPhone) || /^(\d)\1{9}$/.test(itemPhone);
+      if (!isTargetDummy && !isItemDummy && targetPhone === itemPhone) {
+        if (cleanTarget && itemName) {
+          const tokensT = cleanTarget.split(' ').filter((t) => t.length > 2);
+          const tokensI = itemName.split(' ').filter((t) => t.length > 2);
+          const hasOverlap = tokensT.some((t) => tokensI.includes(t));
+          return hasOverlap;
+        }
+        return true;
+      }
+
+      return false;
+    });
+  }
+
+  /* ========================================================================= */
+  /* 📦 CRUD & HYDRATION                                                       */
+  /* ========================================================================= */
 
   insertListing(rawBucketOrCategory, item) {
     const tempId = item.id || `custom-${Date.now()}`;
@@ -674,24 +818,99 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
+  /* ========================================================================= */
+  /* 🔔 NOTIFICATION ENGINE & SILENCER                                         */
+  /* ========================================================================= */
+
   addNotification(notif) {
+    const notifId = String(notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
+    const readSet = getStoredReadNotifs();
+    const alreadyRead = Boolean(notif.is_read || notif.read || readSet.has(notifId));
+
     const newEntry = {
-      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      tag: notif.tag || 'ALERT',
+      id: notifId,
+      tag: notif.tag || 'TOWN_ALERT',
       title: notif.title || 'New Notification',
       message: notif.message || '',
       time: notif.time || 'Just now',
-      read: false,
-      is_read: false,
+      read: alreadyRead,
+      is_read: alreadyRead,
       type: notif.type || 'general',
       targetId: notif.targetId || notif.metadata?.targetId || notif.metadata?.listingId || null,
-      recipient_role: notif.recipient_role || 'public',
-      recipient_phone: sanitizePhone(notif.recipient_phone),
+      recipient_role:
+        notif.recipient_role ||
+        notif.recipientRole ||
+        (ADMIN_TAGS.has(notif.tag) ? 'admin' : SELLER_TAGS.has(notif.tag) ? 'seller' : 'public'),
+      recipient_phone: sanitizePhone(notif.recipient_phone || notif.metadata?.sellerPhone || notif.metadata?.userPhone),
       metadata: notif.metadata || {},
       created_at: notif.created_at || new Date().toISOString(),
     };
-    this.state.notifications = [newEntry, ...(this.state.notifications || [])];
+
+    const current = this.state.notifications || [];
+    const existingIdx = current.findIndex((n) => String(n.id) === notifId);
+
+    if (existingIdx !== -1) {
+      current[existingIdx] = { ...current[existingIdx], ...newEntry };
+      this.state.notifications = [...current];
+    } else {
+      this.state.notifications = [newEntry, ...current];
+    }
+
     this.notify('notifications');
+  }
+
+  markNotificationRead(notifId) {
+    if (!notifId) return;
+    const strId = String(notifId);
+    saveStoredReadNotif(strId);
+
+    this.state.notifications = (this.state.notifications || []).map((n) =>
+      String(n.id) === strId ? { ...n, read: true, is_read: true } : n
+    );
+
+    this.notify('notifications');
+
+    if (supabase && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strId)) {
+      supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', strId)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase mark read notice:', error.message);
+        });
+    }
+  }
+
+  markAllNotificationsRead(targetIds = null) {
+    const list = this.state.notifications || [];
+    const idsToMark = targetIds && Array.isArray(targetIds) && targetIds.length > 0
+      ? targetIds.map(String)
+      : list.map((n) => String(n.id));
+
+    saveStoredAllReadNotifs(idsToMark);
+    const idSet = new Set(idsToMark);
+
+    this.state.notifications = list.map((n) =>
+      idSet.has(String(n.id)) ? { ...n, read: true, is_read: true } : n
+    );
+
+    this.notify('notifications');
+
+    if (supabase) {
+      const validUuids = idsToMark.filter((id) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+      );
+
+      if (validUuids.length > 0) {
+        supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .in('id', validUuids)
+          .then(({ error }) => {
+            if (error) console.warn('Supabase batch mark read notice:', error.message);
+          });
+      }
+    }
   }
 
   removeNotificationsForTarget(listingId) {
@@ -699,15 +918,6 @@ class HyperlocalEngineStore {
     this.state.notifications = (this.state.notifications || []).filter(
       (n) => String(n.targetId) !== targetStr && String(n.metadata?.targetId) !== targetStr && String(n.metadata?.listingId) !== targetStr
     );
-    this.notify('notifications');
-  }
-
-  markAllNotificationsRead() {
-    this.state.notifications = (this.state.notifications || []).map((n) => ({
-      ...n,
-      read: true,
-      is_read: true,
-    }));
     this.notify('notifications');
   }
 
@@ -723,6 +933,11 @@ class HyperlocalEngineStore {
   addThreadComment(listingId, comment, listingTitle = '') {
     const strId = String(listingId);
     const hasAudio = Boolean(comment.audioUrl);
+
+    // Resolve target listing's verified owner phone
+    const allListings = this.getAllListings();
+    const targetListing = allListings.find((l) => String(l.id) === strId);
+    const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp || comment.sellerPhone);
 
     const newEntry = {
       id: comment.id || `local-${Date.now()}`,
@@ -742,17 +957,25 @@ class HyperlocalEngineStore {
     this.notify(`thread:${strId}`);
     this.notify('threads');
 
+    // 🛡️ Route ONLY to the specific merchant's phone
     this.addNotification({
       tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
-      title: `Inquiry on "${listingTitle || 'Listing'}"`,
+      title: `Inquiry on "${listingTitle || targetListing?.title || 'Listing'}"`,
       message: `${newEntry.userName} sent a ${hasAudio ? 'voice note' : 'message'}.`,
       time: 'Just now',
       type: 'comment',
       targetId: listingId,
       recipient_role: 'seller',
+      recipient_phone: targetSellerPhone,
+      metadata: {
+        listingId: strId,
+        sellerPhone: targetSellerPhone,
+        commenterName: newEntry.userName,
+        hasAudio,
+      },
     });
 
-    saveCommentToDB(strId, newEntry, listingTitle).then((dbRow) => {
+    saveCommentToDB(strId, newEntry, listingTitle, targetSellerPhone).then((dbRow) => {
       if (dbRow && dbRow.id) {
         const list = this.state.threads[strId] || [];
         const idx = list.findIndex((c) => c.id === newEntry.id);
@@ -859,14 +1082,26 @@ class HyperlocalEngineStore {
     this.notify(`interest:${strId}`);
     this.notify('all');
 
+    // Look up target listing to obtain seller's verified phone
+    const allListings = this.getAllListings();
+    const targetListing = allListings.find((l) => String(l.id) === strId);
+    const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp);
+
+    // 🛡️ Route ONLY to the specific merchant's phone
     this.addNotification({
       tag: 'INTEREST REGISTERED',
-      title: `Interest registered for "${listingTitle || 'Listing'}"`,
+      title: `Interest registered for "${listingTitle || targetListing?.title || 'Listing'}"`,
       message: `${sellerName || 'The seller'} was notified. Total buyers interested: ${count}`,
       time: 'Just now',
       type: 'interest',
       targetId: strId,
       recipient_role: 'seller',
+      recipient_phone: targetSellerPhone,
+      metadata: {
+        listingId: strId,
+        sellerPhone: targetSellerPhone,
+        count,
+      },
     });
 
     if (supabase && userPhone !== 'guest_device') {
@@ -875,11 +1110,11 @@ class HyperlocalEngineStore {
           p_listing_id: strId,
           p_phone: userPhone,
         });
-      } catch (err) {
-        updateInterestCountInDB(strId, count);
+      } catch {
+        updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone);
       }
     } else {
-      updateInterestCountInDB(strId, count);
+      updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone);
     }
 
     return { success: true, count };
@@ -1068,7 +1303,6 @@ class HyperlocalEngineStore {
     }, 0);
   }
 
-  // Helper: Groups cart items by merchant phone for multi-vendor split checkouts
   getCartBySeller() {
     const items = this.state.cart || [];
     return items.reduce((acc, item) => {
@@ -1090,7 +1324,7 @@ class HyperlocalEngineStore {
     }, {});
   }
 
- addToCart(listingItem, quantity = 1, explicitPhone = null) {
+  addToCart(listingItem, quantity = 1, explicitPhone = null) {
     if (!listingItem || !listingItem.id) return { success: false, message: 'Invalid listing' };
 
     const currentUser = getCurrentUserProfile();
@@ -1313,6 +1547,12 @@ export const useHyperlocalStore = () => ({
   interests: hyperlocalStore.state.interests,
   reviews: hyperlocalStore.state.reviews,
   cart: hyperlocalStore.state.cart,
+  notifications: hyperlocalStore.state.notifications,
+  selectedSeller: hyperlocalStore.state.selectedSeller,
+  isSellerProfileOpen: hyperlocalStore.state.isSellerProfileOpen,
+  openSellerProfile: (seller) => hyperlocalStore.openSellerProfile(seller),
+  closeSellerProfile: () => hyperlocalStore.closeSellerProfile(),
+  getListingsBySeller: (seller) => hyperlocalStore.getListingsBySeller(seller),
   getCartBySeller: () => hyperlocalStore.getCartBySeller(),
   toggleInterestOnce: (lid, title, seller) => hyperlocalStore.toggleInterestOnce(lid, 0, title, seller),
   hasUserInterested: (lid) => hyperlocalStore.hasUserInterested(lid),
@@ -1324,6 +1564,8 @@ export const useHyperlocalStore = () => ({
   removeFromCart: (lid) => hyperlocalStore.removeFromCart(lid),
   clearCart: () => hyperlocalStore.clearCart(),
   isItemInCart: (lid) => hyperlocalStore.isItemInCart(lid),
+  markNotificationRead: (id) => hyperlocalStore.markNotificationRead(id),
+  markAllNotificationsRead: (ids) => hyperlocalStore.markAllNotificationsRead(ids),
 });
 
 let isHydrating = false;
@@ -1331,7 +1573,7 @@ let lastHydrateTimestamp = 0;
 const HYDRATE_COOLDOWN_MS = 4000;
 
 /**
- * Hydrate Store from Supabase with Connection Throttling & Fast Timeouts
+ * Hydrate Store from Supabase with Connection Throttling & Persistent Read State
  */
 export async function hydrateFromDB() {
   if (!supabase) return;
@@ -1360,27 +1602,33 @@ export async function hydrateFromDB() {
       hyperlocalStore.hydrateBulk(listingsData);
     }
 
-    // 2. Fetch Notifications
+    // 2. Fetch Notifications with persistent read status
     const notifsFetch = supabase
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(60);
 
     const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]).catch(() => ({ data: null }));
-    if (notifsData) {
-      hyperlocalStore.state.notifications = notifsData.map((n) => ({
-        id: n.id,
-        tag: n.tag,
-        title: n.title,
-        message: n.message,
-        read: n.is_read,
-        recipient_role: n.recipient_role,
-        recipient_phone: sanitizePhone(n.recipient_phone),
-        targetId: n.metadata?.targetId || n.metadata?.listingId || null,
-        metadata: n.metadata || {},
-        created_at: n.created_at,
-      }));
+    if (notifsData && Array.isArray(notifsData)) {
+      const readSet = getStoredReadNotifs();
+
+      hyperlocalStore.state.notifications = notifsData.map((n) => {
+        const readResolved = Boolean(n.is_read || readSet.has(String(n.id)));
+        return {
+          id: String(n.id),
+          tag: n.tag,
+          title: n.title,
+          message: n.message,
+          read: readResolved,
+          is_read: readResolved,
+          recipient_role: n.recipient_role || 'public',
+          recipient_phone: sanitizePhone(n.recipient_phone),
+          targetId: n.metadata?.targetId || n.metadata?.listingId || null,
+          metadata: n.metadata || {},
+          created_at: n.created_at,
+        };
+      });
       hyperlocalStore.notify('notifications');
     }
 
@@ -1517,6 +1765,15 @@ export function initRealtimeSubscriptions() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          if (payload.new) {
+            hyperlocalStore.addNotification(payload.new);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'notifications' },
         (payload) => {
           if (payload.new) {
             hyperlocalStore.addNotification(payload.new);
@@ -1661,64 +1918,41 @@ export function useNotificationSlice(explicitScope = null) {
     const profile = getCurrentUserProfile();
     const userPhone = sanitizePhone(profile?.phone);
 
-    const PRIVATE_TAGS = [
-      'NEW ENLISTMENT',
-      'EDIT PROPOSAL',
-      'REPORT',
-      'FLAGGED_REPORT',
-      'SELLER FEEDBACK REPLY',
-      'SELLER_FEEDBACK_REPLY',
-      'SELLER VOICE REPLY',
-      'SELLER_VOICE_REPLY',
-      'ADMIN FEEDBACK',
-      'ADMIN_FEEDBACK',
-      'ADMIN VOICE NOTE',
-      'VOICE INQUIRY',
-      'VOICE_INQUIRY',
-      'NEW COMMENT',
-      'USER_COMMENT',
-      'SELLER REPLIED',
-      'SELLER_REPLY',
-      'APPROVED',
-      'REJECTED',
-      'INTEREST REGISTERED',
-      'INTEREST_REGISTERED',
-      'CART_ADDITION',
-      'NEW_USER_PIN',
-    ];
+    const readSet = getStoredReadNotifs();
+
+    const notifsWithReadState = rawNotifs.map((n) => {
+      const isRead = Boolean(n.is_read || n.read || readSet.has(String(n.id)));
+      return { ...n, is_read: isRead, read: isRead };
+    });
 
     if (scope === 'admin') {
-      return rawNotifs.filter(
-        (n) =>
-          n.recipient_role === 'admin' ||
-          ['NEW ENLISTMENT', 'EDIT PROPOSAL', 'REPORT', 'FLAGGED_REPORT', 'SELLER FEEDBACK REPLY', 'SELLER_FEEDBACK_REPLY', 'SELLER VOICE REPLY', 'SELLER_VOICE_REPLY', 'NEW_USER_PIN', 'TOWN_ALERT', 'ALWAR_ALERT'].includes(n.tag)
+      return notifsWithReadState.filter(
+        (n) => n.recipient_role === 'admin' || ADMIN_TAGS.has(n.tag)
       );
     }
 
     if (scope === 'seller' || (scope !== 'public' && userPhone)) {
-      return rawNotifs.filter((n) => {
-        const notifPhone = sanitizePhone(n.recipient_phone);
-        const metaPhone = sanitizePhone(
+      return notifsWithReadState.filter((n) => {
+        const notifPhone = sanitizePhone(
+          n.recipient_phone ||
           n.metadata?.sellerPhone ||
           n.metadata?.seller_phone ||
-          n.metadata?.phone ||
-          n.metadata?.recipient_phone
+          n.metadata?.phone
         );
 
-        if (userPhone && (notifPhone === userPhone || metaPhone === userPhone)) {
+        if (userPhone && notifPhone === userPhone) {
           return true;
         }
-        if (userPhone && n.recipient_role === 'seller' && (notifPhone === userPhone || metaPhone === userPhone)) {
-          return true;
-        }
-        if (n.recipient_role === 'public' && !PRIVATE_TAGS.includes(n.tag)) {
+        if (n.recipient_role === 'public' && !ADMIN_TAGS.has(n.tag) && !SELLER_TAGS.has(n.tag)) {
           return true;
         }
         return false;
       });
     }
 
-    return rawNotifs.filter((n) => n.recipient_role === 'public' && !PRIVATE_TAGS.includes(n.tag));
+    return notifsWithReadState.filter(
+      (n) => n.recipient_role === 'public' && !ADMIN_TAGS.has(n.tag) && !SELLER_TAGS.has(n.tag)
+    );
   }
 
   useEffect(() => {
@@ -1730,4 +1964,104 @@ export function useNotificationSlice(explicitScope = null) {
   }, [explicitScope]);
 
   return filteredNotifs;
+}
+
+/**
+ * Strict Role-Based Notification Filter Hook
+ * Prevents count leaks between Admins, Sellers, and Residents
+ */
+export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
+  const [alerts, setAlerts] = useState(() => filterAlerts());
+
+  function filterAlerts() {
+    const rawNotifs = hyperlocalStore.state.notifications || [];
+    const userPhone = sanitizePhone(currentUser?.phone);
+    const isSeller = Boolean(
+      currentUser?.is_merchant ||
+      currentUser?.verification_tier === 'verified_merchant' ||
+      currentUser?.verification_tier === 'merchant' ||
+      currentUser?.role === 'seller'
+    );
+    const isAdmin = Boolean(
+      isAdminMode ||
+      currentScreen === 'admin-dashboard' ||
+      currentUser?.role === 'admin' ||
+      localStorage.getItem('townhub_admin_unlocked') === 'true'
+    );
+
+    const readSet = getStoredReadNotifs();
+
+    return rawNotifs
+      .map((n) => {
+        const isRead = Boolean(n.is_read || n.read || readSet.has(String(n.id)));
+        return { ...n, is_read: isRead, read: isRead };
+      })
+      .filter((n) => {
+        const role = String(n.recipient_role || n.role || 'public').toLowerCase();
+        const notifPhone = sanitizePhone(n.recipient_phone || n.metadata?.sellerPhone || n.metadata?.userPhone);
+
+        // 1. ADMIN NOTIFICATIONS
+        if (role === 'admin' || ADMIN_TAGS.has(n.tag)) {
+          return isAdmin;
+        }
+
+        // 2. SELLER / MERCHANT NOTIFICATIONS
+        if (role === 'seller' || SELLER_TAGS.has(n.tag)) {
+          if (!isSeller || !userPhone) return false;
+          return notifPhone === userPhone;
+        }
+
+        // 3. USER / RESIDENT NOTIFICATIONS
+        if (role === 'user') {
+          if (!userPhone) return false;
+          return notifPhone === userPhone;
+        }
+
+        // 4. PUBLIC TOWN NOTIFICATIONS
+        if (role === 'public') {
+          return !ADMIN_TAGS.has(n.tag) && !SELLER_TAGS.has(n.tag);
+        }
+
+        return false;
+      });
+  }
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'notifications' || changedKey === 'all') {
+        setAlerts(filterAlerts());
+      }
+    });
+  }, [currentUser?.phone, currentUser?.is_merchant, currentScreen, isAdminMode]);
+
+  return alerts;
+}
+
+/**
+ * Reactive React hook for the Public Seller Storefront Modal
+ */
+export function useSellerProfileSlice() {
+  const [profileState, setProfileState] = useState(() => ({
+    selectedSeller: hyperlocalStore.state.selectedSeller,
+    isOpen: hyperlocalStore.state.isSellerProfileOpen,
+  }));
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'sellerProfile' || changedKey === 'all') {
+        setProfileState({
+          selectedSeller: hyperlocalStore.state.selectedSeller,
+          isOpen: hyperlocalStore.state.isSellerProfileOpen,
+        });
+      }
+    });
+  }, []);
+
+  return {
+    selectedSeller: profileState.selectedSeller,
+    isSellerProfileOpen: profileState.isOpen,
+    openSellerProfile: (seller) => hyperlocalStore.openSellerProfile(seller),
+    closeSellerProfile: () => hyperlocalStore.closeSellerProfile(),
+    getListingsBySeller: (seller) => hyperlocalStore.getListingsBySeller(seller),
+  };
 }

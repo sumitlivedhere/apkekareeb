@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   useInterestSlice,
   useThreadSlice,
@@ -10,7 +10,12 @@ import ProductReviewSection from './ProductReviewSection';
 import VoiceNotePlayer from './VoiceNotePlayer';
 import ContactSheetModal from './ContactSheetModal';
 import ShareSheetModal from './ShareSheetModal';
-import { uploadVoiceNoteToStorage } from '../../services/listingService';
+import {
+  uploadVoiceNoteToStorage,
+  fetchSellerProfileFromDB,
+  fetchSellerListingsFromDB,
+  getCategoryFallback,
+} from '../../services/listingService';
 import { getCurrentUserProfile } from '../../services/authService';
 import {
   getOptimizedVoiceStream,
@@ -24,8 +29,17 @@ export default function ListingDetailModal({
   selectedCity = 'Alwar',
   onClose,
   onNewNotification,
+  onSelectListing,
 }) {
   if (!item) return null;
+
+  // Active Listing State (supports in-place switching from the seller storefront)
+  const [currentViewingItem, setCurrentViewingItem] = useState(item);
+  useEffect(() => {
+    setCurrentViewingItem(item);
+  }, [item]);
+
+  const activeItem = currentViewingItem || item;
 
   // 🛡️ Modal History & Hardware Back Interception
   const touchStartX = useRef(0);
@@ -38,6 +52,7 @@ export default function ListingDetailModal({
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isSellerProfileModalOpen, setIsSellerProfileModalOpen] = useState(false);
   const pendingCartAddRef = useRef(false);
 
   // 📷 Photo Carousel & Lightbox State
@@ -46,7 +61,7 @@ export default function ListingDetailModal({
   const carouselRef = useRef(null);
 
   // 🎬 Video State
-  const rawVideos = item.videos || item.video_urls || [];
+  const rawVideos = activeItem.videos || activeItem.video_urls || [];
   const videos = rawVideos.map((v) =>
     typeof v === 'string' ? { url: v, duration: '0:30', name: 'Walkthrough Video' } : v
   );
@@ -56,7 +71,7 @@ export default function ListingDetailModal({
 
   // 💬 Q&A & Voice Inquiries State
   const cleanUserPhone = currentUser?.phone ? String(currentUser.phone).replace(/\D/g, '').slice(-10) : '';
-  const cleanSellerPhone = String(item.phone || item.whatsapp || '').replace(/\D/g, '').slice(-10);
+  const cleanSellerPhone = String(activeItem.phone || activeItem.whatsapp || '').replace(/\D/g, '').slice(-10);
   const isOwner = Boolean(cleanUserPhone && cleanSellerPhone && cleanUserPhone === cleanSellerPhone);
 
   const [userQuery, setUserQuery] = useState('');
@@ -76,21 +91,21 @@ export default function ListingDetailModal({
   const timerRef = useRef(null);
 
   // ⭐ Star Rating & Interest Stats
-  const ratingStats = useListingRatingStats(item.id, Number(item.rating || 4.8));
+  const ratingStats = useListingRatingStats(activeItem.id, Number(activeItem.rating || 4.8));
   const interestCount = useInterestSlice(
-    item.id,
-    Number(item.interestCount || item.interest_count || 0)
+    activeItem.id,
+    Number(activeItem.interestCount || activeItem.interest_count || 0)
   );
   const [isAlreadyInterested, setIsAlreadyInterested] = useState(() =>
-    hyperlocalStore.hasUserInterested(item.id)
+    hyperlocalStore.hasUserInterested(activeItem.id)
   );
 
   // 🛒 User-Specific Cart Hook
   const cart = useCartSlice();
-  const cartItem = (cart || []).find((i) => String(i.id) === String(item.id) || String(i.listingId) === String(item.id));
+  const cartItem = (cart || []).find((i) => String(i.id) === String(activeItem.id) || String(i.listingId) === String(activeItem.id));
   const cartQty = cartItem ? Number(cartItem.quantity) || 0 : 0;
 
-  const comments = useThreadSlice(item.id, []);
+  const comments = useThreadSlice(activeItem.id, []);
 
   // History & Escape Key Handling
   const handleModalClose = useCallback(() => {
@@ -111,6 +126,8 @@ export default function ListingDetailModal({
       if (e.key === 'Escape') {
         if (isLightboxOpen) {
           setIsLightboxOpen(false);
+        } else if (isSellerProfileModalOpen) {
+          setIsSellerProfileModalOpen(false);
         } else {
           handleModalClose();
         }
@@ -124,17 +141,17 @@ export default function ListingDetailModal({
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose, isLightboxOpen, handleModalClose]);
+  }, [onClose, isLightboxOpen, isSellerProfileModalOpen, handleModalClose]);
 
   // Gallery Resolution
   const gallery = (
-    item.images && item.images.length > 0
-      ? item.images
-      : item.image_urls && item.image_urls.length > 0
-      ? item.image_urls
-      : item.image
-      ? [item.image]
-      : ['https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700']
+    activeItem.images && activeItem.images.length > 0
+      ? activeItem.images
+      : activeItem.image_urls && activeItem.image_urls.length > 0
+      ? activeItem.image_urls
+      : activeItem.image
+      ? [activeItem.image]
+      : [getCategoryFallback(activeItem.category || 'property')]
   ).map((img) => (typeof img === 'string' ? img : img.url || img.preview));
 
   const totalImages = gallery.length;
@@ -169,10 +186,10 @@ export default function ListingDetailModal({
     }
 
     const res = hyperlocalStore.toggleInterestOnce(
-      item.id,
+      activeItem.id,
       interestCount,
-      item.title || item.name,
-      item.sellerName || item.driverName || 'Verified Member'
+      activeItem.title || activeItem.name,
+      activeItem.sellerName || activeItem.driverName || 'Verified Member'
     );
 
     if (res.success) {
@@ -198,7 +215,7 @@ export default function ListingDetailModal({
       return;
     }
 
-    const res = hyperlocalStore.addToCart(item, 1, user.phone);
+    const res = hyperlocalStore.addToCart(activeItem, 1, user.phone);
     if (res.requireAuth) {
       pendingCartAddRef.current = true;
       setIsAuthModalOpen(true);
@@ -215,7 +232,7 @@ export default function ListingDetailModal({
       setIsAuthModalOpen(true);
       return;
     }
-    hyperlocalStore.updateCartQuantity(item.id, newQty, user.phone);
+    hyperlocalStore.updateCartQuantity(activeItem.id, newQty, user.phone);
     if ('vibrate' in navigator) navigator.vibrate(25);
   };
 
@@ -271,7 +288,7 @@ export default function ListingDetailModal({
         const sender = userName.trim() || currentUser?.full_name || 'Town User';
 
         hyperlocalStore.addThreadComment(
-          item.id,
+          activeItem.id,
           {
             userName: sender,
             type: 'audio',
@@ -280,17 +297,17 @@ export default function ListingDetailModal({
             text: '🎤 Voice Note Question',
             isPublic: true,
           },
-          item.title || item.name
+          activeItem.title || activeItem.name
         );
 
         if (onNewNotification) {
           onNewNotification({
             tag: 'VOICE INQUIRY',
-            title: `Voice inquiry on "${item.title || item.name}"`,
+            title: `Voice inquiry on "${activeItem.title || activeItem.name}"`,
             message: `${sender} sent an audio message (${durationStr})`,
             time: 'Just now',
             type: 'comment',
-            targetId: item.id,
+            targetId: activeItem.id,
           });
         }
       } catch (err) {
@@ -334,10 +351,10 @@ export default function ListingDetailModal({
 
     const sender = userName.trim() || currentUser?.full_name || 'Town User';
     const text = userQuery.trim();
-    const sellerPhoneClean = String(item.phone || item.whatsapp || '').replace(/\D/g, '').slice(-10);
+    const sellerPhoneClean = String(activeItem.phone || activeItem.whatsapp || '').replace(/\D/g, '').slice(-10);
 
     hyperlocalStore.addThreadComment(
-      item.id,
+      activeItem.id,
       {
         userName: sender,
         text: text,
@@ -345,21 +362,21 @@ export default function ListingDetailModal({
         isPublic: true,
         userPhone: cleanUserPhone,
       },
-      item.title || item.name
+      activeItem.title || activeItem.name
     );
 
     if (onNewNotification) {
       onNewNotification({
         tag: 'NEW COMMENT',
-        title: `Question on "${item.title || item.name}"`,
+        title: `Question on "${activeItem.title || activeItem.name}"`,
         message: `${sender} asked: "${text}"`,
         time: 'Just now',
         type: 'comment',
-        targetId: item.id,
+        targetId: activeItem.id,
         recipient_role: 'seller',
         recipient_phone: sellerPhoneClean,
         metadata: {
-          listingId: item.id,
+          listingId: activeItem.id,
           sellerPhone: sellerPhoneClean,
           userPhone: cleanUserPhone,
         },
@@ -376,28 +393,28 @@ export default function ListingDetailModal({
     const targetUserPhone = matchingComment?.userPhone || null;
 
     hyperlocalStore.addSellerReply(
-      item.id,
+      activeItem.id,
       commentId,
       {
         text: sellerReplyText.trim(),
         type: 'text',
         sellerName: `${sellerDisplayName} (Owner)`,
       },
-      item.title || item.name
+      activeItem.title || activeItem.name
     );
 
     if (targetUserPhone && onNewNotification) {
       onNewNotification({
         tag: 'SELLER REPLIED',
         title: `${sellerDisplayName} replied to your question!`,
-        message: `On "${item.title || item.name}": "${sellerReplyText.trim().slice(0, 80)}"`,
+        message: `On "${activeItem.title || activeItem.name}": "${sellerReplyText.trim().slice(0, 80)}"`,
         time: 'Just now',
         type: 'comment',
-        targetId: item.id,
+        targetId: activeItem.id,
         recipient_role: 'user',
         recipient_phone: targetUserPhone,
         metadata: {
-          listingId: item.id,
+          listingId: activeItem.id,
           sellerPhone: cleanSellerPhone,
           userPhone: targetUserPhone,
         },
@@ -409,21 +426,21 @@ export default function ListingDetailModal({
   };
 
   // Contacts & Metadata
-  const rawPhone = item.phone || item.whatsapp || '9876543201';
+  const rawPhone = activeItem.phone || activeItem.whatsapp || '9876543201';
   const cleanPhone = String(rawPhone).replace(/\D/g, '');
   const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-  const sellerDisplayName = item.sellerName || item.driverName || 'Verified Member';
+  const sellerDisplayName = activeItem.sellerName || activeItem.seller_name || activeItem.driverName || 'Verified Member';
   const sellerInitial = sellerDisplayName.charAt(0).toUpperCase();
 
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
-    `Namaste ${sellerDisplayName}, I found your listing "${item.title || item.name}" on Aapke Kareeb (${item.location || selectedCity}). I want more details.`
+    `Namaste ${sellerDisplayName}, I found your listing "${activeItem.title || activeItem.name}" on Aapke Kareeb (${activeItem.location || selectedCity}). I want more details.`
   )}`;
 
   const mapUrl =
-    item.mapUrl ||
-    (item.lat && item.lng
-      ? `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`
-      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((item.location || '') + ' ' + selectedCity)}`);
+    activeItem.mapUrl ||
+    (activeItem.lat && activeItem.lng
+      ? `https://www.google.com/maps/dir/?api=1&destination=${activeItem.lat},${activeItem.lng}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((activeItem.location || '') + ' ' + selectedCity)}`);
 
   const getAvatarColor = (name = 'U') => {
     const colors = ['bg-red-600', 'bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'bg-amber-600', 'bg-teal-600'];
@@ -432,14 +449,33 @@ export default function ListingDetailModal({
     return colors[Math.abs(hash) % colors.length];
   };
 
+  // 🏬 Open Seller Storefront Handler
+  const handleOpenSellerProfile = (e) => {
+    e?.stopPropagation();
+    if ('vibrate' in navigator) navigator.vibrate(20);
+
+    const sellerPayload = {
+      sellerName: sellerDisplayName,
+      phone: cleanPhone,
+      whatsapp: activeItem.whatsapp || activeItem.phone,
+      userId: activeItem.userId || activeItem.user_id,
+      locationName: activeItem.location || activeItem.locationName || selectedCity,
+      category: activeItem.category,
+      verificationBadge: activeItem.verificationBadge || activeItem.verification_badge || 'Verified Business',
+    };
+
+    hyperlocalStore.openSellerProfile(sellerPayload);
+    setIsSellerProfileModalOpen(true);
+  };
+
   const handleTouchStart = (e) => {
-    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isRecording) return;
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isSellerProfileModalOpen || isRecording) return;
     touchStartX.current = e.changedTouches[0].clientX;
     touchStartY.current = e.changedTouches[0].clientY;
   };
 
   const handleTouchEnd = (e) => {
-    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isRecording) return;
+    if (isLightboxOpen || isReportModalOpen || isAuthModalOpen || isContactModalOpen || isShareModalOpen || isSellerProfileModalOpen || isRecording) return;
     const target = e.target;
     if (target.closest('.overflow-x-auto, .snap-x, input, textarea, select, video, button')) return;
 
@@ -474,7 +510,7 @@ export default function ListingDetailModal({
           </button>
 
           <span className="text-xs font-black text-amber-400 uppercase tracking-wider truncate max-w-[130px]">
-            {item.subCategory || item.category || 'Listing'}
+            {activeItem.subCategory || activeItem.category || 'Listing'}
           </span>
 
           <div className="flex items-center space-x-1.5">
@@ -557,7 +593,7 @@ export default function ListingDetailModal({
                   >
                     <img
                       src={imgSrc}
-                      alt={`${item.title || 'Listing'} - preview ${idx + 1}`}
+                      alt={`${activeItem.title || 'Listing'} preview ${idx + 1}`}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         e.currentTarget.src = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=700';
@@ -576,7 +612,7 @@ export default function ListingDetailModal({
 
               <div className="absolute bottom-3 left-3 bg-slate-950/90 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10 shadow-lg pointer-events-none">
                 <span className="text-base font-black text-amber-400">
-                  {item.price || item.rent || item.rates || 'Contact for Price'}
+                  {activeItem.price || activeItem.rent || activeItem.rates || 'Contact for Price'}
                 </span>
               </div>
 
@@ -656,10 +692,10 @@ export default function ListingDetailModal({
             <div className="space-y-1">
               <div className="flex items-start justify-between">
                 <h1 id="modal-listing-title" className="text-lg font-black text-white leading-snug">
-                  {item.title || item.name}
+                  {activeItem.title || activeItem.name}
                 </h1>
                 <span className="text-[10px] font-black text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg shrink-0 ml-2">
-                  {String(item.subCategory || item.category || 'VERIFIED').toUpperCase()}
+                  {String(activeItem.subCategory || activeItem.category || 'VERIFIED').toUpperCase()}
                 </span>
               </div>
             </div>
@@ -669,14 +705,14 @@ export default function ListingDetailModal({
               <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
                 <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Operational Hours</span>
                 <span className="text-[10.5px] font-black text-slate-200">
-                  ⏰ {item.timing || item.activeHours || '09:00 AM - 09:00 PM'}
+                  ⏰ {activeItem.timing || activeItem.activeHours || '09:00 AM - 09:00 PM'}
                 </span>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-2xl text-center shadow-xs">
                 <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider block">Stock Status</span>
                 <span className="text-[10.5px] font-black text-cyan-300">
-                  📦 {item.capacity || item.stockCount || 'Ready Stock'}
+                  📦 {activeItem.capacity || activeItem.stockCount || 'Ready Stock'}
                 </span>
               </div>
             </div>
@@ -754,33 +790,59 @@ export default function ListingDetailModal({
               )}
             </div>
 
-            {/* Verified Seller Profile & Channels */}
-            <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3 shadow-md">
-              <div className="flex items-center space-x-3">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-base flex items-center justify-center shadow-md shrink-0">
-                  {sellerInitial}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center space-x-1.5">
-                    <h3 className="font-black text-white text-sm truncate">
-                      {sellerDisplayName}
-                    </h3>
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold shrink-0">
-                      ✓ Verified
+            {/* 🏬 Clickable Business Profile Card & Direct Channels */}
+            <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 hover:border-amber-400/40 space-y-3 shadow-md transition-colors">
+              
+              {/* Interactive Header that triggers the Seller Storefront */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={handleOpenSellerProfile}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOpenSellerProfile();
+                  }
+                }}
+                className="flex items-center justify-between p-1.5 -m-1.5 rounded-xl hover:bg-slate-800/80 active:scale-[0.99] transition cursor-pointer group"
+                title={`View all listings by ${sellerDisplayName}`}
+              >
+                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-lg flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                    {sellerInitial}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center space-x-1.5">
+                      <h3 className="font-black text-white text-sm truncate group-hover:text-amber-400 transition-colors">
+                        {sellerDisplayName}
+                      </h3>
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold shrink-0">
+                        ✓ Verified
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 flex items-center space-x-1.5 mt-0.5 truncate">
+                      <span>📍 {activeItem.location || selectedCity}</span>
+                      <span>•</span>
+                      <span className="text-cyan-300 font-mono font-semibold">
+                        📱 +91 {cleanPhone.slice(-10)}
+                      </span>
+                    </p>
+                    <span className="text-[10px] font-bold text-amber-400/90 flex items-center gap-1 mt-0.5 group-hover:underline">
+                      <span>🏪 View seller profile & all listings</span>
+                      <span>➔</span>
                     </span>
                   </div>
-                  <p className="text-[10px] text-slate-400 flex items-center space-x-1.5 mt-0.5 truncate">
-                    <span>📍 {item.location || selectedCity}</span>
-                    <span>•</span>
-                    <span className="text-cyan-300 font-mono font-semibold">
-                      📱 +91 {cleanPhone.slice(-10)}
-                    </span>
-                  </p>
+                </div>
+
+                <div className="shrink-0 pl-2">
+                  <span className="w-8 h-8 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-400 flex items-center justify-center text-xs font-black group-hover:bg-amber-400 group-hover:text-slate-950 transition-colors">
+                    ➔
+                  </span>
                 </div>
               </div>
 
-              {/* Direct Action Links */}
-              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
+              {/* Direct Action Links (e.stopPropagation prevents triggering the storefront modal) */}
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80" onClick={(e) => e.stopPropagation()}>
                 <a
                   href={whatsappUrl}
                   target="_blank"
@@ -811,13 +873,13 @@ export default function ListingDetailModal({
             </div>
 
             {/* Highlights & Description */}
-            {item.description && (
+            {activeItem.description && (
               <div className="space-y-1.5 p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800">
                 <h2 className="text-[11px] font-black text-slate-300 uppercase tracking-wider">
                   Highlights & Specifications (मुख्य विवरण)
                 </h2>
                 <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-line">
-                  {item.description}
+                  {activeItem.description}
                 </p>
               </div>
             )}
@@ -829,7 +891,7 @@ export default function ListingDetailModal({
                   <span>📍</span>
                   <span>Location & Address</span>
                 </span>
-                {item.lat && item.lng && (
+                {activeItem.lat && activeItem.lng && (
                   <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded-md">
                     GPS Verified
                   </span>
@@ -837,7 +899,7 @@ export default function ListingDetailModal({
               </div>
 
               <p className="text-xs font-semibold text-slate-200">
-                {item.location || selectedCity}
+                {activeItem.location || selectedCity}
               </p>
 
               <a
@@ -900,7 +962,7 @@ export default function ListingDetailModal({
                               <span className="font-black text-cyan-300 truncate">
                                 @{c.userName?.toLowerCase().replace(/\s+/g, '_') || 'town_user'}
                               </span>
-                              <span className="text-slate-500">• {c.timestamp || 'Recently'}</span>
+                              <span className="text-slate-500">{c.timestamp || 'Recently'}</span>
                             </div>
 
                             {c.type === 'audio' || c.audioUrl ? (
@@ -935,7 +997,7 @@ export default function ListingDetailModal({
                                 <span>👑 {sellerDisplayName}</span>
                                 <span className="text-amber-400">✓</span>
                               </span>
-                              <span className="text-amber-400/60 text-[9px]">• Official Response</span>
+                              <span className="text-amber-400/60 text-[9px]">Official Response</span>
                             </div>
 
                             {c.sellerReply.type === 'audio' || c.sellerReply.audioUrl ? (
@@ -1044,8 +1106,8 @@ export default function ListingDetailModal({
 
             {/* Product Reviews & Rating Section */}
             <ProductReviewSection
-              listingId={item.id}
-              listingTitle={item.title || item.name}
+              listingId={activeItem.id}
+              listingTitle={activeItem.title || activeItem.name}
               sellerName={sellerDisplayName}
             />
 
@@ -1154,10 +1216,10 @@ export default function ListingDetailModal({
         {/* Contact Sheet Modal */}
         {isContactModalOpen && (
           <ContactSheetModal
-            item={item}
-            phone={item.phone || item.contact}
-            whatsapp={item.whatsapp || item.phone}
-            instagram={item.instagram || item.insta}
+            item={activeItem}
+            phone={activeItem.phone || activeItem.contact}
+            whatsapp={activeItem.whatsapp || activeItem.phone}
+            instagram={activeItem.instagram || activeItem.insta}
             selectedCity={selectedCity}
             onClose={() => setIsContactModalOpen(false)}
           />
@@ -1166,17 +1228,41 @@ export default function ListingDetailModal({
         {/* Share Modal */}
         {isShareModalOpen && (
           <ShareSheetModal
-            item={item}
+            item={activeItem}
             selectedCity={selectedCity}
             onClose={() => setIsShareModalOpen(false)}
           />
         )}
       </div>
 
+      {/* 🏬 Embedded Public Seller Storefront Modal */}
+      {isSellerProfileModalOpen && (
+        <SellerStorefrontModal
+          isOpen={isSellerProfileModalOpen}
+          seller={{
+            sellerName: sellerDisplayName,
+            phone: cleanPhone,
+            whatsapp: activeItem.whatsapp || activeItem.phone,
+            userId: activeItem.userId || activeItem.user_id,
+            locationName: activeItem.location || activeItem.locationName || selectedCity,
+            category: activeItem.category,
+            verificationBadge: activeItem.verificationBadge || activeItem.verification_badge || 'Verified Business',
+          }}
+          currentListingId={activeItem.id}
+          selectedCity={selectedCity}
+          onClose={() => setIsSellerProfileModalOpen(false)}
+          onSelectListing={(selectedListing) => {
+            setCurrentViewingItem(selectedListing);
+            setIsSellerProfileModalOpen(false);
+            if (onSelectListing) onSelectListing(selectedListing);
+          }}
+        />
+      )}
+
       {/* Community Report Modal */}
       <ReportModal
         isOpen={isReportModalOpen}
-        listing={item}
+        listing={activeItem}
         reporterPhone={currentUser?.phone || '9876543210'}
         onClose={() => setIsReportModalOpen(false)}
         onSuccess={handleModalClose}
@@ -1195,12 +1281,11 @@ export default function ListingDetailModal({
           setUserName(profile.full_name || userName);
           setIsAuthModalOpen(false);
 
-         // Frictionless Add-to-Cart Completion post-login
           if (pendingCartAddRef.current && profile?.phone) {
             const loggedInPhone = String(profile.phone).replace(/\D/g, '').slice(-10);
             if (loggedInPhone !== cleanSellerPhone) {
               hyperlocalStore.loadUserCart(profile.phone).then(() => {
-                hyperlocalStore.addToCart(item, 1, profile.phone);
+                hyperlocalStore.addToCart(activeItem, 1, profile.phone);
                 pendingCartAddRef.current = false;
               });
             } else {
@@ -1210,5 +1295,245 @@ export default function ListingDetailModal({
         }}
       />
     </>
+  );
+}
+
+/* ========================================================================= */
+/* 🏬 SELF-CONTAINED SELLER PROFILE & STOREFRONT MODAL                       */
+/* ========================================================================= */
+
+function SellerStorefrontModal({
+  isOpen,
+  seller,
+  currentListingId,
+  selectedCity = 'Alwar',
+  onClose,
+  onSelectListing,
+}) {
+  if (!isOpen || !seller) return null;
+
+  const [profile, setProfile] = useState(null);
+  const [listings, setListings] = useState(() => hyperlocalStore.getListingsBySeller(seller));
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('all');
+
+  // Load latest data from DB with instantaneous local memory fallback
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+
+    Promise.allSettled([
+      fetchSellerProfileFromDB(seller),
+      fetchSellerListingsFromDB(seller),
+    ]).then(([profRes, listRes]) => {
+      if (!isMounted) return;
+      if (profRes.status === 'fulfilled' && profRes.value) {
+        setProfile(profRes.value);
+      }
+      if (listRes.status === 'fulfilled' && Array.isArray(listRes.value) && listRes.value.length > 0) {
+        setListings(listRes.value);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [seller]);
+
+  const cleanPhone = String(profile?.phone || seller.phone || '').replace(/\D/g, '').slice(-10);
+  const businessTitle = profile?.businessName || seller.sellerName || 'Verified Merchant';
+  const initial = businessTitle.charAt(0).toUpperCase();
+
+  const categories = useMemo(() => {
+    const set = new Set((listings || []).map((l) => l.category).filter(Boolean));
+    return ['all', ...Array.from(set)];
+  }, [listings]);
+
+  const filteredListings = useMemo(() => {
+    if (activeTab === 'all') return listings;
+    return (listings || []).filter((l) => l.category === activeTab);
+  }, [listings, activeTab]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 bg-slate-950 flex flex-col justify-between max-w-md mx-auto animate-fade-in text-slate-100 overflow-hidden font-sans select-none"
+    >
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md px-4 py-3 border-b border-slate-800 flex items-center justify-between shadow-md">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center space-x-1.5 text-xs font-black bg-slate-900 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl border border-slate-800 transition active:scale-95 cursor-pointer"
+        >
+          <span>←</span>
+          <span>Back to Listing</span>
+        </button>
+
+        <span className="text-xs font-black text-amber-400 uppercase tracking-wider">
+          Storefront
+        </span>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-7 h-7 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-bold border border-slate-800 transition"
+        >
+          ✕
+        </button>
+      </header>
+
+      {/* Storefront Content */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
+        
+        {/* Merchant Hero Banner */}
+        <div className="p-4 bg-gradient-to-b from-slate-900 to-slate-900/60 rounded-2xl border border-slate-800 shadow-xl space-y-3">
+          <div className="flex items-start space-x-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 font-black text-2xl flex items-center justify-center shadow-lg shrink-0">
+              {initial}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center space-x-2">
+                <h1 className="font-black text-white text-base leading-tight truncate">
+                  {businessTitle}
+                </h1>
+                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded-md font-bold shrink-0">
+                  ✓ Verified Store
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1 truncate">
+                📍 {profile?.areaName || seller.locationName || selectedCity}, {selectedCity}
+              </p>
+              <div className="flex items-center space-x-2 mt-1.5 text-[10px] text-slate-400 font-medium">
+                <span className="text-amber-400 font-bold">★ 5.0 Rating</span>
+                <span>•</span>
+                <span className="text-emerald-400 font-semibold">Trust {profile?.trustScore ?? 100}</span>
+                <span>•</span>
+                <span className="text-cyan-300">{listings.length} Offerings</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Direct Communication Buttons */}
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
+            <a
+              href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`Hello ${businessTitle}, I am viewing your storefront on Aapke Kareeb.`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="py-2.5 px-3 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl flex items-center justify-center space-x-1.5 text-xs font-black transition active:scale-95"
+            >
+              <span>💬</span>
+              <span>WhatsApp Store</span>
+            </a>
+
+            <a
+              href={`tel:${cleanPhone}`}
+              className="py-2.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl flex items-center justify-center space-x-1.5 text-xs font-black transition active:scale-95"
+            >
+              <span>📞</span>
+              <span>Call Business</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Category Tabs (if seller has multiple types of items) */}
+        {categories.length > 2 && (
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setActiveTab(cat)}
+                className={`py-1 px-3 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  activeTab === cat
+                    ? 'bg-amber-400 text-slate-950 shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                {cat === 'all' ? `All Items (${listings.length})` : String(cat).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Listings Catalog */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-black text-slate-300 uppercase tracking-wider">
+              Catalog & Listings ({filteredListings.length})
+            </h2>
+            <span className="text-[10px] text-slate-500">
+              Tap any item to view
+            </span>
+          </div>
+
+          {loading && listings.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-xs">
+              Loading merchant storefront...
+            </div>
+          ) : filteredListings.length === 0 ? (
+            <div className="text-center py-10 bg-slate-900/50 border border-slate-800 rounded-2xl text-slate-400 text-xs">
+              No active listings found under this filter.
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {filteredListings.map((l) => {
+                const isCurrent = String(l.id) === String(currentListingId);
+                const thumb = l.image || l.image_url || l.images?.[0] || getCategoryFallback(l.category);
+
+                return (
+                  <div
+                    key={l.id}
+                    onClick={() => onSelectListing(l)}
+                    className={`p-3 rounded-2xl border transition cursor-pointer flex items-center space-x-3 active:scale-[0.99] ${
+                      isCurrent
+                        ? 'bg-amber-500/10 border-amber-400/60 shadow-md'
+                        : 'bg-slate-900/80 hover:bg-slate-900 border-slate-800'
+                    }`}
+                  >
+                    <img
+                      src={thumb}
+                      alt={l.title}
+                      className="w-16 h-16 rounded-xl object-cover shrink-0 bg-slate-950 border border-slate-800"
+                      onError={(e) => {
+                        e.currentTarget.src = getCategoryFallback(l.category);
+                      }}
+                    />
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[9px] font-black uppercase text-amber-300 bg-amber-500/10 px-1.5 py-0.2 rounded-md">
+                          {l.subCategory || l.category}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[9px] font-black text-emerald-300 bg-emerald-500/20 px-1.5 py-0.2 rounded-md">
+                            ● Viewing Now
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-bold text-xs text-white truncate leading-tight">
+                        {l.title || l.name}
+                      </h3>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-amber-400">
+                          {l.price || l.rent || l.rates || 'Contact for Price'}
+                        </span>
+                        <span className="text-[10px] text-cyan-300 font-bold">
+                          View Details ➔
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
   );
 }
