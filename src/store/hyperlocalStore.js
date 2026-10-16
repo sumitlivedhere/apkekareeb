@@ -31,12 +31,52 @@ const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 const USER_INTERESTS_STORAGE_KEY = 'aapkekareeb_user_interests';
 const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
 const USER_NOTIFS_STORAGE_KEY = 'aapkekareeb_read_notifs';
+const PROMOTED_STORAGE_KEY = 'aapkekareeb_promoted_listings';
 
 const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
 
 function isValidUuid(id) {
   if (!id) return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim());
+}
+
+// 🚀 Persistent Paid Promotions Registry (Survives refreshes, tab switches, and mock IDs)
+export function getStoredPromotionsMap() {
+  try {
+    const raw = localStorage.getItem(PROMOTED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const now = Date.now();
+    const valid = {};
+    Object.keys(parsed).forEach((id) => {
+      const entry = parsed[id];
+      if (entry && (!entry.expiresAt || new Date(entry.expiresAt).getTime() > now)) {
+        valid[id] = entry;
+      }
+    });
+    return valid;
+  } catch {
+    return {};
+  }
+}
+
+export function saveStoredPromotion(listingId, isPromoted, expiresAt = null) {
+  if (!listingId) return;
+  try {
+    const map = getStoredPromotionsMap();
+    const strId = String(listingId);
+    if (isPromoted) {
+      map[strId] = {
+        is_promoted: true,
+        deal_type: 'PAID_PROMO',
+        expiresAt: expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        promotedAt: new Date().toISOString(),
+      };
+    } else {
+      delete map[strId];
+    }
+    localStorage.setItem(PROMOTED_STORAGE_KEY, JSON.stringify(map));
+  } catch {}
 }
 
 function getUserCartStorageKey(phone) {
@@ -172,7 +212,7 @@ export const CATEGORY_SLICE_MAP = {
   construction: 'constructionListings',
   transporters: 'transportFirms',
   transport: 'transportFirms',
-  vehicles: 'vehiclesListings',
+  vehicles: 'listings',
   kaarigar: 'kaarigarWorkers',
   market: 'marketProducts',
   shaadi: 'shaadiVendors',
@@ -210,6 +250,7 @@ export function sanitizeImageUrl(url, category = 'property') {
 
 export function normalizeDBListing(item) {
   if (!item) return null;
+  const itemId = String(item.id || `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
   const catId = (item.category || 'property').toLowerCase().trim();
   const categoryConfig = getCategoryById(catId) || {};
   const rawSub =
@@ -304,23 +345,31 @@ export function normalizeDBListing(item) {
   const isActive = item.is_active !== undefined ? Boolean(item.is_active) : true;
   const hasPendingApproval = Boolean(item.has_pending_approval);
   const pendingChanges = item.pending_changes || null;
-  const resolvedBadge = item.verification_badge || item.verificationBadge || (hasPendingApproval ? '⏳ Pending Approval' : 'Verified Listing');
+
+  // 🚀 Check both Database Promotion Flags AND LocalStorage Promotion Registry
+  const storedPromos = getStoredPromotionsMap();
+  const localPromo = storedPromos[itemId];
+  const resolvedDealType = localPromo ? 'PAID_PROMO' : (item.deal_type || item.dealType || null);
+  const resolvedExpiresAt = localPromo?.expiresAt || item.deal_expires_at || item.promoted_until || null;
+  const isPromotedActive = Boolean(
+    (localPromo ||
+      item.is_promoted === true ||
+      resolvedDealType === 'PAID_PROMO' ||
+      String(item.verification_badge || '').includes('Sponsor')) &&
+    (!resolvedExpiresAt || new Date(resolvedExpiresAt).getTime() > Date.now())
+  );
+
+  const resolvedBadge = isPromotedActive
+    ? '🚀 Featured Sponsor'
+    : (item.verification_badge || item.verificationBadge || (hasPendingApproval ? '⏳ Pending Approval' : 'Verified Listing'));
 
   return {
-    id: String(item.id || `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
+    id: itemId,
     userId: item.user_id || item.userId || null,
     user_id: item.user_id || item.userId || null,
     title: nameVal,
     name: nameVal,
     category: catId,
-    // 🚀 Paid Promotion Flags
-    is_promoted: Boolean(
-      (item.is_promoted === true || item.deal_type === 'PAID_PROMO') &&
-      (!item.deal_expires_at || new Date(item.deal_expires_at).getTime() > Date.now())
-    ),
-    deal_type: item.deal_type || item.dealType || null,
-    deal_expires_at: item.deal_expires_at || null,
-    promoted_until: item.promoted_until || item.deal_expires_at || null,
     subCategory: subCatId,
     sub_category: subCatId,
     bucketKey: targetBucket,
@@ -341,10 +390,12 @@ export function normalizeDBListing(item) {
     consultationFee: item.consultationFee || priceVal,
     priceForTwo: priceVal,
     startingPackage: priceVal,
-    deal_type: item.deal_type || item.dealType || null,
-    dealType: item.deal_type || item.dealType || null,
-    deal_badge: item.deal_badge || item.dealBadge || null,
-    dealBadge: item.deal_badge || item.dealBadge || null,
+    is_promoted: isPromotedActive,
+    promoted_until: resolvedExpiresAt,
+    deal_type: resolvedDealType,
+    dealType: resolvedDealType,
+    deal_badge: item.deal_badge || item.dealBadge || (isPromotedActive ? '👑 Sponsored' : null),
+    dealBadge: item.deal_badge || item.dealBadge || (isPromotedActive ? '👑 Sponsored' : null),
     deal_details: item.deal_details || item.dealDetails || null,
     dealDetails: item.deal_details || item.dealDetails || null,
     original_price: item.original_price || item.originalPrice || null,
@@ -353,7 +404,7 @@ export function normalizeDBListing(item) {
     tokenAmount: item.token_amount || item.tokenAmount || null,
     doorstep_trial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
     doorstepTrial: Boolean(item.doorstep_trial ?? item.doorstepTrial ?? false),
-    deal_expires_at: item.deal_expires_at || null,
+    deal_expires_at: resolvedExpiresAt,
     sellerName: personOrBiz,
     seller_name: personOrBiz,
     driverName: personOrBiz,
@@ -491,6 +542,76 @@ class HyperlocalEngineStore {
     if (initialPhone) {
       this.loadUserCart(initialPhone);
     }
+
+    // Cross-Tab Promotion & Store Sync Listener
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === PROMOTED_STORAGE_KEY) {
+          this.syncPromotionsFromStorage();
+        }
+      });
+    }
+  }
+
+  // 🚀 Synchronizes localStorage promotions across all memory buckets
+  syncPromotionsFromStorage() {
+    const promoMap = getStoredPromotionsMap();
+    Object.keys(this.state).forEach((key) => {
+      if (Array.isArray(this.state[key]) && key !== 'notifications' && key !== 'cart') {
+        this.state[key] = this.state[key].map((item) => {
+          if (!item || !item.id) return item;
+          const strId = String(item.id);
+          const isLocalPromo = Boolean(promoMap[strId]);
+          const isDbPromo = Boolean(item.deal_type === 'PAID_PROMO');
+          const activePromo = isLocalPromo || isDbPromo;
+          return {
+            ...item,
+            is_promoted: activePromo,
+            deal_type: activePromo ? 'PAID_PROMO' : null,
+            deal_expires_at: promoMap[strId]?.expiresAt || item.deal_expires_at || null,
+          };
+        });
+      }
+    });
+    this.notify('all');
+  }
+
+  // 🚀 Instantaneous & Persistent Paid Promotion Setter (Works for Mock & DB items)
+  setListingPromotion(listingId, isPromoted, durationDays = 7) {
+    const strId = String(listingId);
+    const expiresAt = isPromoted
+      ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    // 1. Save to localStorage so it survives page reloads & works across tabs
+    saveStoredPromotion(strId, isPromoted, expiresAt);
+
+    // 2. Update every slice in memory
+    Object.keys(this.state).forEach((key) => {
+      if (Array.isArray(this.state[key]) && key !== 'notifications' && key !== 'cart') {
+        let changed = false;
+        this.state[key] = this.state[key].map((item) => {
+          if (item && String(item.id) === strId) {
+            changed = true;
+            return {
+              ...item,
+              is_promoted: isPromoted,
+              deal_type: isPromoted ? 'PAID_PROMO' : null,
+              dealType: isPromoted ? 'PAID_PROMO' : null,
+              deal_expires_at: expiresAt,
+              promoted_until: expiresAt,
+              deal_badge: isPromoted ? '👑 Sponsored' : (item.deal_badge === '👑 Sponsored' ? null : item.deal_badge),
+              verification_badge: isPromoted ? '🚀 Featured Sponsor' : 'Verified Listing',
+            };
+          }
+          return item;
+        });
+        if (changed) this.notify(key);
+      }
+    });
+
+    this.notify('all');
+    return expiresAt;
   }
 
   getState(key) {
@@ -505,35 +626,6 @@ class HyperlocalEngineStore {
       seen.add(String(item.id));
       return true;
     });
-  }
-
-  // 🚀 Direct In-Memory Promotion Method (Instant UI update for both DB and Mock listings)
-  setListingPromotion(listingId, isPromoted, durationDays = 7) {
-    const strId = String(listingId);
-    const expiresAt = isPromoted
-      ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000).toISOString()
-      : null;
-
-    Object.keys(this.state).forEach((key) => {
-      if (Array.isArray(this.state[key])) {
-        this.state[key] = this.state[key].map((item) => {
-          if (item && String(item.id) === strId) {
-            return {
-              ...item,
-              is_promoted: isPromoted,
-              deal_type: isPromoted ? 'PAID_PROMO' : null,
-              deal_expires_at: expiresAt,
-              deal_badge: isPromoted ? '🚀 Sponsored' : (item.deal_badge === '🚀 Sponsored' ? null : item.deal_badge),
-              verification_badge: isPromoted ? '🚀 Featured Sponsor' : (item.verification_badge === '🚀 Featured Sponsor' ? 'Verified Listing' : item.verification_badge),
-            };
-          }
-          return item;
-        });
-        this.notify(key);
-      }
-    });
-    this.notify('all');
-    return expiresAt;
   }
 
   getAllListings() {
@@ -559,6 +651,7 @@ class HyperlocalEngineStore {
       'reCommerceListings',
     ];
 
+    const promoMap = getStoredPromotionsMap();
     const seenIds = new Set();
     const combined = [];
 
@@ -566,8 +659,18 @@ class HyperlocalEngineStore {
       const bucket = this.state[key] || [];
       bucket.forEach((item) => {
         if (item && item.id && !seenIds.has(String(item.id))) {
-          seenIds.add(String(item.id));
-          combined.push(item);
+          const strId = String(item.id);
+          seenIds.add(strId);
+          if (promoMap[strId] && !item.is_promoted) {
+            combined.push({
+              ...item,
+              is_promoted: true,
+              deal_type: 'PAID_PROMO',
+              deal_expires_at: promoMap[strId].expiresAt,
+            });
+          } else {
+            combined.push(item);
+          }
         }
       });
     });
@@ -671,6 +774,7 @@ class HyperlocalEngineStore {
 
   removeListing(listingId) {
     const targetStr = String(listingId);
+    saveStoredPromotion(targetStr, false);
 
     Object.keys(this.state).forEach((key) => {
       if (Array.isArray(this.state[key])) {
@@ -818,10 +922,6 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
-  /* ========================================================================= */
-  /* 🔔 ID-BOUND NOTIFICATION ENGINE & SILENCER                                */
-  /* ========================================================================= */
-
   addNotification(notif) {
     const notifId = String(notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
     const readSet = getStoredReadNotifs();
@@ -832,7 +932,7 @@ class HyperlocalEngineStore {
 
     const newEntry = {
       id: notifId,
-      user_id: validUserId, // 🔒 Bound directly to recipient user_profiles(id)
+      user_id: validUserId,
       tag: notif.tag || 'TOWN_ALERT',
       title: notif.title || 'New Notification',
       message: notif.message || '',
@@ -940,7 +1040,6 @@ class HyperlocalEngineStore {
     const strId = String(listingId);
     const hasAudio = Boolean(comment.audioUrl);
 
-    // Look up target listing to obtain seller's verified contact phone & user_id
     const allListings = this.getAllListings();
     const targetListing = allListings.find((l) => String(l.id) === strId);
     const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp || comment.sellerPhone);
@@ -965,7 +1064,6 @@ class HyperlocalEngineStore {
     this.notify(`thread:${strId}`);
     this.notify('threads');
 
-    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     this.addNotification({
       user_id: targetSellerUserId,
       tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
@@ -1094,7 +1192,6 @@ class HyperlocalEngineStore {
     const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp);
     const targetSellerUserId = targetListing?.user_id || targetListing?.userId || null;
 
-    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     this.addNotification({
       user_id: targetSellerUserId,
       tag: 'INTEREST REGISTERED',
@@ -1417,7 +1514,6 @@ class HyperlocalEngineStore {
     const listingTitle = listingItem.title || listingItem.name || 'Your Product';
     const sellerUserId = listingItem.user_id || listingItem.userId || null;
 
-    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     const sellerAlert = {
       user_id: sellerUserId,
       tag: 'CART_ADDITION',
@@ -1577,16 +1673,13 @@ export const useHyperlocalStore = () => ({
   isItemInCart: (lid) => hyperlocalStore.isItemInCart(lid),
   markNotificationRead: (id) => hyperlocalStore.markNotificationRead(id),
   markAllNotificationsRead: (ids) => hyperlocalStore.markAllNotificationsRead(ids),
+  setListingPromotion: (id, promoted, days) => hyperlocalStore.setListingPromotion(id, promoted, days),
 });
 
 let isHydrating = false;
 let lastHydrateTimestamp = 0;
 const HYDRATE_COOLDOWN_MS = 4000;
 
-/**
- * 🔒 Hydrate Store from Supabase strictly for the current User ID and Phone
- * Prevents pulling all town-wide notifications and admin queues into regular user clients
- */
 export async function hydrateFromDB() {
   if (!supabase) return;
   const now = Date.now();
@@ -1602,7 +1695,6 @@ export async function hydrateFromDB() {
       setTimeout(() => reject(new Error('Hydration Timeout')), 3500)
     );
 
-    // 1. Fetch Listings
     const listingsFetch = supabase
       .from('listings')
       .select('*')
@@ -1614,7 +1706,6 @@ export async function hydrateFromDB() {
       hyperlocalStore.hydrateBulk(listingsData);
     }
 
-    // 2. 🛡️ User-Specific Notifications Query (Strict Identity Security)
     const activeUser = getCurrentUserProfile();
     const activeUserId = activeUser?.id && isValidUuid(activeUser.id) ? activeUser.id : null;
     const activeUserPhone = sanitizePhone(activeUser?.phone);
@@ -1639,7 +1730,6 @@ export async function hydrateFromDB() {
     } else if (activeUserId) {
       notifsQuery = notifsQuery.or(`user_id.eq.${activeUserId},and(recipient_role.eq.public,user_id.is.null,recipient_phone.is.null)`);
     } else {
-      // Unauthenticated visitor: Only true public alerts with no recipient ID or phone
       notifsQuery = notifsQuery.eq('recipient_role', 'public').is('user_id', null).is('recipient_phone', null);
     }
 
@@ -1667,7 +1757,6 @@ export async function hydrateFromDB() {
       hyperlocalStore.notify('notifications');
     }
 
-    // 3. Fetch Product Reviews
     const reviewsFetch = supabase
       .from('listing_reviews')
       .select('*')
@@ -1679,7 +1768,6 @@ export async function hydrateFromDB() {
       hyperlocalStore.hydrateReviews(reviewsData);
     }
 
-    // 4. Hydrate Active User's Cart
     if (activeUserPhone) {
       hyperlocalStore.loadUserCart(activeUserPhone);
     }
@@ -1796,7 +1884,6 @@ export function initRealtimeSubscriptions() {
           }
         }
       )
-      // 🛡️ Filter Realtime Notification Broadcasts to recipient user_id / phone
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
@@ -1866,6 +1953,24 @@ export function useAllListingsSlice() {
   }, []);
 
   return allListings;
+}
+
+export function usePromotedListingsSlice() {
+  const [promoted, setPromoted] = useState(() =>
+    hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted || item.deal_type === 'PAID_PROMO'))
+  );
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'all') {
+        setPromoted(
+          hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted || item.deal_type === 'PAID_PROMO'))
+        );
+      }
+    });
+  }, []);
+
+  return promoted;
 }
 
 export function useThreadSlice(listingId, defaultComments = []) {
@@ -2016,11 +2121,6 @@ export function useNotificationSlice(explicitScope = null) {
   return filteredNotifs;
 }
 
-/**
- * 🔒 Strict Role & User-ID Notification Filter Hook
- * Prevents non-admins from receiving admin review queues, and ensures
- * sellers and residents only receive notifications addressed to them.
- */
 export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
   const [alerts, setAlerts] = useState(() => filterAlerts());
 
@@ -2033,7 +2133,6 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
       return { ...n, is_read: isRead, read: isRead };
     });
 
-    // 🔒 GUEST VISITOR: NOT LOGGED IN
     if (!currentUser) {
       return notifsWithRead.filter((n) => {
         const role = String(n.recipient_role || n.role || '').toLowerCase();
@@ -2066,12 +2165,10 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
       const notifUserId = n.user_id ? String(n.user_id) : null;
       const notifPhone = sanitizePhone(n.recipient_phone || n.metadata?.sellerPhone || n.metadata?.userPhone);
 
-      // 1. 👑 ADMIN NOTIFICATIONS
       if (role === 'admin' || ADMIN_TAGS.has(n.tag)) {
         return isAdmin;
       }
 
-      // 2. 🏪 SELLER / MERCHANT NOTIFICATIONS
       if (role === 'seller' || SELLER_TAGS.has(n.tag)) {
         if (!isSeller) return false;
         if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
@@ -2079,14 +2176,12 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
         return false;
       }
 
-      // 3. 👤 USER / RESIDENT NOTIFICATIONS
       if (role === 'user') {
         if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
         if (notifPhone && userPhone && notifPhone === userPhone) return true;
         return false;
       }
 
-      // 4. 📢 PUBLIC TOWN NOTIFICATIONS
       if (role === 'public') {
         if (notifUserId && currentUserId && notifUserId !== currentUserId) return false;
         if (notifPhone && userPhone && notifPhone !== userPhone) return false;
@@ -2132,25 +2227,4 @@ export function useSellerProfileSlice() {
     closeSellerProfile: () => hyperlocalStore.closeSellerProfile(),
     getListingsBySeller: (seller) => hyperlocalStore.getListingsBySeller(seller),
   };
-}
-
-/**
- * 🚀 Hook that returns ONLY Admin-Approved Paid Promotions
- */
-export function usePromotedListingsSlice() {
-  const [promoted, setPromoted] = useState(() =>
-    hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted))
-  );
-
-  useEffect(() => {
-    return hyperlocalStore.subscribe((_, changedKey) => {
-      if (!changedKey || changedKey === 'all') {
-        setPromoted(
-          hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted))
-        );
-      }
-    });
-  }, []);
-
-  return promoted;
 }

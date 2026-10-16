@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../../services/supabaseClient';
-import { hyperlocalStore } from '../../store/hyperlocalStore';
+import { hyperlocalStore, getStoredPromotionsMap } from '../../store/hyperlocalStore';
 import {
   approveListingChanges,
   rejectListingChanges,
@@ -10,7 +10,7 @@ import {
   uploadListingVideosToStorage,
   deleteListingFromDB,
   saveNotificationToDB,
-  adminTogglePaidPromotion, 
+  adminTogglePaidPromotion,
 } from '../../services/listingService';
 import {
   adminToggleBanUser,
@@ -56,61 +56,8 @@ const FIELD_ISSUE_PRESETS = {
   trial: ['Trial terms not clearly explained', 'Advance requested for doorstep trial is high'],
 };
 
-// 🚀 Admin Handler: Approve / Revoke Paid Promotion
 const isValidUuid = (id) =>
-    Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
-
-  const handleTogglePaidPromotion = async (item) => {
-    if (!item) return;
-    const isCurrentlyPromoted = Boolean(
-      item.is_promoted || item.deal_type === 'PAID_PROMO'
-    );
-
-    let durationDays = 7;
-    if (!isCurrentlyPromoted) {
-      const input = window.prompt(
-        `🚀 APPROVE PAID PROMOTION for "${item.title}":\n\nEnter number of days to feature in the Paid Promotions tab (e.g. 7, 15, 30):`,
-        '7'
-      );
-      if (input === null) return;
-      durationDays = Math.max(1, parseInt(input, 10) || 7);
-    } else {
-      if (!window.confirm(`🛑 Remove "${item.title}" from Paid Promotions?`)) return;
-    }
-
-    setActionInProgressId(item.id);
-    const nextState = !isCurrentlyPromoted;
-
-    // 1. Instant in-memory store update (Works immediately on both mock items & Supabase rows)
-    const expiresAt = hyperlocalStore.setListingPromotion(item.id, nextState, durationDays);
-
-    // 2. Persist to Supabase if it's a database UUID (uses existing schema columns only)
-    if (supabase && isValidUuid(item.id)) {
-      try {
-        await supabase.from('listings').update({
-          deal_type: nextState ? 'PAID_PROMO' : null,
-          deal_expires_at: expiresAt,
-          deal_badge: nextState ? '🚀 Sponsored' : null,
-          verification_badge: nextState ? '🚀 Featured Sponsor' : 'Verified Listing',
-          updated_at: new Date().toISOString(),
-        }).eq('id', item.id);
-      } catch (err) {
-        console.warn('Supabase promo update notice:', err);
-      }
-    }
-
-    setActionInProgressId(null);
-    if (typeof showNotice === 'function') {
-      showNotice(
-        nextState
-          ? `🚀 "${item.title}" is now LIVE in Paid Promotions for ${durationDays} days!`
-          : `🛑 Removed "${item.title}" from Paid Promotions.`
-      );
-    }
-    if (typeof onRefresh === 'function') onRefresh();
-  };
-
-
+  Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
 
 // 🔍 Helper: Cascade delete all child rows referencing a list of listing UUIDs
 async function deleteListingDependenciesInDB(listingIds = []) {
@@ -234,6 +181,7 @@ export default function DesktopAdminDashboard({
   const [userOverrides, setUserOverrides] = useState({});
   const [deletedUserKeys, setDeletedUserKeys] = useState(new Set());
   const [purgedListingIds, setPurgedListingIds] = useState(new Set());
+  const [promoRefreshTick, setPromoRefreshTick] = useState(0);
 
   // Inspector & Edit Mode States
   const [isAdminEditing, setIsAdminEditing] = useState(false);
@@ -301,6 +249,55 @@ export default function DesktopAdminDashboard({
     } else {
       console.log(msg);
     }
+  };
+
+  // 🚀 Fast Helper: Determines if an item is currently an approved sponsor
+  const isItemPromoted = (item) => {
+    if (!item) return false;
+    const promoMap = getStoredPromotionsMap();
+    return Boolean(
+      promoMap[String(item.id)] ||
+      item.is_promoted ||
+      item.deal_type === 'PAID_PROMO' ||
+      String(item.verification_badge || '').includes('Sponsor')
+    );
+  };
+
+  // 🚀 Admin Handler: Approve / Revoke Paid Promotion (Instantaneous & Persistent)
+  const handleTogglePaidPromotion = async (item) => {
+    if (!item) return;
+    const isCurrentlyPromoted = isItemPromoted(item);
+
+    let durationDays = 7;
+    if (!isCurrentlyPromoted) {
+      const input = window.prompt(
+        `🚀 APPROVE PAID PROMOTION for "${item.title}":\n\nEnter number of days to feature in the Category Spotlight (e.g. 7, 15, 30):`,
+        '7'
+      );
+      if (input === null) return;
+      durationDays = Math.max(1, parseInt(input, 10) || 7);
+    } else {
+      if (!window.confirm(`🛑 Remove "${item.title}" from Paid Promotions?`)) return;
+    }
+
+    setActionInProgressId(item.id);
+    const nextState = !isCurrentlyPromoted;
+
+    // 1. Immediately update in-memory store & localStorage
+    hyperlocalStore.setListingPromotion(item.id, nextState, durationDays);
+
+    // 2. Sync to Supabase if it's a database UUID
+    await adminTogglePaidPromotion(item.id, nextState, durationDays);
+
+    setActionInProgressId(null);
+    setPromoRefreshTick((t) => t + 1);
+
+    notifyAdmin(
+      nextState
+        ? `🚀 "${item.title}" is now LIVE in ${String(item.category || 'Category').toUpperCase()} Spotlight for ${durationDays} days!`
+        : `🛑 Removed "${item.title}" from Paid Promotions.`
+    );
+    if (typeof onRefresh === 'function') onRefresh();
   };
 
   // 🔄 Real-Time Postgres Subscription for Live Studio Updates
@@ -442,7 +439,7 @@ export default function DesktopAdminDashboard({
     }
   };
 
-  // 2. ⬇️ Demote to Resident / ⬆️ Promote to Merchant (Aligned with `user_profiles` columns)
+  // 2. ⬇️ Demote to Resident / ⬆️ Promote to Merchant
   const handleCrmToggleRole = async (user) => {
     if (!user) return;
     const cleanPhone = sanitizePhone(user.phone);
@@ -464,7 +461,6 @@ export default function DesktopAdminDashboard({
 
     setCrmBusy(true);
 
-    // Exact columns present in `public.user_profiles`
     const dbPatch = {
       is_merchant: targetIsMerchant,
       verification_tier: targetTier,
@@ -508,13 +504,12 @@ export default function DesktopAdminDashboard({
     }
   };
 
-  // 3. 🧹 Purge All Listings for Selected User (Handles all FK child dependencies)
+  // 3. 🧹 Purge All Listings for Selected User
   const handleCrmPurgeListings = async (user) => {
     if (!user) return;
     const cleanPhone = sanitizePhone(user.phone);
     const userId = user.id;
 
-    // Combine prop listings and hyperlocalStore listings
     const storeListings = hyperlocalStore.getAllListings();
     const combinedMap = new Map();
     [...allListings, ...storeListings].forEach((item) => {
@@ -531,7 +526,6 @@ export default function DesktopAdminDashboard({
       return matchId || matchPhone;
     });
 
-    // Also query DB directly in case any listings aren't in local memory
     let dbListingIds = ownedListings.map((l) => String(l.id)).filter(isValidUuid);
     if (supabase) {
       try {
@@ -568,7 +562,6 @@ export default function DesktopAdminDashboard({
 
     setCrmBusy(true);
 
-    // 1. Evict immediately from local memory & state
     const purgedIds = new Set(purgedListingIds);
     ownedListings.forEach((l) => {
       purgedIds.add(String(l.id));
@@ -580,7 +573,6 @@ export default function DesktopAdminDashboard({
     });
     setPurgedListingIds(purgedIds);
 
-    // 2. Cascade delete child dependencies in Supabase, then delete the listings
     try {
       if (supabase) {
         await deleteListingDependenciesInDB(dbListingIds);
@@ -598,7 +590,6 @@ export default function DesktopAdminDashboard({
             .or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone},whatsapp.eq.${cleanPhone}`);
         }
 
-        // Reset listings_count to 0 on user_profiles
         let uQuery = supabase.from('user_profiles').update({
           listings_count: 0,
           updated_at: new Date().toISOString(),
@@ -619,7 +610,7 @@ export default function DesktopAdminDashboard({
     }
   };
 
-  // 4. 🗑️ Cascade Delete User & All Associated Records (Aligned with all FK constraints)
+  // 4. 🗑️ Cascade Delete User & All Associated Records
   const handleCrmDeleteUser = async (user) => {
     if (!user) return;
     const cleanPhone = sanitizePhone(user.phone);
@@ -632,7 +623,6 @@ export default function DesktopAdminDashboard({
 
     setCrmBusy(true);
 
-    // 1. Evict any owned listings from hyperlocalStore
     const storeListings = hyperlocalStore.getAllListings();
     const localMatchedIds = [];
     storeListings.forEach((l) => {
@@ -646,10 +636,8 @@ export default function DesktopAdminDashboard({
       }
     });
 
-    // 2. Cascade delete child records in Supabase in exact FK dependency order
     try {
       if (supabase) {
-        // Step A: Find all listing IDs in DB owned by this user
         let ownedDbListingIds = [...localMatchedIds].filter(isValidUuid);
         let lQuery = supabase.from('listings').select('id');
         if (isValidUuid(userId) && cleanPhone) {
@@ -668,13 +656,11 @@ export default function DesktopAdminDashboard({
           });
         }
 
-        // Step B: Delete all child rows referencing the user's listings
         if (ownedDbListingIds.length > 0) {
           await deleteListingDependenciesInDB(ownedDbListingIds);
           await supabase.from('listings').delete().in('id', ownedDbListingIds);
         }
 
-        // Step C: Delete phone-linked records across all tables
         if (cleanPhone) {
           const phoneOr = `phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`;
           await Promise.allSettled([
@@ -688,7 +674,6 @@ export default function DesktopAdminDashboard({
           ]);
         }
 
-        // Step D: Delete user_id-linked records across all FK tables
         if (isValidUuid(userId)) {
           await Promise.allSettled([
             supabase.from('listing_threads').delete().eq('user_id', userId),
@@ -709,7 +694,6 @@ export default function DesktopAdminDashboard({
         }
       }
 
-      // 3. Optimistically remove user from table & close dossier
       setDeletedUserKeys((prev) => {
         const next = new Set(prev);
         if (userId) next.add(String(userId));
@@ -823,7 +807,7 @@ export default function DesktopAdminDashboard({
       activeTab === 'pending'
         ? pendingApprovals
         : activeTab === 'promoted'
-        ? allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO')
+        ? allListings.filter((i) => isItemPromoted(i))
         : activeTab === 'approved'
         ? approvedListings
         : allFilteredListings;
@@ -909,6 +893,7 @@ export default function DesktopAdminDashboard({
     selectedOfferType,
     sortBy,
     purgedListingIds,
+    promoRefreshTick,
   ]);
 
   const activeItem = useMemo(() => {
@@ -1423,7 +1408,7 @@ export default function DesktopAdminDashboard({
                 id: 'promoted',
                 label: 'Paid Promotions',
                 icon: '🚀',
-                count: allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO').length,
+                count: allListings.filter((i) => isItemPromoted(i)).length,
                 badgeColor: 'bg-amber-400 text-slate-950 font-black',
               },
             ].map((tab) => (
@@ -1494,6 +1479,8 @@ export default function DesktopAdminDashboard({
                         ? `Pending Queue (${processedListings.length})`
                         : activeTab === 'approved'
                         ? `Live Directory (${processedListings.length})`
+                        : activeTab === 'promoted'
+                        ? `Paid Promotions Spotlight (${processedListings.length})`
                         : `Master Catalog (${processedListings.length})`}
                     </span>
                     {activeTab === 'pending' && (
@@ -1630,6 +1617,7 @@ export default function DesktopAdminDashboard({
                       const isSelected = activeItem && String(activeItem.id) === String(item.id);
                       const changes = item.pending_changes || {};
                       const thumb = (changes.images || item.images || [])[0] || item.image;
+                      const isPromotedItem = isItemPromoted(item);
 
                       return (
                         <div
@@ -1655,8 +1643,13 @@ export default function DesktopAdminDashboard({
                               <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-950 text-amber-300 border border-slate-800">
                                 {changes.category || item.category}
                               </span>
+                              {isPromotedItem && (
+                                <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 shadow">
+                                  🚀 Promoted
+                                </span>
+                              )}
                               {changes.deal_badge && (
-                                <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-amber-400 text-slate-950">
+                                <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white">
                                   {changes.deal_badge}
                                 </span>
                               )}
@@ -1753,22 +1746,22 @@ export default function DesktopAdminDashboard({
                         </button>
 
                         <button
-                        type="button"
-                        onClick={() => handleTogglePaidPromotion(activeItem)}
-                        disabled={actionInProgressId === activeItem.id}
-                        className={`px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center space-x-1.5 shadow-lg ${
-                          activeItem.is_promoted || activeItem.deal_type === 'PAID_PROMO'
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 ring-2 ring-amber-300'
-                            : 'bg-purple-950 hover:bg-purple-900 text-purple-200 border border-purple-500/50'
-                        }`}
-                      >
-                        <span>🚀</span>
-                        <span>
-                          {activeItem.is_promoted || activeItem.deal_type === 'PAID_PROMO'
-                            ? 'Promoted (Click to End)'
-                            : 'Approve Paid Promo'}
-                        </span>
-                      </button>
+                          type="button"
+                          onClick={() => handleTogglePaidPromotion(activeItem)}
+                          disabled={actionInProgressId === activeItem.id}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center space-x-1.5 shadow-lg active:scale-95 ${
+                            isItemPromoted(activeItem)
+                              ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 ring-2 ring-amber-300'
+                              : 'bg-purple-950 hover:bg-purple-900 text-purple-200 border border-purple-500/50'
+                          }`}
+                        >
+                          <span>🚀</span>
+                          <span>
+                            {isItemPromoted(activeItem)
+                              ? 'Promoted (Click to End)'
+                              : 'Approve Paid Promo'}
+                          </span>
+                        </button>
 
                         <button
                           type="button"
@@ -1834,7 +1827,7 @@ export default function DesktopAdminDashboard({
                       </div>
                     )}
 
-                    {/* INTERACTIVE STUDIO CANVAS (PHOTOS, VIDEOS, AND ANNOTATIONS) */}
+                    {/* INTERACTIVE STUDIO CANVAS */}
                     {inspectorViewMode === 'canvas' && (
                       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5">
                         
@@ -1842,7 +1835,6 @@ export default function DesktopAdminDashboard({
                         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
                           <div className="flex items-center justify-between">
                             
-                            {/* Segmented Photos / Videos Switcher */}
                             <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
                               <button
                                 type="button"
@@ -1875,7 +1867,6 @@ export default function DesktopAdminDashboard({
                               </button>
                             </div>
 
-                            {/* Media Action Suite (Upload & Flagging) */}
                             <div className="flex items-center space-x-2">
                               {isAdminEditing && (
                                 <button
@@ -1902,7 +1893,6 @@ export default function DesktopAdminDashboard({
                             </div>
                           </div>
 
-                          {/* Quick Tag Selector for Active Media if Flagging */}
                           {activeAnnotatingField === activeMediaTab && (
                             <div className="p-3 bg-slate-950 rounded-2xl border border-rose-500/40 space-y-2 animate-fade-in">
                               <span className="text-xs font-bold text-rose-300 block">
@@ -1927,7 +1917,6 @@ export default function DesktopAdminDashboard({
                             </div>
                           )}
 
-                          {/* Media Display Stage */}
                           <div className="min-h-[340px] 2xl:min-h-[400px] aspect-[16/10] w-full bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800 shadow-inner relative group">
                             {activeMediaTab === 'photos' ? (
                               editFormData.images.length > 0 ? (
@@ -1978,7 +1967,6 @@ export default function DesktopAdminDashboard({
                               )
                             )}
 
-                            {/* Click to Zoom Hint Overlay */}
                             {activeMediaTab === 'photos' && editFormData.images.length > 0 && (
                               <button
                                 type="button"
@@ -1994,7 +1982,6 @@ export default function DesktopAdminDashboard({
                             )}
                           </div>
 
-                          {/* Photos Thumbnail Carousel */}
                           {activeMediaTab === 'photos' && editFormData.images.length > 0 && (
                             <div className="flex space-x-2.5 overflow-x-auto pb-1 scrollbar-none">
                               {editFormData.images.map((img, idx) => {
@@ -2024,7 +2011,6 @@ export default function DesktopAdminDashboard({
                             </div>
                           )}
 
-                          {/* Videos Thumbnail Carousel */}
                           {activeMediaTab === 'videos' && editFormData.videos.length > 0 && (
                             <div className="flex space-x-2.5 overflow-x-auto pb-1 scrollbar-none">
                               {editFormData.videos.map((vid, idx) => {
