@@ -17,7 +17,7 @@ export default function NotificationCenter({
   onMarkAllRead,
   onSelectNotification,
 }) {
-  // 1. Determine Current Active Persona & Permissions
+  const currentUserId = currentUser?.id ? String(currentUser.id) : null;
   const userPhone = sanitizePhone(currentUser?.phone);
 
   const isSeller = Boolean(
@@ -28,30 +28,31 @@ export default function NotificationCenter({
   );
 
   const isAdmin = Boolean(
-    isAdminMode ||
     currentScreen === 'admin-dashboard' ||
     currentUser?.role === 'admin' ||
-    localStorage.getItem('townhub_admin_unlocked') === 'true'
+    (isAdminMode && currentScreen === 'admin-dashboard')
   );
 
-  // 2. Reactive Local Read Set (Immediate UI updates)
+  // Reactive Local Read State
   const [readIds, setReadIds] = useState(() => getStoredReadNotifs());
 
   useEffect(() => {
     setReadIds(getStoredReadNotifs());
   }, [notifications]);
 
-  // 3. Tab State for Multi-Role Users
+  // Tab State: If guest, always stay on 'all'
   const [activeTab, setActiveTab] = useState(() => {
+    if (!currentUser) return 'all';
     if (currentScreen === 'admin-dashboard' && isAdmin) return 'admin';
     if (currentScreen === 'provider-dashboard' && isSeller) return 'seller';
     return 'all';
   });
 
-  // 4. Strict Persona Filtering & Verification
+  // 1. Strict Identity Authorization Gate
   const authorizedAlerts = useMemo(() => {
     return (notifications || []).filter((notif) => {
       const role = String(notif.recipient_role || notif.role || 'public').toLowerCase();
+      const notifUserId = notif.user_id ? String(notif.user_id) : null;
       const notifPhone = sanitizePhone(
         notif.recipient_phone ||
         notif.metadata?.sellerPhone ||
@@ -63,33 +64,43 @@ export default function NotificationCenter({
       const isAdmTag = ADMIN_TAGS.has(notif.tag);
       const isSelTag = SELLER_TAGS.has(notif.tag);
 
-      // 👑 Admin Notifications: ONLY visible to authorized admins
+      // 🔒 GUEST VISITOR: Only pure public broadcasts
+      if (!currentUser) {
+        return role === 'public' && !notifUserId && !notifPhone && !isAdmTag && !isSelTag;
+      }
+
+      // 👑 ADMIN: Only visible if authorized admin
       if (role === 'admin' || isAdmTag) {
         return isAdmin;
       }
 
-      // 🏪 Seller / Merchant Notifications: MUST belong to this seller's phone
+      // 🏪 SELLER: Must match this seller's user ID or phone
       if (role === 'seller' || isSelTag) {
-        if (!isSeller || !userPhone) return false;
-        return notifPhone === userPhone;
+        if (!isSeller) return false;
+        if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
+        if (notifPhone && userPhone && notifPhone === userPhone) return true;
+        return false;
       }
 
-      // 👤 Resident User Notifications: MUST belong to this resident's phone
+      // 👤 RESIDENT USER: Must match this user's user ID or phone
       if (role === 'user') {
-        if (!userPhone) return false;
-        return notifPhone === userPhone;
+        if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
+        if (notifPhone && userPhone && notifPhone === userPhone) return true;
+        return false;
       }
 
-      // 📢 Public Town Alerts: Visible to everyone, never leaks internal admin/seller tags
+      // 📢 PUBLIC: Check for mismatched recipient IDs
       if (role === 'public') {
+        if (notifUserId && currentUserId && notifUserId !== currentUserId) return false;
+        if (notifPhone && userPhone && notifPhone !== userPhone) return false;
         return !isAdmTag && !isSelTag;
       }
 
       return false;
     });
-  }, [notifications, userPhone, isSeller, isAdmin]);
+  }, [notifications, currentUser, currentUserId, userPhone, isSeller, isAdmin]);
 
-  // 5. Tab Categorization
+  // 2. Tab Sub-filtering (Only among authorized alerts)
   const categorizedAlerts = useMemo(() => {
     return authorizedAlerts.filter((notif) => {
       const role = String(notif.recipient_role || notif.role || 'public').toLowerCase();
@@ -103,14 +114,12 @@ export default function NotificationCenter({
     });
   }, [authorizedAlerts, activeTab]);
 
-  // Compute Unread Count using combined DB flags + Local Storage
   const unreadCount = useMemo(() => {
     return categorizedAlerts.filter(
       (n) => !n.is_read && !n.read && !readIds.has(String(n.id))
     ).length;
   }, [categorizedAlerts, readIds]);
 
-  // 6. Read Handlers
   const handleItemClick = (notif) => {
     const strId = String(notif.id);
     setReadIds((prev) => new Set([...prev, strId]));
@@ -148,14 +157,14 @@ export default function NotificationCenter({
       case 'NEW_USER_PIN':
       case 'USER_PIN_REQUEST':
       case 'SELLER_PIN_REQUEST':
-        return { label: '💬 Send WhatsApp PIN', bg: 'bg-cyan-400/20 text-cyan-300 border-cyan-400/30' };
+        return { label: '💬 WhatsApp PIN', bg: 'bg-cyan-400/20 text-cyan-300 border-cyan-400/30' };
       case 'FLAGGED_REPORT':
       case 'REPORT':
         return { label: '🚨 Flagged Report', bg: 'bg-rose-400/20 text-rose-300 border-rose-400/30' };
       case 'USER_COMMENT':
       case 'NEW_COMMENT':
       case 'VOICE_INQUIRY':
-        return { label: '💬 Customer Inquiry', bg: 'bg-indigo-400/20 text-indigo-300 border-indigo-400/30' };
+        return { label: '💬 Inquiry', bg: 'bg-indigo-400/20 text-indigo-300 border-indigo-400/30' };
       case 'SELLER_REPLY':
       case 'SELLER_REPLIED':
       case 'SELLER_FEEDBACK_REPLY':
@@ -187,7 +196,7 @@ export default function NotificationCenter({
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 select-none animate-fade-in text-slate-100 font-sans">
       <div className="bg-[#111b21] border border-[#222e35] rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[88vh] flex flex-col shadow-2xl overflow-hidden pb-3">
         
-        {/* Modal Top Header with Dynamic Persona Label */}
+        {/* Header */}
         <div className="p-4 border-b border-[#222e35] flex items-center justify-between shrink-0 bg-[#0b141a]">
           <div className="flex items-center space-x-2.5">
             <span className="w-9 h-9 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-lg font-black shadow-md">
@@ -203,13 +212,13 @@ export default function NotificationCenter({
                 )}
               </div>
               <p className="text-[10px] text-amber-300 font-bold truncate max-w-[200px]">
-                {isAdmin
+                {!currentUser
+                  ? '📢 Alwar Public Announcements'
+                  : isAdmin && currentScreen === 'admin-dashboard'
                   ? '👑 Master Admin Mode'
                   : isSeller
                   ? `🏪 Business (+91 ${userPhone || ''})`
-                  : currentUser
-                  ? `👤 Resident (${currentUser?.full_name?.split(' ')[0] || 'User'})`
-                  : '📢 Alwar Public Feed'}
+                  : `👤 Resident (${currentUser?.full_name?.split(' ')[0] || 'User'})`}
               </p>
             </div>
           </div>
@@ -234,8 +243,8 @@ export default function NotificationCenter({
           </div>
         </div>
 
-        {/* Persona Tabs (Visible when user has multiple roles) */}
-        {(isSeller || isAdmin) && (
+        {/* Persona Tabs (Only visible when logged-in user has multiple roles) */}
+        {currentUser && (isSeller || (isAdmin && currentScreen === 'admin-dashboard')) && (
           <div className="px-4 py-2 flex items-center space-x-1.5 overflow-x-auto border-b border-[#222e35] bg-[#0b141a]/60 scrollbar-none">
             <button
               type="button"
@@ -275,7 +284,7 @@ export default function NotificationCenter({
               </button>
             )}
 
-            {isAdmin && (
+            {isAdmin && currentScreen === 'admin-dashboard' && (
               <button
                 type="button"
                 onClick={() => setActiveTab('admin')}
@@ -296,9 +305,13 @@ export default function NotificationCenter({
           {categorizedAlerts.length === 0 ? (
             <div className="py-14 text-center space-y-2 text-slate-500">
               <span className="text-3xl block">🔕</span>
-              <p className="text-xs font-bold text-slate-400">No new alerts right now</p>
+              <p className="text-xs font-bold text-slate-400">
+                {!currentUser ? 'No public announcements' : 'No new alerts right now'}
+              </p>
               <p className="text-[10px] text-slate-500 max-w-[240px] mx-auto leading-relaxed">
-                {activeTab === 'admin'
+                {!currentUser
+                  ? 'Sign in to receive personal inquiries, seller updates, and status alerts.'
+                  : activeTab === 'admin'
                   ? 'All pending listings and WhatsApp activations are clear.'
                   : activeTab === 'seller'
                   ? 'Customer inquiries, saves, and orders will ring here.'
@@ -330,7 +343,6 @@ export default function NotificationCenter({
                       : 'bg-[#182229] border-amber-400/50 shadow-md hover:border-amber-400'
                   }`}
                 >
-                  {/* Top Line: Badge, Time, and Single-Click Dismiss Button */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
                       {!isRead && (
@@ -359,7 +371,6 @@ export default function NotificationCenter({
                     </div>
                   </div>
 
-                  {/* Body Text */}
                   <div className="space-y-0.5">
                     <h4 className={`text-xs font-black leading-snug ${isRead ? 'text-slate-200' : 'text-white'}`}>
                       {notif.title}
@@ -369,7 +380,6 @@ export default function NotificationCenter({
                     </p>
                   </div>
 
-                  {/* Bottom Action Footer */}
                   <div className="pt-1 flex items-center justify-between border-t border-[#2a3942]/60 text-[10px]">
                     <span className="text-slate-400 text-[10px]">
                       {ADMIN_TAGS.has(notif.tag)

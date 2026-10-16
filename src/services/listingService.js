@@ -133,13 +133,20 @@ export function isSellerMatch(item, sellerIdentifier) {
 /* 🔔 1. PERSONA-AWARE NOTIFICATION DISPATCH ENGINE                          */
 /* ========================================================================= */
 
+/**
+ * Universal In-App & Supabase Notification Dispatcher with User ID Mapping
+ */
 export async function saveNotificationToDB(notif) {
   const cleanRecipientPhone = sanitizePhone(notif.recipient_phone);
   const targetId = notif.targetId || notif.metadata?.targetId || notif.metadata?.listingId || null;
   const category = notif.category || notif.metadata?.category || null;
 
+  // 🛡️ Validate UUID before assigning to prevent foreign key violations in Supabase
+  const rawUserId = notif.user_id || notif.userId || null;
+  const validUserId = isValidDatabaseId(rawUserId) ? String(rawUserId) : null;
+
   const notifPayload = {
-    user_id: notif.user_id || notif.userId || null,
+    user_id: validUserId, // 🔒 Maps directly to public.user_profiles(id)
     tag: notif.tag || 'TOWN_ALERT',
     title: notif.title || 'New Notification',
     message: notif.message || '',
@@ -153,7 +160,9 @@ export async function saveNotificationToDB(notif) {
       audioUrl: notif.metadata?.audioUrl || notif.audioUrl || null,
       duration: notif.metadata?.duration || notif.duration || null,
       sellerPhone: sanitizePhone(notif.metadata?.sellerPhone || notif.metadata?.phone || notif.sellerPhone),
+      sellerUserId: notif.metadata?.sellerUserId || validUserId || null,
       userPhone: sanitizePhone(notif.metadata?.userPhone || notif.metadata?.buyerPhone || notif.userPhone),
+      userUserId: notif.metadata?.userUserId || null,
       dealBadge: notif.metadata?.dealBadge || null,
       tokenAmount: notif.metadata?.tokenAmount || null,
       ...notif.metadata,
@@ -182,13 +191,15 @@ export async function saveNotificationToDB(notif) {
   return notifPayload;
 }
 
-export async function notifyAdminPendingApproval({ listingId, listingTitle, sellerName, sellerPhone, category, isEdit = false, dealBadge = null }) {
+// 👑 ADMIN ALERTS DISPATCHERS
+export async function notifyAdminPendingApproval({ listingId, listingTitle, sellerName, sellerPhone, category, isEdit = false, dealBadge = null, sellerUserId = null }) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const titleText = isEdit
     ? (dealBadge ? `Offer Proposal: "${dealBadge}" on "${listingTitle}"` : `Edit Proposal: "${listingTitle}"`)
     : `New Listing: "${listingTitle}"`;
 
   return saveNotificationToDB({
+    user_id: null, // Admin notifications have role 'admin'
     tag: isEdit ? 'EDIT PROPOSAL' : 'NEW ENLISTMENT',
     title: titleText,
     message: `${sellerName || 'Merchant'} (+91 ${cleanSellerPhone || ''}) submitted ${dealBadge ? `a deal (${dealBadge})` : 'an offering'} in ${category}. Review required.`,
@@ -196,56 +207,92 @@ export async function notifyAdminPendingApproval({ listingId, listingTitle, sell
     category,
     recipient_role: 'admin',
     recipient_phone: null,
-    metadata: { listingId, sellerPhone: cleanSellerPhone, category, isEdit, dealBadge },
+    metadata: { listingId, sellerPhone: cleanSellerPhone, sellerUserId, category, isEdit, dealBadge },
   });
 }
 
-export async function notifyAdminNewUserRegistration({ fullName, phone, activationPin }) {
+export async function notifyAdminNewUserRegistration({ fullName, phone, activationPin, userId = null }) {
   const cleanPhone = sanitizePhone(phone);
   return saveNotificationToDB({
+    user_id: null,
     tag: 'NEW_USER_PIN',
     title: `New Join: ${fullName}`,
     message: `WhatsApp PIN (${activationPin}) registered for +91 ${cleanPhone}.`,
     recipient_role: 'admin',
     recipient_phone: null,
-    metadata: { phone: cleanPhone, activationPin },
+    metadata: { phone: cleanPhone, activationPin, registrantUserId: userId },
   });
 }
 
-export async function notifyAdminReportedListing({ listingId, listingTitle, reporterPhone, reason }) {
+export async function notifyAdminReportedListing({ listingId, listingTitle, reporterPhone, reason, reporterUserId = null }) {
   const cleanReporterPhone = sanitizePhone(reporterPhone);
   return saveNotificationToDB({
+    user_id: null,
     tag: 'FLAGGED_REPORT',
     title: `Listing Flagged: "${listingTitle || 'Item'}"`,
     message: `Reported by +91 ${cleanReporterPhone} for: "${reason}". Review required.`,
     targetId: listingId,
     recipient_role: 'admin',
     recipient_phone: null,
-    metadata: { listingId, reporterPhone: cleanReporterPhone, reason },
+    metadata: { listingId, reporterPhone: cleanReporterPhone, reporterUserId, reason },
   });
 }
 
-export async function notifySellerComment({ sellerPhone, listingId, listingTitle, commenterName, commentText, audioUrl = null, duration = null }) {
+// 🏪 SELLER / MERCHANT ALERTS DISPATCHERS
+export async function notifySellerComment({
+  sellerUserId = null,
+  sellerPhone,
+  listingId,
+  listingTitle,
+  commenterName,
+  commentText,
+  audioUrl = null,
+  duration = null,
+  commenterUserId = null,
+  commenterPhone = null,
+}) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const hasAudio = Boolean(audioUrl);
   return saveNotificationToDB({
+    user_id: sellerUserId || null,
     tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
     title: `Inquiry on "${listingTitle}"`,
     message: `${commenterName || 'A resident'} sent a ${hasAudio ? `voice note (${duration || '0:15'})` : `message: "${(commentText || '').slice(0, 70)}..."`}`,
     targetId: listingId,
     recipient_role: 'seller',
     recipient_phone: cleanSellerPhone,
-    metadata: { listingId, audioUrl, duration, commenterName, sellerPhone: cleanSellerPhone },
+    metadata: {
+      listingId,
+      audioUrl,
+      duration,
+      commenterName,
+      sellerPhone: cleanSellerPhone,
+      sellerUserId,
+      commenterUserId,
+      commenterPhone: sanitizePhone(commenterPhone),
+    },
   });
 }
 
-export async function notifySellerListingStatus({ sellerPhone, listingId, listingTitle, isApproved, feedbackText = '', audioUrl = null, duration = null, category = null, dealBadge = null }) {
+export async function notifySellerListingStatus({
+  sellerUserId = null,
+  sellerPhone,
+  listingId,
+  listingTitle,
+  isApproved,
+  feedbackText = '',
+  audioUrl = null,
+  duration = null,
+  category = null,
+  dealBadge = null,
+}) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const approvalMsg = dealBadge
     ? `Your promotional deal "${dealBadge}" on "${listingTitle}" is now verified & live across town feeds.`
     : `Your listing "${listingTitle}" is now verified and live across the town feed.`;
 
   return saveNotificationToDB({
+    user_id: sellerUserId || null,
     tag: isApproved ? 'APPROVED' : 'ADMIN FEEDBACK',
     title: isApproved ? `Listing Verified Live: "${listingTitle}"` : `Review Action Needed: "${listingTitle}"`,
     message: isApproved ? approvalMsg : (feedbackText || `Listing could not be approved. Tap to view admin correction notes.`),
@@ -253,48 +300,106 @@ export async function notifySellerListingStatus({ sellerPhone, listingId, listin
     category,
     recipient_role: 'seller',
     recipient_phone: cleanSellerPhone,
-    metadata: { listingId, isApproved, audioUrl, duration, category, dealBadge, sellerPhone: cleanSellerPhone },
+    metadata: {
+      listingId,
+      isApproved,
+      audioUrl,
+      duration,
+      category,
+      dealBadge,
+      sellerPhone: cleanSellerPhone,
+      sellerUserId,
+    },
   });
 }
 
-export async function notifySellerInterest({ sellerPhone, listingId, listingTitle, newCount }) {
+export async function notifySellerInterest({
+  sellerUserId = null,
+  sellerPhone,
+  listingId,
+  listingTitle,
+  newCount,
+  buyerUserId = null,
+}) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   return saveNotificationToDB({
+    user_id: sellerUserId || null,
     tag: 'INTEREST REGISTERED',
     title: `New Interest on "${listingTitle}"`,
     message: `A local resident saved your listing. Total saves: ${newCount} ⭐`,
     targetId: listingId,
     recipient_role: 'seller',
     recipient_phone: cleanSellerPhone,
-    metadata: { listingId, newCount, sellerPhone: cleanSellerPhone },
+    metadata: {
+      listingId,
+      newCount,
+      sellerPhone: cleanSellerPhone,
+      sellerUserId,
+      buyerUserId,
+    },
   });
 }
 
-export async function notifySellerNewReview({ sellerPhone, listingId, listingTitle, reviewerName, rating, hasMedia = false }) {
+export async function notifySellerNewReview({
+  sellerUserId = null,
+  sellerPhone,
+  listingId,
+  listingTitle,
+  reviewerName,
+  rating,
+  hasMedia = false,
+  reviewerUserId = null,
+}) {
   const cleanSellerPhone = sanitizePhone(sellerPhone);
   const stars = '⭐'.repeat(Math.min(5, Math.max(1, Math.round(rating))));
   return saveNotificationToDB({
+    user_id: sellerUserId || null,
     tag: 'NEW_REVIEW',
     title: `New Review (${stars}) on "${listingTitle || 'Product'}"`,
     message: `${reviewerName || 'A customer'} left a ${rating}-star rating${hasMedia ? ' with attached photos/audio' : ''}.`,
     targetId: listingId,
     recipient_role: 'seller',
     recipient_phone: cleanSellerPhone,
-    metadata: { listingId, rating, reviewerName, sellerPhone: cleanSellerPhone },
+    metadata: {
+      listingId,
+      rating,
+      reviewerName,
+      sellerPhone: cleanSellerPhone,
+      sellerUserId,
+      reviewerUserId,
+    },
   });
 }
 
-export async function notifyUserSellerReply({ userPhone, listingId, listingTitle, sellerName, replyText, audioUrl = null, duration = null }) {
+// 👤 RESIDENT / USER ALERTS DISPATCHERS
+export async function notifyUserSellerReply({
+  userUserId = null,
+  userPhone,
+  listingId,
+  listingTitle,
+  sellerName,
+  replyText,
+  audioUrl = null,
+  duration = null,
+}) {
   const cleanUserPhone = sanitizePhone(userPhone);
   const isAudio = Boolean(audioUrl);
   return saveNotificationToDB({
+    user_id: userUserId || null,
     tag: 'SELLER REPLIED',
     title: `${sellerName || 'Merchant'} replied to your inquiry!`,
     message: `On "${listingTitle}": ${isAudio ? `🎤 Voice note reply (${duration || '0:15'})` : `"${(replyText || '').slice(0, 80)}..."`}`,
     targetId: listingId,
     recipient_role: 'user',
     recipient_phone: cleanUserPhone,
-    metadata: { listingId, audioUrl, duration, sellerName, userPhone: cleanUserPhone },
+    metadata: {
+      listingId,
+      audioUrl,
+      duration,
+      sellerName,
+      userPhone: cleanUserPhone,
+      userUserId,
+    },
   });
 }
 
@@ -513,6 +618,7 @@ export async function submitSellerEditProposal(listingId, proposedData) {
         listingTitle: proposedData.title || proposedData.name,
         sellerName: proposedData.sellerName,
         sellerPhone: proposedData.phone,
+        sellerUserId: proposedData.userId || proposedData.user_id || data?.user_id || null,
         category: proposedData.category,
         isEdit: true,
       });
@@ -538,6 +644,9 @@ export async function createListingInDB(listingData) {
   const cleanVideos = (listingData.videos || []).filter(
     (v) => v?.url && typeof v.url === 'string' && v.url.startsWith('http')
   );
+
+  const rawUserId = listingData.user_id || listingData.userId || null;
+  const validUserId = isValidDatabaseId(rawUserId) ? String(rawUserId) : null;
 
   const dbPayload = {
     title: (listingData.title || listingData.name || 'Untitled Listing').trim(),
@@ -573,7 +682,7 @@ export async function createListingInDB(listingData) {
     seller_feedback_reply: null,
     interest_count: 0,
     verification_badge: '⏳ Pending Approval',
-    user_id: listingData.user_id || null,
+    user_id: validUserId,
     created_at: new Date().toISOString(),
   };
 
@@ -584,6 +693,7 @@ export async function createListingInDB(listingData) {
       listingTitle: dbPayload.title,
       sellerName: dbPayload.seller_name,
       sellerPhone: dbPayload.phone,
+      sellerUserId: validUserId,
       category: dbPayload.category,
       isEdit: false,
     });
@@ -607,6 +717,7 @@ export async function createListingInDB(listingData) {
       listingTitle: data.title,
       sellerName: data.seller_name,
       sellerPhone: data.phone,
+      sellerUserId: data.user_id,
       category: data.category,
       isEdit: false,
     });
@@ -666,7 +777,10 @@ export async function approveListingChanges(listingId, approvedData) {
 
     await dismissAdminNotificationsForListing(listingId);
 
+    const sellerUserId = approvedData.user_id || approvedData.userId || data?.user_id || null;
+
     await notifySellerListingStatus({
+      sellerUserId: isValidDatabaseId(sellerUserId) ? String(sellerUserId) : null,
       sellerPhone: approvedData.phone || data.phone,
       listingId,
       listingTitle: approvedData.title,
@@ -682,14 +796,14 @@ export async function approveListingChanges(listingId, approvedData) {
   }
 }
 
-export async function rejectListingChanges(listingId, rejectionReason = '', sellerPhone = '') {
+export async function rejectListingChanges(listingId, rejectionReason = '', sellerPhone = '', sellerUserId = null) {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
   try {
     const reasonText = rejectionReason || 'Listing was not approved based on town guidelines. Please review and resubmit.';
     
     const { data: currentListing } = await supabase
       .from('listings')
-      .select('admin_feedback, phone, title, category')
+      .select('admin_feedback, phone, title, category, user_id')
       .eq('id', listingId)
       .maybeSingle();
 
@@ -716,7 +830,10 @@ export async function rejectListingChanges(listingId, rejectionReason = '', sell
 
     await dismissAdminNotificationsForListing(listingId);
 
+    const resolvedUserId = sellerUserId || currentListing?.user_id || data?.user_id || null;
+
     await notifySellerListingStatus({
+      sellerUserId: isValidDatabaseId(resolvedUserId) ? String(resolvedUserId) : null,
       sellerPhone: sellerPhone || data?.phone,
       listingId,
       listingTitle: data?.title || 'Listing',
@@ -754,7 +871,7 @@ export async function dismissAdminNotificationsForListing(listingId) {
   }
 }
 
-export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedbackPayload) {
+export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedbackPayload, sellerUserId = null) {
   if (!supabase || !listingId) return { success: true };
   try {
     const feedbackText =
@@ -778,6 +895,7 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
     }
 
     await notifySellerListingStatus({
+      sellerUserId: isValidDatabaseId(sellerUserId) ? String(sellerUserId) : null,
       sellerPhone,
       listingId,
       listingTitle: 'Your Listing',
@@ -794,7 +912,7 @@ export async function sendAdminFeedbackToSeller(listingId, sellerPhone, feedback
   }
 }
 
-export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayload) {
+export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayload, sellerUserId = null) {
   if (!supabase || !listingId) return { success: true };
   try {
     const cleanSellerPhone = sanitizePhone(sellerPhone);
@@ -819,6 +937,7 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
     }
 
     await saveNotificationToDB({
+      user_id: null,
       tag: replyAudioUrl ? 'SELLER VOICE REPLY' : 'SELLER FEEDBACK REPLY',
       title: `Merchant Reply (+91 ${cleanSellerPhone})`,
       message: replyText,
@@ -829,6 +948,7 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
         audioUrl: replyAudioUrl,
         duration: replyDuration,
         sellerPhone: cleanSellerPhone,
+        sellerUserId: isValidDatabaseId(sellerUserId) ? String(sellerUserId) : null,
         targetId: listingId,
       },
     });
@@ -844,12 +964,16 @@ export async function sendSellerReplyToAdmin(listingId, sellerPhone, replyPayloa
 /* 💬 4. THREADS, COMMENTS, INTEREST & COMMUNITY REPORTS                     */
 /* ========================================================================= */
 
-export async function saveCommentToDB(listingId, comment, listingTitle = '', sellerPhone = '') {
+export async function saveCommentToDB(listingId, comment, listingTitle = '', sellerPhone = '', sellerUserId = null) {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return null;
   try {
     const hasAudio = Boolean(comment.audioUrl);
+    const rawCommenterId = comment.userId || comment.user_id || null;
+    const validCommenterId = isValidDatabaseId(rawCommenterId) ? String(rawCommenterId) : null;
+
     const dbPayload = {
       listing_id: String(listingId),
+      user_id: validCommenterId, // 🔒 Maps commenter to user_profiles(id)
       user_name: comment.userName || 'Local Resident',
       user_area: comment.userArea || 'Nearby',
       comment_text: comment.text || (hasAudio ? '🎤 Voice Note Question' : ''),
@@ -868,8 +992,9 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
 
     if (error) console.warn('Save comment notice:', error.message);
 
-    if (sellerPhone) {
+    if (sellerPhone || sellerUserId) {
       await notifySellerComment({
+        sellerUserId: isValidDatabaseId(sellerUserId) ? String(sellerUserId) : null,
         sellerPhone,
         listingId,
         listingTitle,
@@ -877,6 +1002,8 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
         commentText: dbPayload.comment_text,
         audioUrl: dbPayload.audio_url,
         duration: dbPayload.audio_duration,
+        commenterUserId: validCommenterId,
+        commenterPhone: comment.userPhone || null,
       });
     }
 
@@ -887,7 +1014,7 @@ export async function saveCommentToDB(listingId, comment, listingTitle = '', sel
   }
 }
 
-export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buyerPhone = '') {
+export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buyerPhone = '', buyerUserId = null) {
   if (!supabase || !commentId || !isValidDatabaseId(commentId)) return null;
   try {
     const isAudio = replyObj?.type === 'audio' || Boolean(replyObj?.audioUrl);
@@ -912,12 +1039,13 @@ export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buye
 
     if (error) console.warn('Save reply notice:', error.message);
 
-    if (buyerPhone) {
+    if (buyerPhone || buyerUserId) {
       await notifyUserSellerReply({
+        userUserId: isValidDatabaseId(buyerUserId) ? String(buyerUserId) : null,
         userPhone: buyerPhone,
         listingId: data?.listing_id || commentId,
         listingTitle: listingTitle || data?.listing_title || 'Listing',
-        sellerName: 'Shopkeeper',
+        sellerName: typeof replyObj === 'object' && replyObj?.sellerName ? replyObj.sellerName : 'Shopkeeper',
         replyText,
         audioUrl: updatePayload.seller_audio_url || null,
         duration: updatePayload.seller_audio_duration || null,
@@ -931,7 +1059,7 @@ export async function saveReplyToDB(commentId, replyObj, listingTitle = '', buye
   }
 }
 
-export async function updateInterestCountInDB(listingId, newCount, listingTitle = '', sellerPhone = '') {
+export async function updateInterestCountInDB(listingId, newCount, listingTitle = '', sellerPhone = '', sellerUserId = null) {
   if (!supabase || !listingId || !isValidDatabaseId(listingId)) return;
   try {
     const { error } = await supabase
@@ -941,8 +1069,9 @@ export async function updateInterestCountInDB(listingId, newCount, listingTitle 
 
     if (error) console.warn('Update interest notice:', error.message);
 
-    if (sellerPhone) {
+    if (sellerPhone || sellerUserId) {
       await notifySellerInterest({
+        sellerUserId: isValidDatabaseId(sellerUserId) ? String(sellerUserId) : null,
         sellerPhone,
         listingId,
         listingTitle: listingTitle || 'Listing',
@@ -954,14 +1083,17 @@ export async function updateInterestCountInDB(listingId, newCount, listingTitle 
   }
 }
 
-export async function reportListing(listingId, reporterPhone, reason, listingTitle = '') {
+export async function reportListing(listingId, reporterPhone, reason, listingTitle = '', reporterUserId = null) {
   if (!supabase || !isValidDatabaseId(listingId)) return { success: true };
   try {
     const cleanReporterPhone = sanitizePhone(reporterPhone) || '9876543210';
+    const validReporterId = isValidDatabaseId(reporterUserId) ? String(reporterUserId) : null;
+
     const { data, error } = await supabase
       .from('listing_reports')
       .insert({
         listing_id: listingId,
+        reporter_id: validReporterId,
         reporter_phone: cleanReporterPhone,
         reason: reason || 'Community Flag',
       });
@@ -970,6 +1102,7 @@ export async function reportListing(listingId, reporterPhone, reason, listingTit
       listingId,
       listingTitle,
       reporterPhone: cleanReporterPhone,
+      reporterUserId: validReporterId,
       reason,
     });
 
@@ -1439,7 +1572,6 @@ export async function fetchSellerListingsFromDB(sellerIdentifier) {
     }
   }
 
-  // Fallback search across local client-side memory store
   try {
     const all = typeof hyperlocalStore?.getAllListings === 'function' 
       ? hyperlocalStore.getAllListings() 

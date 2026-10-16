@@ -34,16 +34,17 @@ const USER_NOTIFS_STORAGE_KEY = 'aapkekareeb_read_notifs';
 
 const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
 
-/**
- * Generates user-specific localStorage cart key based on mobile number
- */
+function isValidUuid(id) {
+  if (!id) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim());
+}
+
 function getUserCartStorageKey(phone) {
   if (!phone) return null;
   const clean = sanitizePhone(phone);
   return `aapkekareeb_cart_${clean}`;
 }
 
-// User-Specific Local Storage Helpers
 function getStoredCartForUser(phone) {
   const key = getUserCartStorageKey(phone);
   if (!key) return [];
@@ -93,7 +94,6 @@ function saveStoredReviewsMap(data) {
   } catch {}
 }
 
-// 🔕 Persistent Read Notifications Local Storage Helpers
 export function getStoredReadNotifs() {
   try {
     const raw = localStorage.getItem(USER_NOTIFS_STORAGE_KEY);
@@ -120,7 +120,6 @@ export function saveStoredAllReadNotifs(ids = []) {
   } catch {}
 }
 
-// 👑 Strict Classification Sets for Persona Isolation
 export const ADMIN_TAGS = new Set([
   'NEW ENLISTMENT',
   'NEW_ENLISTMENT',
@@ -156,9 +155,6 @@ export const SELLER_TAGS = new Set([
   'CART_ADDITION',
 ]);
 
-/**
- * Parses numeric price from text strings (e.g., '₹1,500', '1.69 Lakh', '₹500/day')
- */
 export function parseNumericPrice(priceStr) {
   if (!priceStr || typeof priceStr !== 'string') return 0;
   const clean = priceStr.toLowerCase().replace(/,/g, '');
@@ -171,7 +167,6 @@ export function parseNumericPrice(priceStr) {
   return isNaN(parsed) ? 0 : Math.round(parsed);
 }
 
-// Bidirectional category-to-slice mapping
 export const CATEGORY_SLICE_MAP = {
   property: 'propertyListings',
   construction: 'constructionListings',
@@ -194,9 +189,6 @@ export const CATEGORY_SLICE_MAP = {
   festival: 'festivalOffers',
 };
 
-/**
- * Sanitizes image URLs and filters temporary blob paths
- */
 export function sanitizeImageUrl(url, category = 'property') {
   if (!url || typeof url !== 'string') return getCategoryFallback(category);
   const clean = url.trim();
@@ -216,9 +208,6 @@ export function sanitizeImageUrl(url, category = 'property') {
   return getCategoryFallback(category);
 }
 
-/**
- * Normalizes DB rows, mock data, and custom user listings into a single uniform schema
- */
 export function normalizeDBListing(item) {
   if (!item) return null;
   const catId = (item.category || 'property').toLowerCase().trim();
@@ -235,7 +224,6 @@ export function normalizeDBListing(item) {
     'all';
   const subCatId = sanitizeSubCategoryId ? sanitizeSubCategoryId(catId, rawSub) : rawSub;
 
-  // 1. Image Resolution with Sanitization
   let rawImages = [];
   if (Array.isArray(item.image_urls) && item.image_urls.length > 0) {
     rawImages = item.image_urls;
@@ -261,7 +249,6 @@ export function normalizeDBListing(item) {
     sanitizedImages = [coverImage];
   }
 
-  // 2. Video Resolution
   let allVideos = [];
   if (Array.isArray(item.videos) && item.videos.length > 0) {
     allVideos = item.videos.filter((v) => v?.url && !String(v.url).startsWith('blob:'));
@@ -278,7 +265,6 @@ export function normalizeDBListing(item) {
     allVideoUrls = allVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean);
   }
 
-  // 3. Price & Operational Metadata
   const priceVal =
     item.price ||
     item.rates ||
@@ -315,7 +301,6 @@ export function normalizeDBListing(item) {
     categoryConfig.bucketKey ||
     'listings';
 
-  // 4. Verification & Approval State
   const isActive = item.is_active !== undefined ? Boolean(item.is_active) : true;
   const hasPendingApproval = Boolean(item.has_pending_approval);
   const pendingChanges = item.pending_changes || null;
@@ -392,16 +377,8 @@ export function normalizeDBListing(item) {
     avatar: coverImage,
     description: item.description || '',
     condition: item.condition || 'Brand New',
-    interestCount: Number(
-      item.interest_count !== undefined
-        ? item.interest_count
-        : item.interestCount || 0
-    ),
-    interest_count: Number(
-      item.interest_count !== undefined
-        ? item.interest_count
-        : item.interestCount || 0
-    ),
+    interestCount: Number(item.interest_count !== undefined ? item.interest_count : item.interestCount || 0),
+    interest_count: Number(item.interest_count !== undefined ? item.interest_count : item.interestCount || 0),
     rating: Number(item.rating || 5.0),
     reviewsCount: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
     reviews_count: Number(item.reviews_count !== undefined ? item.reviews_count : item.reviewsCount || 0),
@@ -498,7 +475,6 @@ class HyperlocalEngineStore {
       activeUserPhone: initialPhone,
       notifications: [],
 
-      // 🏬 Public Seller Storefront State
       selectedSeller: null,
       isSellerProfileOpen: false,
     };
@@ -562,10 +538,6 @@ class HyperlocalEngineStore {
     return combined;
   }
 
-  /* ========================================================================= */
-  /* 🏬 SELLER STOREFRONT CONTROLS                                             */
-  /* ========================================================================= */
-
   openSellerProfile(sellerData) {
     if (!sellerData) return;
     this.state.selectedSeller = sellerData;
@@ -606,10 +578,8 @@ class HyperlocalEngineStore {
       const itemUserId = item.userId || item.user_id;
       const itemName = (item.sellerName || item.seller_name || item.name || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
 
-      // 1. Authoritative User ID match
-      if (targetUserId && itemUserId && targetUserId === itemUserId) return true;
+      if (targetUserId && itemUserId && String(targetUserId) === String(itemUserId)) return true;
 
-      // 2. Strict / Token Name match
       if (cleanTarget && itemName) {
         if (cleanTarget === itemName) return true;
         if (cleanTarget.length >= 4 && itemName.length >= 4) {
@@ -624,7 +594,6 @@ class HyperlocalEngineStore {
         }
       }
 
-      // 3. Real Phone Match (ONLY if non-dummy AND names are not completely conflicting)
       const isItemDummy = !itemPhone || DUMMY_SET.has(itemPhone) || /^(\d)\1{9}$/.test(itemPhone);
       if (!isTargetDummy && !isItemDummy && targetPhone === itemPhone) {
         if (cleanTarget && itemName) {
@@ -639,10 +608,6 @@ class HyperlocalEngineStore {
       return false;
     });
   }
-
-  /* ========================================================================= */
-  /* 📦 CRUD & HYDRATION                                                       */
-  /* ========================================================================= */
 
   insertListing(rawBucketOrCategory, item) {
     const tempId = item.id || `custom-${Date.now()}`;
@@ -670,7 +635,6 @@ class HyperlocalEngineStore {
   removeListing(listingId) {
     const targetStr = String(listingId);
 
-    // 1. Remove from all bucket slices
     Object.keys(this.state).forEach((key) => {
       if (Array.isArray(this.state[key])) {
         this.state[key] = this.state[key].filter((item) => String(item?.id) !== targetStr);
@@ -678,7 +642,6 @@ class HyperlocalEngineStore {
       }
     });
 
-    // 2. Clear threads, reviews, interests & cart references
     if (this.state.threads[targetStr]) {
       delete this.state.threads[targetStr];
       this.notify(`thread:${targetStr}`);
@@ -819,7 +782,7 @@ class HyperlocalEngineStore {
   }
 
   /* ========================================================================= */
-  /* 🔔 NOTIFICATION ENGINE & SILENCER                                         */
+  /* 🔔 ID-BOUND NOTIFICATION ENGINE & SILENCER                                */
   /* ========================================================================= */
 
   addNotification(notif) {
@@ -827,8 +790,12 @@ class HyperlocalEngineStore {
     const readSet = getStoredReadNotifs();
     const alreadyRead = Boolean(notif.is_read || notif.read || readSet.has(notifId));
 
+    const rawUserId = notif.user_id || notif.userId || null;
+    const validUserId = isValidUuid(rawUserId) ? String(rawUserId) : null;
+
     const newEntry = {
       id: notifId,
+      user_id: validUserId, // 🔒 Bound directly to recipient user_profiles(id)
       tag: notif.tag || 'TOWN_ALERT',
       title: notif.title || 'New Notification',
       message: notif.message || '',
@@ -870,7 +837,7 @@ class HyperlocalEngineStore {
 
     this.notify('notifications');
 
-    if (supabase && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strId)) {
+    if (supabase && isValidUuid(strId)) {
       supabase
         .from('notifications')
         .update({ is_read: true })
@@ -897,10 +864,7 @@ class HyperlocalEngineStore {
     this.notify('notifications');
 
     if (supabase) {
-      const validUuids = idsToMark.filter((id) =>
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-      );
-
+      const validUuids = idsToMark.filter(isValidUuid);
       if (validUuids.length > 0) {
         supabase
           .from('notifications')
@@ -911,6 +875,11 @@ class HyperlocalEngineStore {
           });
       }
     }
+  }
+
+  resetNotificationsOnLogout() {
+    this.state.notifications = [];
+    this.notify('notifications');
   }
 
   removeNotificationsForTarget(listingId) {
@@ -934,10 +903,12 @@ class HyperlocalEngineStore {
     const strId = String(listingId);
     const hasAudio = Boolean(comment.audioUrl);
 
-    // Resolve target listing's verified owner phone
+    // Look up target listing to obtain seller's verified contact phone & user_id
     const allListings = this.getAllListings();
     const targetListing = allListings.find((l) => String(l.id) === strId);
     const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp || comment.sellerPhone);
+    const targetSellerUserId = targetListing?.user_id || targetListing?.userId || null;
+    const currentUser = getCurrentUserProfile();
 
     const newEntry = {
       id: comment.id || `local-${Date.now()}`,
@@ -957,8 +928,9 @@ class HyperlocalEngineStore {
     this.notify(`thread:${strId}`);
     this.notify('threads');
 
-    // 🛡️ Route ONLY to the specific merchant's phone
+    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     this.addNotification({
+      user_id: targetSellerUserId,
       tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
       title: `Inquiry on "${listingTitle || targetListing?.title || 'Listing'}"`,
       message: `${newEntry.userName} sent a ${hasAudio ? 'voice note' : 'message'}.`,
@@ -970,12 +942,15 @@ class HyperlocalEngineStore {
       metadata: {
         listingId: strId,
         sellerPhone: targetSellerPhone,
+        sellerUserId: targetSellerUserId,
         commenterName: newEntry.userName,
+        commenterUserId: currentUser?.id || null,
+        commenterPhone: sanitizePhone(currentUser?.phone),
         hasAudio,
       },
     });
 
-    saveCommentToDB(strId, newEntry, listingTitle, targetSellerPhone).then((dbRow) => {
+    saveCommentToDB(strId, newEntry, listingTitle, targetSellerPhone, targetSellerUserId).then((dbRow) => {
       if (dbRow && dbRow.id) {
         const list = this.state.threads[strId] || [];
         const idx = list.findIndex((c) => c.id === newEntry.id);
@@ -1024,11 +999,7 @@ class HyperlocalEngineStore {
     this.notify('threads');
     this.notify('all');
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      String(commentId).trim()
-    );
-
-    if (supabase && isUuid) {
+    if (supabase && isValidUuid(commentId)) {
       supabase
         .from('listing_threads')
         .update({
@@ -1044,7 +1015,6 @@ class HyperlocalEngineStore {
     }
   }
 
-  // 🌟 SINGLE-TAP INTEREST CHECK & TOGGLE
   hasUserInterested(listingId) {
     const user = getCurrentUserProfile();
     const userPhone = sanitizePhone(user?.phone) || 'guest_device';
@@ -1082,13 +1052,14 @@ class HyperlocalEngineStore {
     this.notify(`interest:${strId}`);
     this.notify('all');
 
-    // Look up target listing to obtain seller's verified phone
     const allListings = this.getAllListings();
     const targetListing = allListings.find((l) => String(l.id) === strId);
     const targetSellerPhone = sanitizePhone(targetListing?.phone || targetListing?.whatsapp);
+    const targetSellerUserId = targetListing?.user_id || targetListing?.userId || null;
 
-    // 🛡️ Route ONLY to the specific merchant's phone
+    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     this.addNotification({
+      user_id: targetSellerUserId,
       tag: 'INTEREST REGISTERED',
       title: `Interest registered for "${listingTitle || targetListing?.title || 'Listing'}"`,
       message: `${sellerName || 'The seller'} was notified. Total buyers interested: ${count}`,
@@ -1100,7 +1071,9 @@ class HyperlocalEngineStore {
       metadata: {
         listingId: strId,
         sellerPhone: targetSellerPhone,
+        sellerUserId: targetSellerUserId,
         count,
+        buyerUserId: user?.id || null,
       },
     });
 
@@ -1111,10 +1084,10 @@ class HyperlocalEngineStore {
           p_phone: userPhone,
         });
       } catch {
-        updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone);
+        updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone, targetSellerUserId);
       }
     } else {
-      updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone);
+      updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone, targetSellerUserId);
     }
 
     return { success: true, count };
@@ -1125,7 +1098,6 @@ class HyperlocalEngineStore {
     return res.count;
   }
 
-  // 🌟 PRODUCT RATINGS & MULTIMEDIA REVIEWS MANAGEMENT
   getListingReviews(listingId) {
     const strId = String(listingId);
     return this.state.reviews[strId] || [];
@@ -1217,10 +1189,6 @@ class HyperlocalEngineStore {
       breakdown,
     };
   }
-
-  /* ========================================================================= */
-  /* 🛒 USER-SPECIFIC PERSISTENT CART ENGINE                                   */
-  /* ========================================================================= */
 
   async loadUserCart(phone) {
     if (!phone) {
@@ -1341,7 +1309,6 @@ class HyperlocalEngineStore {
     const cleanPhone = sanitizePhone(phone);
     const sellerPhone = sanitizePhone(listingItem.phone || listingItem.whatsapp);
 
-    // Guard: Prevent merchant from carting their own products
     if (cleanPhone && sellerPhone && cleanPhone === sellerPhone) {
       return {
         success: false,
@@ -1411,8 +1378,11 @@ class HyperlocalEngineStore {
     const buyerLocality = currentUser?.area_name || currentUser?.city || 'your area';
     const residentTier = currentUser?.verification_tier === 'verified_resident' ? 'A verified resident' : 'A local resident';
     const listingTitle = listingItem.title || listingItem.name || 'Your Product';
+    const sellerUserId = listingItem.user_id || listingItem.userId || null;
 
+    // 🛡️ Route ONLY to the specific merchant's user_id and phone
     const sellerAlert = {
+      user_id: sellerUserId,
       tag: 'CART_ADDITION',
       title: `🛒 In Cart: "${listingTitle}"`,
       message: `${residentTier} in ${buyerLocality} added this listing to their shopping cart.`,
@@ -1424,6 +1394,9 @@ class HyperlocalEngineStore {
       metadata: {
         listingId: targetId,
         category: listingItem.category || 'general',
+        sellerUserId,
+        sellerPhone,
+        buyerUserId: currentUser?.id || null,
       },
     };
 
@@ -1432,6 +1405,7 @@ class HyperlocalEngineStore {
     if (supabase && sellerPhone) {
       supabase.from('notifications').insert([
         {
+          user_id: isValidUuid(sellerUserId) ? sellerUserId : null,
           tag: 'CART_ADDITION',
           title: sellerAlert.title,
           message: sellerAlert.message,
@@ -1573,7 +1547,8 @@ let lastHydrateTimestamp = 0;
 const HYDRATE_COOLDOWN_MS = 4000;
 
 /**
- * Hydrate Store from Supabase with Connection Throttling & Persistent Read State
+ * 🔒 Hydrate Store from Supabase strictly for the current User ID and Phone
+ * Prevents pulling all town-wide notifications and admin queues into regular user clients
  */
 export async function hydrateFromDB() {
   if (!supabase) return;
@@ -1602,14 +1577,36 @@ export async function hydrateFromDB() {
       hyperlocalStore.hydrateBulk(listingsData);
     }
 
-    // 2. Fetch Notifications with persistent read status
-    const notifsFetch = supabase
+    // 2. 🛡️ User-Specific Notifications Query (Strict Identity Security)
+    const activeUser = getCurrentUserProfile();
+    const activeUserId = activeUser?.id && isValidUuid(activeUser.id) ? activeUser.id : null;
+    const activeUserPhone = sanitizePhone(activeUser?.phone);
+    const isAdminUser = Boolean(activeUser?.role === 'admin');
+
+    let notifsQuery = supabase
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(60);
 
-    const { data: notifsData } = await Promise.race([notifsFetch, timeoutPromise]).catch(() => ({ data: null }));
+    if (isAdminUser) {
+      if (activeUserId && activeUserPhone) {
+        notifsQuery = notifsQuery.or(`recipient_role.eq.admin,user_id.eq.${activeUserId},recipient_phone.eq.${activeUserPhone},recipient_role.eq.public`);
+      } else {
+        notifsQuery = notifsQuery.or('recipient_role.eq.admin,recipient_role.eq.public');
+      }
+    } else if (activeUserId && activeUserPhone) {
+      notifsQuery = notifsQuery.or(`user_id.eq.${activeUserId},recipient_phone.eq.${activeUserPhone},and(recipient_role.eq.public,user_id.is.null,recipient_phone.is.null)`);
+    } else if (activeUserPhone) {
+      notifsQuery = notifsQuery.or(`recipient_phone.eq.${activeUserPhone},and(recipient_role.eq.public,user_id.is.null,recipient_phone.is.null)`);
+    } else if (activeUserId) {
+      notifsQuery = notifsQuery.or(`user_id.eq.${activeUserId},and(recipient_role.eq.public,user_id.is.null,recipient_phone.is.null)`);
+    } else {
+      // Unauthenticated visitor: Only true public alerts with no recipient ID or phone
+      notifsQuery = notifsQuery.eq('recipient_role', 'public').is('user_id', null).is('recipient_phone', null);
+    }
+
+    const { data: notifsData } = await Promise.race([notifsQuery, timeoutPromise]).catch(() => ({ data: null }));
     if (notifsData && Array.isArray(notifsData)) {
       const readSet = getStoredReadNotifs();
 
@@ -1617,6 +1614,7 @@ export async function hydrateFromDB() {
         const readResolved = Boolean(n.is_read || readSet.has(String(n.id)));
         return {
           id: String(n.id),
+          user_id: n.user_id || null,
           tag: n.tag,
           title: n.title,
           message: n.message,
@@ -1645,9 +1643,8 @@ export async function hydrateFromDB() {
     }
 
     // 4. Hydrate Active User's Cart
-    const activeUser = getCurrentUserProfile();
-    if (activeUser?.phone) {
-      hyperlocalStore.loadUserCart(activeUser.phone);
+    if (activeUserPhone) {
+      hyperlocalStore.loadUserCart(activeUserPhone);
     }
   } catch (err) {
     console.warn('Fast hydration notice, continuing with local store:', err.message);
@@ -1762,21 +1759,37 @@ export function initRealtimeSubscriptions() {
           }
         }
       )
+      // 🛡️ Filter Realtime Notification Broadcasts to recipient user_id / phone
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          if (payload.new) {
-            hyperlocalStore.addNotification(payload.new);
+          const newNotif = payload.new;
+          if (!newNotif) return;
+
+          const currentUser = getCurrentUserProfile();
+          const currentUserId = currentUser?.id;
+          const currentUserPhone = sanitizePhone(currentUser?.phone);
+          const isAdmin = Boolean(currentUser?.role === 'admin');
+
+          const notifUserId = newNotif.user_id;
+          const notifPhone = sanitizePhone(newNotif.recipient_phone);
+          const notifRole = String(newNotif.recipient_role || 'public').toLowerCase();
+
+          let belongsToMe = false;
+
+          if (notifRole === 'admin') {
+            belongsToMe = isAdmin;
+          } else if (notifUserId && currentUserId && String(notifUserId) === String(currentUserId)) {
+            belongsToMe = true;
+          } else if (notifPhone && currentUserPhone && notifPhone === currentUserPhone) {
+            belongsToMe = true;
+          } else if (notifRole === 'public' && !notifUserId && !notifPhone) {
+            belongsToMe = true;
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'notifications' },
-        (payload) => {
-          if (payload.new) {
-            hyperlocalStore.addNotification(payload.new);
+
+          if (belongsToMe) {
+            hyperlocalStore.addNotification(newNotif);
           }
         }
       )
@@ -1967,63 +1980,85 @@ export function useNotificationSlice(explicitScope = null) {
 }
 
 /**
- * Strict Role-Based Notification Filter Hook
- * Prevents count leaks between Admins, Sellers, and Residents
+ * 🔒 Strict Role & User-ID Notification Filter Hook
+ * Prevents non-admins from receiving admin review queues, and ensures
+ * sellers and residents only receive notifications addressed to them.
  */
 export function useRoleFilteredNotifications(currentUser, currentScreen = 'home', isAdminMode = false) {
   const [alerts, setAlerts] = useState(() => filterAlerts());
 
   function filterAlerts() {
     const rawNotifs = hyperlocalStore.state.notifications || [];
-    const userPhone = sanitizePhone(currentUser?.phone);
-    const isSeller = Boolean(
-      currentUser?.is_merchant ||
-      currentUser?.verification_tier === 'verified_merchant' ||
-      currentUser?.verification_tier === 'merchant' ||
-      currentUser?.role === 'seller'
-    );
-    const isAdmin = Boolean(
-      isAdminMode ||
-      currentScreen === 'admin-dashboard' ||
-      currentUser?.role === 'admin' ||
-      localStorage.getItem('townhub_admin_unlocked') === 'true'
-    );
-
     const readSet = getStoredReadNotifs();
 
-    return rawNotifs
-      .map((n) => {
-        const isRead = Boolean(n.is_read || n.read || readSet.has(String(n.id)));
-        return { ...n, is_read: isRead, read: isRead };
-      })
-      .filter((n) => {
-        const role = String(n.recipient_role || n.role || 'public').toLowerCase();
-        const notifPhone = sanitizePhone(n.recipient_phone || n.metadata?.sellerPhone || n.metadata?.userPhone);
+    const notifsWithRead = rawNotifs.map((n) => {
+      const isRead = Boolean(n.is_read || n.read || readSet.has(String(n.id)));
+      return { ...n, is_read: isRead, read: isRead };
+    });
 
-        // 1. ADMIN NOTIFICATIONS
-        if (role === 'admin' || ADMIN_TAGS.has(n.tag)) {
-          return isAdmin;
-        }
+    // 🔒 GUEST MODE: NOT LOGGED IN
+    if (!currentUser) {
+      return notifsWithRead.filter((n) => {
+        const role = String(n.recipient_role || n.role || '').toLowerCase();
+        const hasUserId = Boolean(n.user_id);
+        const hasPhone = Boolean(n.recipient_phone);
+        const isInternalTag = ADMIN_TAGS.has(n.tag) || SELLER_TAGS.has(n.tag);
 
-        // 2. SELLER / MERCHANT NOTIFICATIONS
-        if (role === 'seller' || SELLER_TAGS.has(n.tag)) {
-          if (!isSeller || !userPhone) return false;
-          return notifPhone === userPhone;
-        }
-
-        // 3. USER / RESIDENT NOTIFICATIONS
-        if (role === 'user') {
-          if (!userPhone) return false;
-          return notifPhone === userPhone;
-        }
-
-        // 4. PUBLIC TOWN NOTIFICATIONS
-        if (role === 'public') {
-          return !ADMIN_TAGS.has(n.tag) && !SELLER_TAGS.has(n.tag);
-        }
-
-        return false;
+        // ONLY show true public announcements
+        return role === 'public' && !hasUserId && !hasPhone && !isInternalTag;
       });
+    }
+
+    const currentUserId = currentUser.id ? String(currentUser.id) : null;
+    const userPhone = sanitizePhone(currentUser.phone);
+
+    const isSeller = Boolean(
+      currentUser.is_merchant ||
+      currentUser.verification_tier === 'verified_merchant' ||
+      currentUser.verification_tier === 'merchant' ||
+      currentUser.role === 'seller'
+    );
+
+    const isAdmin = Boolean(
+      currentScreen === 'admin-dashboard' ||
+      currentUser.role === 'admin' ||
+      (isAdminMode && currentScreen === 'admin-dashboard')
+    );
+
+    return notifsWithRead.filter((n) => {
+      const role = String(n.recipient_role || n.role || 'public').toLowerCase();
+      const notifUserId = n.user_id ? String(n.user_id) : null;
+      const notifPhone = sanitizePhone(n.recipient_phone || n.metadata?.sellerPhone || n.metadata?.userPhone);
+
+      // 1. 👑 ADMIN NOTIFICATIONS
+      if (role === 'admin' || ADMIN_TAGS.has(n.tag)) {
+        return isAdmin;
+      }
+
+      // 2. 🏪 SELLER / MERCHANT NOTIFICATIONS
+      if (role === 'seller' || SELLER_TAGS.has(n.tag)) {
+        if (!isSeller) return false;
+        if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
+        if (notifPhone && userPhone && notifPhone === userPhone) return true;
+        return false;
+      }
+
+      // 3. 👤 USER / RESIDENT NOTIFICATIONS
+      if (role === 'user') {
+        if (notifUserId && currentUserId && notifUserId === currentUserId) return true;
+        if (notifPhone && userPhone && notifPhone === userPhone) return true;
+        return false;
+      }
+
+      // 4. 📢 PUBLIC TOWN NOTIFICATIONS
+      if (role === 'public') {
+        if (notifUserId && currentUserId && notifUserId !== currentUserId) return false;
+        if (notifPhone && userPhone && notifPhone !== userPhone) return false;
+        return !ADMIN_TAGS.has(n.tag) && !SELLER_TAGS.has(n.tag);
+      }
+
+      return false;
+    });
   }
 
   useEffect(() => {
@@ -2032,14 +2067,11 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
         setAlerts(filterAlerts());
       }
     });
-  }, [currentUser?.phone, currentUser?.is_merchant, currentScreen, isAdminMode]);
+  }, [currentUser?.id, currentUser?.phone, currentUser?.is_merchant, currentScreen, isAdminMode]);
 
   return alerts;
 }
 
-/**
- * Reactive React hook for the Public Seller Storefront Modal
- */
 export function useSellerProfileSlice() {
   const [profileState, setProfileState] = useState(() => ({
     selectedSeller: hyperlocalStore.state.selectedSeller,

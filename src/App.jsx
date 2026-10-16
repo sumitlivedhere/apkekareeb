@@ -178,14 +178,19 @@ export default function App() {
     }
   };
 
-  // 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
+// 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
   useEffect(() => {
     if (currentUser?.phone) {
       hyperlocalStore.loadUserCart(currentUser.phone);
     } else {
       hyperlocalStore.resetCartOnLogout();
+      hyperlocalStore.resetNotificationsOnLogout();
+      setIsAdminUnlocked(false);
+      localStorage.removeItem('townhub_admin_unlocked');
     }
-  }, [currentUser?.phone, currentUser?.role]);
+    // Re-hydrate Supabase records specifically for the active user ID or guest
+    hydrateFromDB();
+  }, [currentUser?.id, currentUser?.phone, currentUser?.role]);
 
   // Track active overlay/modal for hardware back-button interception
   const activeModalCloserRef = useRef(null);
@@ -289,11 +294,11 @@ export default function App() {
   );
   const isAuthorizedToPost = Boolean(isAdminUnlocked || isSeller);
 
-  // 🔔 Calculate Unread Alerts strictly for active role
+// 🔔 Calculate Unread Alerts strictly for active role
   const roleFilteredAlerts = useRoleFilteredNotifications(
     currentUser,
     currentScreen,
-    currentScreen === 'admin-dashboard' || isAdminUnlocked
+    currentScreen === 'admin-dashboard' // Admin alerts only render inside admin dashboard
   );
 
   const unreadNotifCount = useMemo(
