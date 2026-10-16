@@ -313,6 +313,12 @@ export function normalizeDBListing(item) {
     title: nameVal,
     name: nameVal,
     category: catId,
+    // 🚀 Paid Promotion Status (Admin-Approved Only + Expiration Check)
+    is_promoted: Boolean(
+      (item.is_promoted === true || item.deal_type === 'PAID_PROMO') &&
+      (!item.deal_expires_at || new Date(item.deal_expires_at).getTime() > Date.now())
+    ),
+    promoted_until: item.promoted_until || item.deal_expires_at || null,
     subCategory: subCatId,
     sub_category: subCatId,
     bucketKey: targetBucket,
@@ -2095,4 +2101,25 @@ export function useSellerProfileSlice() {
     closeSellerProfile: () => hyperlocalStore.closeSellerProfile(),
     getListingsBySeller: (seller) => hyperlocalStore.getListingsBySeller(seller),
   };
+}
+
+/**
+ * 🚀 Hook that returns ONLY Admin-Approved Paid Promotions
+ */
+export function usePromotedListingsSlice() {
+  const [promoted, setPromoted] = useState(() =>
+    hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted))
+  );
+
+  useEffect(() => {
+    return hyperlocalStore.subscribe((_, changedKey) => {
+      if (!changedKey || changedKey === 'all') {
+        setPromoted(
+          hyperlocalStore.getAllListings().filter((item) => Boolean(item.is_promoted))
+        );
+      }
+    });
+  }, []);
+
+  return promoted;
 }

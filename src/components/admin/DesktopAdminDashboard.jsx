@@ -10,6 +10,7 @@ import {
   uploadListingVideosToStorage,
   deleteListingFromDB,
   saveNotificationToDB,
+  adminTogglePaidPromotion, 
 } from '../../services/listingService';
 import {
   adminToggleBanUser,
@@ -54,6 +55,51 @@ const FIELD_ISSUE_PRESETS = {
   location: ['Incorrect Locality Tag', 'GPS Pin Out of Bounds', 'Incomplete Shop Landmark'],
   trial: ['Trial terms not clearly explained', 'Advance requested for doorstep trial is high'],
 };
+
+// 🚀 Admin Handler: Approve / Revoke Paid Promotion
+  const handleTogglePaidPromotion = async (item) => {
+    if (!item) return;
+    const isCurrentlyPromoted = Boolean(
+      item.is_promoted || item.deal_type === 'PAID_PROMO'
+    );
+
+    let durationDays = 7;
+    if (!isCurrentlyPromoted) {
+      const input = window.prompt(
+        `🚀 APPROVE PAID PROMOTION for "${item.title}":\n\nEnter number of days to feature in the Paid Promotions tab (e.g. 7, 15, 30):`,
+        '7'
+      );
+      if (input === null) return; // Cancelled
+      durationDays = Math.max(1, parseInt(input, 10) || 7);
+    } else {
+      if (!window.confirm(`🛑 Remove "${item.title}" from Paid Promotions?`)) return;
+    }
+
+    setActionInProgressId(item.id);
+    const nextState = !isCurrentlyPromoted;
+    const res = await adminTogglePaidPromotion(item.id, nextState, durationDays);
+    setActionInProgressId(null);
+
+    if (res.success) {
+      // Update in-memory store immediately so the Promotions tile updates live
+      hyperlocalStore.insertListing(item.category || 'listings', {
+        ...item,
+        is_promoted: nextState,
+        deal_type: nextState ? 'PAID_PROMO' : null,
+        deal_expires_at: res.expiresAt,
+        verification_badge: nextState ? '🚀 Featured Sponsor' : 'Verified Listing',
+      });
+
+      notifyAdmin(
+        nextState
+          ? `🚀 "${item.title}" is now LIVE in Paid Promotions for ${durationDays} days!`
+          : `🛑 Removed "${item.title}" from Paid Promotions.`
+      );
+      if (typeof onRefresh === 'function') onRefresh();
+    } else {
+      alert(`Failed to update promotion: ${res.error}`);
+    }
+  };
 
 const isValidUuid = (id) =>
   Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
@@ -766,11 +812,13 @@ export default function DesktopAdminDashboard({
   // Dynamic Time Window & Multi-Factor Sorting
   const processedListings = useMemo(() => {
     const rawList =
-      activeTab === 'pending'
-        ? pendingApprovals
-        : activeTab === 'approved'
-        ? approvedListings
-        : allFilteredListings;
+    activeTab === 'pending'
+    ? pendingApprovals
+    : activeTab === 'promoted'
+    ? allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO')
+    : activeTab === 'approved'
+    ? approvedListings
+    : allFilteredListings;
 
     const now = Date.now();
     const activePreset = TIME_PRESETS.find((p) => p.value === timeFilterType) || TIME_PRESETS[0];
@@ -971,7 +1019,7 @@ export default function DesktopAdminDashboard({
         return;
       }
 
-      if (activeTab === 'pending' || activeTab === 'approved' || activeTab === 'all') {
+      if (activeTab === 'pending' || activeTab === 'approved' || activeTab === 'all' || activeTab === 'promoted') {
         const currentIdx = processedListings.findIndex((i) => String(i.id) === String(selectedItemId));
 
         if (e.key.toLowerCase() === 'j' || e.key === 'ArrowDown') {
@@ -1363,6 +1411,13 @@ export default function DesktopAdminDashboard({
               { id: 'reports', label: 'Dispute Reports', icon: '🚩', count: reports.length, badgeColor: 'bg-rose-500 text-white font-bold' },
               { id: 'interactions', label: 'Inquiries & Reviews', icon: '💬', count: threads.length, badgeColor: 'bg-cyan-500 text-slate-950 font-bold' },
               { id: 'broadcast', label: 'Broadcast & Coverage', icon: '📢' },
+              {
+                id: 'promoted',
+                label: 'Paid Promotions',
+                icon: '🚀',
+                count: allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO').length,
+                badgeColor: 'bg-amber-400 text-slate-950 font-black',
+              },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1417,7 +1472,7 @@ export default function DesktopAdminDashboard({
           {/* ========================================================================= */}
           {/* MODULE A: 3-PANE LISTINGS MODERATION CANVAS                               */}
           {/* ========================================================================= */}
-          {(activeTab === 'pending' || activeTab === 'approved' || activeTab === 'all') && (
+          {(activeTab === 'pending' || activeTab === 'approved' || activeTab === 'all' || activeTab === 'promoted') && (
             <div className="flex-1 flex w-full h-full overflow-hidden">
               
               {/* PANE 2: MIDDLE QUEUE STREAM (480px - 560px) */}
@@ -1688,6 +1743,24 @@ export default function DesktopAdminDashboard({
                           <span>✓</span>
                           <span>Approve [A]</span>
                         </button>
+
+                        <button
+                        type="button"
+                        onClick={() => handleTogglePaidPromotion(activeItem)}
+                        disabled={actionInProgressId === activeItem.id}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center space-x-1.5 shadow-lg ${
+                          activeItem.is_promoted || activeItem.deal_type === 'PAID_PROMO'
+                            ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-slate-950 ring-2 ring-amber-300'
+                            : 'bg-purple-950 hover:bg-purple-900 text-purple-200 border border-purple-500/50'
+                        }`}
+                      >
+                        <span>🚀</span>
+                        <span>
+                          {activeItem.is_promoted || activeItem.deal_type === 'PAID_PROMO'
+                            ? 'Promoted (Click to End)'
+                            : 'Approve Paid Promo'}
+                        </span>
+                      </button>
 
                         <button
                           type="button"

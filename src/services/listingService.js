@@ -1620,3 +1620,64 @@ export async function markAllNotificationsAsReadInDB(notifIds = []) {
     console.warn('Notice batch syncing read notifications:', err.message);
   }
 }
+
+/**
+ * 🚀 Admin-Only: Approve or Revoke a Listing for the Paid Promotions Tab
+ * Works with or without the optional SQL migration (zero schema-cache errors)
+ */
+export async function adminTogglePaidPromotion(
+  listingId,
+  shouldPromote = true,
+  durationDays = 7,
+  customLabel = '🚀 Featured Sponsor'
+) {
+  if (!supabase || !listingId) {
+    return { success: false, error: 'Database client or Listing ID missing' };
+  }
+
+  const expiresAt = shouldPromote
+    ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  // 1. Primary payload (uses existing columns guaranteed in your schema)
+  const basePayload = {
+    deal_type: shouldPromote ? 'PAID_PROMO' : null,
+    deal_expires_at: expiresAt,
+    verification_badge: shouldPromote ? customLabel : 'Verified Listing',
+    is_active: true,
+    has_pending_approval: false,
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    // Try updating with `is_promoted` first if the SQL migration was run
+    const { data, error } = await supabase
+      .from('listings')
+      .update({
+        ...basePayload,
+        is_promoted: shouldPromote,
+        promoted_until: expiresAt,
+      })
+      .eq('id', listingId)
+      .select()
+      .single();
+
+    if (error) {
+      // Fallback: If `is_promoted` column isn't in schema cache yet, update using existing schema columns
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('listings')
+        .update(basePayload)
+        .eq('id', listingId)
+        .select()
+        .single();
+
+      if (fallbackError) throw fallbackError;
+      return { success: true, data: fallbackData, expiresAt };
+    }
+
+    return { success: true, data, expiresAt };
+  } catch (err) {
+    console.error('Failed to update paid promotion status:', err);
+    return { success: false, error: err.message };
+  }
+}

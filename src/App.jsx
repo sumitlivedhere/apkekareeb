@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';
+import CategoryPromotionsBar from './components/common/CategoryPromotionsBar';
 import {
   useRoleFilteredNotifications,
   useCartCount,
@@ -178,7 +179,7 @@ export default function App() {
     }
   };
 
-// 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
+  // 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
   useEffect(() => {
     if (currentUser?.phone) {
       hyperlocalStore.loadUserCart(currentUser.phone);
@@ -188,7 +189,6 @@ export default function App() {
       setIsAdminUnlocked(false);
       localStorage.removeItem('townhub_admin_unlocked');
     }
-    // Re-hydrate Supabase records specifically for the active user ID or guest
     hydrateFromDB();
   }, [currentUser?.id, currentUser?.phone, currentUser?.role]);
 
@@ -294,17 +294,30 @@ export default function App() {
   );
   const isAuthorizedToPost = Boolean(isAdminUnlocked || isSeller);
 
-// 🔔 Calculate Unread Alerts strictly for active role
+  // 🔔 Calculate Unread Alerts strictly for active role
   const roleFilteredAlerts = useRoleFilteredNotifications(
     currentUser,
     currentScreen,
-    currentScreen === 'admin-dashboard' // Admin alerts only render inside admin dashboard
+    currentScreen === 'admin-dashboard'
   );
 
   const unreadNotifCount = useMemo(
     () => roleFilteredAlerts.filter((n) => !n.is_read && !n.read).length,
     [roleFilteredAlerts]
   );
+
+  // 🚀 AUTOMATIC MECHANISM: Determines if current view is a category (Hub or Feed)
+  const isCategoryScreen = useMemo(() => {
+    if (
+      currentScreen === 'home' ||
+      currentScreen === 'admin-dashboard' ||
+      currentScreen === 'provider-dashboard' ||
+      currentScreen === 'user-auth-dashboard'
+    ) {
+      return false;
+    }
+    return Boolean(selectedCategory && selectedCategory !== 'all');
+  }, [currentScreen, selectedCategory]);
 
   const navigateTo = (updates) => {
     const nextState = {
@@ -353,10 +366,6 @@ export default function App() {
     navigateTo({ screen: 'home', searchQuery: '' });
   };
 
-  /**
-   * 🌟 Deterministic Subcategories Page Back Navigation
-   * Returns directly to the category's subcategory selection hub in 1 tap
-   */
   const handleBackToCategoryHub = (catId = selectedCategory) => {
     const targetCat = catId || selectedCategory || 'property';
     const targetHub = CATEGORY_HUB_MAP[targetCat] || 'town-hub';
@@ -388,21 +397,17 @@ export default function App() {
     }
   };
 
-  // 🔔 Deep Link Router on Alert Tap (Silences unread count immediately & routes by persona)
   const handleSelectNotification = (notif) => {
     if (!notif) return;
 
-    // 1. 🔕 Immediately mark as read to silent the bell count and persist state
     if (typeof hyperlocalStore.markNotificationRead === 'function') {
       hyperlocalStore.markNotificationRead(notif.id);
     }
     setIsNotificationsOpen(false);
 
-    // 2. Normalize tag format (handles spaces, underscores, lowercase)
     const rawTag = notif.tag || '';
     const cleanTag = String(rawTag).toUpperCase().replace(/[\s-]+/g, '_');
 
-    // 3. Resolve target listing ID from top-level or metadata attributes
     const targetListingId =
       notif.targetId ||
       notif.metadata?.targetId ||
@@ -414,7 +419,6 @@ export default function App() {
       ? allItems.find((i) => String(i.id) === String(targetListingId))
       : null;
 
-    // 👑 4. ADMIN ALERTS ROUTE
     const adminTags = [
       'NEW_ENLISTMENT',
       'PENDING_APPROVAL',
@@ -433,7 +437,6 @@ export default function App() {
       return;
     }
 
-    // 🏪 5. SELLER / MERCHANT ALERTS ROUTE
     const sellerDashboardTags = [
       'CART_ADDITION',
       'INTEREST_REGISTERED',
@@ -452,7 +455,6 @@ export default function App() {
       return;
     }
 
-    // 👤 6. RESIDENT USER ROUTE (Directly view replies or inquiries on listing)
     if (
       cleanTag === 'SELLER_REPLIED' ||
       cleanTag === 'SELLER_REPLY' ||
@@ -466,20 +468,17 @@ export default function App() {
       }
     }
 
-    // 🎯 7. GENERAL MATCHED LISTING FALLBACK
     if (matchedListing) {
       setSelectedDetailItem(matchedListing);
       return;
     }
 
-    // 📢 8. CATEGORY FEED FALLBACK
     const targetCategory = notif.category || notif.metadata?.category;
     if (targetCategory) {
       handleOpenFeed(targetCategory, notif.subCategory || notif.metadata?.subCategory || 'all');
     }
   };
 
-  // 🌟 Touch Swipe Gesture Handlers
   const handleTouchStart = (e) => {
     if (
       document.querySelector('[data-modal-open="true"]') ||
@@ -646,7 +645,6 @@ export default function App() {
 
           {/* Right Action Cluster */}
           <div className="flex items-center space-x-1.5 shrink-0">
-            {/* Post Here Button */}
             {currentScreen !== 'home' &&
               currentScreen !== 'provider-dashboard' &&
               currentScreen !== 'admin-dashboard' &&
@@ -662,7 +660,7 @@ export default function App() {
                 </button>
               )}
 
-            {/* 🛒 User-Scoped Shopping Cart Button */}
+            {/* Shopping Cart Button */}
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
@@ -685,7 +683,7 @@ export default function App() {
               )}
             </button>
 
-            {/* 🔔 Live Alerts Button */}
+            {/* Live Alerts Button */}
             <button
               type="button"
               onClick={() => setIsNotificationsOpen(true)}
@@ -725,6 +723,15 @@ export default function App() {
             onSelectItem={(item) => setSelectedDetailItem(item)}
             searchQuery={searchQuery}
             onSearchChange={(q) => navigateTo({ searchQuery: q })}
+          />
+        )}
+
+        {/* 🚀 AUTOMATIC CATEGORY PROMOTIONS INJECTOR: Renders dynamically for whatever category is active, ZERO manual edits to 21 category files */}
+        {isCategoryScreen && (
+          <CategoryPromotionsBar
+            category={selectedCategory}
+            selectedCity={selectedCity}
+            onSelectListing={(item) => setSelectedDetailItem(item)}
           />
         )}
 
@@ -950,7 +957,7 @@ export default function App() {
             />
           )}
 
-          {/* 🌟 Category Listings Feeds (Deterministic Back to Category Hub) */}
+          {/* 🌟 Category Listings Feeds */}
           {currentScreen === 'listings' && (
             <ListingsFeed
               selectedCategory={selectedCategory}
@@ -1211,7 +1218,7 @@ export default function App() {
           />
         )}
 
-        {/* 🏬 Global Public Seller Storefront Modal */}
+        {/* Global Public Seller Storefront Modal */}
         <SellerProfileModal
           selectedCity={selectedCity}
           onSelectListing={(item) => {
@@ -1220,7 +1227,7 @@ export default function App() {
         />
       </Suspense>
 
-      {/* 🛒 User-Scoped Shopping Cart Drawer */}
+      {/* Shopping Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
         allListings={allListings}
@@ -1232,7 +1239,7 @@ export default function App() {
         }}
       />
 
-      {/* 🏪 Business Side Onboarding Prompt */}
+      {/* Business Side Onboarding Prompt */}
       {isBusinessPromptOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-slate-100 font-sans">
           <div className="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl text-center">
@@ -1248,7 +1255,7 @@ export default function App() {
                 यह सुविधा केवल विक्रेताओं के लिए है — क्या आप विक्रेता बनकर जुड़ना चाहते हैं?
               </p>
               <p className="text-[10.5px] text-slate-400 leading-relaxed pt-1">
-                Verify with your 6-digit WhatsApp Seller PIN (ending in <strong>...S</strong>) and set your custom PIN to start listing inventory in {selectedCity}.
+                Verify with your 6-digit WhatsApp Seller PIN and set your custom PIN to start listing inventory in {selectedCity}.
               </p>
             </div>
 
@@ -1277,7 +1284,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 👑 Admin Key Modal */}
+      {/* Admin Key Modal */}
       <AdminKeyModal
         isOpen={isAdminKeyModalOpen}
         onClose={() => setIsAdminKeyModalOpen(false)}
@@ -1288,7 +1295,7 @@ export default function App() {
         }}
       />
 
-      {/* Role-Filtered Notification Center Drawer */}
+      {/* Notification Center Drawer */}
       {isNotificationsOpen && (
         <NotificationCenter
           notifications={roleFilteredAlerts}
@@ -1301,7 +1308,7 @@ export default function App() {
         />
       )}
 
-      {/* Resident Staged Onboarding Modal */}
+      {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         selectedCity={selectedCity}
@@ -1326,10 +1333,10 @@ export default function App() {
         }}
       />
 
-      {/* 📲 PWA Install Prompt */}
+      {/* PWA Install Prompt */}
       <PWAInstallBanner />
 
-      {/* 📈 Performance & Web Analytics Metrics */}
+      {/* Web Analytics */}
       <SpeedInsights />
       <Analytics />
     </div>

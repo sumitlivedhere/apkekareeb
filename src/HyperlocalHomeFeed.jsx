@@ -1,329 +1,167 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import SearchOverlay from './components/common/SearchOverlay';
-import { hyperlocalStore } from './store/hyperlocalStore';
-import { useTheme } from './context/ThemeContext';
-import { useLocationContext } from './context/LocationContext';
-import { findNearestColony } from './data/cityZones';
+import React, { useState } from 'react';
 
-const ALWAR_CATEGORIES = [
+// 🏛️ Master 21 Local Alwar Categories Specification
+const MASTER_CATEGORIES = [
   {
     id: 'kaarigar',
     name: 'Kaarigar & Mistri',
-    hindi: 'कारीगर व मिस्त्री सेवा',
+    hindiName: 'कारीगर व मिस्त्री सेवा',
     icon: '🛠️',
-    lightBg: 'bg-amber-50/90 border-amber-200 hover:border-amber-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-amber-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-amber-800 font-black',
-    darkHindi: 'text-amber-400 font-bold',
+    hub: 'Verified Hub',
   },
   {
     id: 'property',
     name: 'Property & Real Estate',
-    hindi: 'प्रॉपर्टी व रियल एस्टेट',
+    hindiName: 'प्रॉपर्टी व रियल एस्टेट',
     icon: '🏢',
-    lightBg: 'bg-sky-50/90 border-sky-200 hover:border-sky-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-sky-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-sky-800 font-black',
-    darkHindi: 'text-sky-400 font-bold',
+    hub: 'Verified Hub',
   },
   {
     id: 'transporters',
     name: 'Transporters / Loading',
-    hindi: 'ट्रांसपोर्ट व माल ढुलाई',
+    hindiName: 'ट्रांसपोर्ट व माल ढुलाई',
     icon: '🚚',
-    lightBg: 'bg-yellow-50/90 border-yellow-200 hover:border-yellow-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-yellow-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-amber-900 font-black',
-    darkHindi: 'text-yellow-400 font-bold',
+    hub: 'Verified Hub',
   },
   {
-    id: 'white-collar',
-    name: 'Doctor / CA / Lawyer / Consultant',
-    hindi: 'प्रोफेशनल्स व विशेषज्ञ',
-    icon: '👔',
-    lightBg: 'bg-indigo-50/90 border-indigo-200 hover:border-indigo-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-indigo-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-indigo-800 font-black',
-    darkHindi: 'text-indigo-400 font-bold',
+    id: 'market',
+    name: 'Kirana & Mandi Market',
+    hindiName: 'मंडी व किराना बाज़ार',
+    icon: '🛒',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'malls',
+    name: 'Malls & Showrooms',
+    hindiName: 'मॉल्स व रिटेल शोरूम',
+    icon: '🛍️',
+    hub: 'Verified Hub',
   },
   {
     id: 'restaurants',
-    name: 'Restaurant / Cafe / Food',
-    hindi: 'रेस्टोरेंट व कैफे',
-    icon: '🍔',
-    lightBg: 'bg-rose-50/90 border-rose-200 hover:border-rose-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-rose-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-rose-800 font-black',
-    darkHindi: 'text-rose-400 font-bold',
+    name: 'Restaurants & Food',
+    hindiName: 'रेस्टोरेंट व खान-पान',
+    icon: '🍽️',
+    hub: 'Verified Hub',
   },
   {
-    id: 'fashion',
-    name: 'Flagship Showrooms & Boutiques',
-    hindi: 'प्रीमियम शोरूम व बुटीक',
-    icon: '💎',
-    lightBg: 'bg-pink-50/90 border-pink-200 hover:border-pink-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-pink-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-pink-800 font-black',
-    darkHindi: 'text-pink-400 font-bold',
+    id: 'medical',
+    name: 'Doctors & Healthcare',
+    hindiName: 'चिकित्सा व डॉक्टर सेवा',
+    icon: '🏥',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'fitness',
+    name: 'Gym & Fitness',
+    hindiName: 'जिम व फिटनेस सेंटर',
+    icon: '🏋️',
+    hub: 'Verified Hub',
   },
   {
     id: 'education',
-    name: 'Education, Skills & Apprenticeship',
-    hindi: 'शिक्षा, हुनर व ट्रेनी ट्रेनिंग',
-    icon: '🎓',
-    lightBg: 'bg-blue-50/90 border-blue-200 hover:border-blue-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-blue-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-blue-800 font-black',
-    darkHindi: 'text-blue-400 font-bold',
-  },
-  {
-    id: 'construction',
-    name: 'Construction & Materials',
-    hindi: 'निर्माण कार्य व सामग्री',
-    icon: '🏗️',
-    lightBg: 'bg-orange-50/90 border-orange-200 hover:border-orange-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-orange-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-orange-900 font-black',
-    darkHindi: 'text-orange-400 font-bold',
+    name: 'Coaching & Schools',
+    hindiName: 'कोचिंग व शिक्षण संस्थान',
+    icon: '📚',
+    hub: 'Verified Hub',
   },
   {
     id: 'shaadi',
-    name: 'Shaadi & Wedding 360°',
-    hindi: 'विवाह सेवा व शादी की तैयारी',
+    name: 'Shaadi & Events',
+    hindiName: 'शादी व इवेंट्स',
     icon: '💍',
-    lightBg: 'bg-rose-50/90 border-rose-200 hover:border-rose-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-rose-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-rose-800 font-black',
-    darkHindi: 'text-rose-400 font-bold',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'vehicles',
+    name: 'Cars & Two-Wheelers',
+    hindiName: 'गाड़ी व बाइक बाज़ार',
+    icon: '🚗',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'creators',
+    name: 'Artists & Creators',
+    hindiName: 'स्थानीय कलाकार व रचनाकार',
+    icon: '🎨',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'advertising',
+    name: 'Flex, Hoardings & Ads',
+    hindiName: 'प्रचार व विज्ञापन',
+    icon: '📢',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'construction',
+    name: 'Building & Construction',
+    hindiName: 'भवन निर्माण सामग्री',
+    icon: '🏗️',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'recommerce',
+    name: 'Purana Bazaar / 2nd Hand',
+    hindiName: 'पुराना सामान खरीद-बिक्री',
+    icon: '♻️',
+    hub: 'Verified Hub',
   },
   {
     id: 'festival',
     name: 'Festival Offers & Melas',
-    hindi: 'त्योहारी ऑफर्स व मेले',
-    icon: '🎪',
-    lightBg: 'bg-purple-50/90 border-purple-200 hover:border-purple-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-purple-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-purple-800 font-black',
-    darkHindi: 'text-purple-400 font-bold',
+    hindiName: 'त्योहार व मेला ऑफर्स',
+    icon: '🪔',
+    hub: 'Verified Hub',
   },
   {
-    id: 'recommerce',
-    name: 'Re-Commerce / Second Hand',
-    hindi: 'पुराना बाज़ार व थ्रिफ्ट',
-    icon: '🛍️',
-    lightBg: 'bg-emerald-50/90 border-emerald-200 hover:border-emerald-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-emerald-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-emerald-800 font-black',
-    darkHindi: 'text-emerald-400 font-bold',
+    id: 'community',
+    name: 'Community Drives',
+    hindiName: 'सामाजिक पहल व जनसेवा',
+    icon: '🤝',
+    hub: 'Verified Hub',
   },
   {
-    id: 'vehicles',
-    name: 'Automobiles & Vehicles',
-    hindi: 'ऑटोमोबाइल व वाहन',
-    icon: '🏎️',
-    lightBg: 'bg-cyan-50/90 border-cyan-200 hover:border-cyan-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-cyan-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-cyan-800 font-black',
-    darkHindi: 'text-cyan-400 font-bold',
+    id: 'white-collar',
+    name: 'Jobs & Consultants',
+    hindiName: 'रोजगार व पेशेवर सलाहकार',
+    icon: '💼',
+    hub: 'Verified Hub',
   },
   {
     id: 'electronics',
-    name: 'Electronics & Gadgets',
-    hindi: 'इलेक्ट्रॉनिक्स व गैजेट्स',
+    name: 'Electronics & Mobile',
+    hindiName: 'इलेक्ट्रॉनिक्स व मोबाइल',
     icon: '📱',
-    lightBg: 'bg-sky-50/90 border-sky-200 hover:border-sky-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-sky-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-sky-800 font-black',
-    darkHindi: 'text-sky-400 font-bold',
+    hub: 'Verified Hub',
   },
   {
-    id: 'fashion-lifestyle',
-    name: 'Fashion & Lifestyle',
-    hindi: 'फैशन व लाइफस्टाइल',
-    icon: '✨',
-    lightBg: 'bg-pink-50/90 border-pink-200 hover:border-pink-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-pink-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-pink-800 font-black',
-    darkHindi: 'text-pink-400 font-bold',
-  },
-  {
-    id: 'medical',
-    name: 'Medical, Hospitals & Doctors',
-    hindi: 'चिकित्सा, डॉक्टर व अस्पताल',
-    icon: '🏥',
-    lightBg: 'bg-teal-50/90 border-teal-200 hover:border-teal-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-teal-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-teal-800 font-black',
-    darkHindi: 'text-teal-400 font-bold',
+    id: 'fashion',
+    name: 'Clothes & Boutique',
+    hindiName: 'कपड़े व फैशन बुटीक',
+    icon: '👗',
+    hub: 'Verified Hub',
   },
   {
     id: 'furniture',
     name: 'Furniture & Decor',
-    hindi: 'फर्नीचर व इंटीरियर',
-    icon: '🛋️',
-    lightBg: 'bg-amber-50/90 border-amber-200 hover:border-amber-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-amber-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-amber-900 font-black',
-    darkHindi: 'text-amber-400 font-bold',
-  },
-  {
-    id: 'market',
-    name: 'Market & Retail',
-    hindi: 'लोकल बाज़ार व डील्स',
-    icon: '🛒',
-    lightBg: 'bg-emerald-50/90 border-emerald-200 hover:border-emerald-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-emerald-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-emerald-800 font-black',
-    darkHindi: 'text-emerald-400 font-bold',
-  },
-  {
-    id: 'advertising',
-    name: 'Advertising & Space Exchange',
-    hindi: 'विज्ञापन व लोकल प्रोमो',
-    icon: '📢',
-    lightBg: 'bg-purple-50/90 border-purple-200 hover:border-purple-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-purple-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-purple-800 font-black',
-    darkHindi: 'text-purple-400 font-bold',
-  },
-  {
-    id: 'community',
-    name: 'Community & Events',
-    hindi: 'समाज, संस्थाएं व कार्यक्रम',
-    icon: '🤝',
-    lightBg: 'bg-blue-50/90 border-blue-200 hover:border-blue-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-blue-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-blue-800 font-black',
-    darkHindi: 'text-blue-400 font-bold',
-  },
-  {
-    id: 'fitness',
-    name: 'Fitness, Gyms & Sports',
-    hindi: 'फिटनेस, जिम व खेल',
-    icon: '🏋️',
-    lightBg: 'bg-red-50/90 border-red-200 hover:border-red-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-red-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-red-800 font-black',
-    darkHindi: 'text-red-400 font-bold',
-  },
-  {
-    id: 'creators',
-    name: 'Local Creators & Artists',
-    hindi: 'लोकल आर्टिस्ट व वीडियो',
-    icon: '🎬',
-    lightBg: 'bg-fuchsia-50/90 border-fuchsia-200 hover:border-fuchsia-400',
-    darkBg: 'bg-slate-900/90 border-slate-800 hover:border-fuchsia-400/50',
-    lightText: 'text-slate-900',
-    lightHindi: 'text-fuchsia-800 font-black',
-    darkHindi: 'text-fuchsia-400 font-bold',
+    hindiName: 'फर्नीचर व सजावट',
+    icon: '🪑',
+    hub: 'Verified Hub',
   },
 ];
 
 export default function HyperlocalHomeFeed({
-  userLocation: propLocation,
-  isLocating: propIsLocating,
-  onRefreshLocation: propOnRefreshLocation,
   onSelectCategory,
-  onSelectIntent,
-  onSelectItem,
-  searchQuery = '',
-  onSearchChange,
+  selectedCity = 'Alwar',
+  currentLocality = 'Kali Mori',
+  onOpenSearch,
 }) {
-  const { isDark } = useTheme();
-  const context = useLocationContext();
-
-  const [internalLocating, setInternalLocating] = useState(false);
-  const [internalLocation, setInternalLocation] = useState(null);
-
-  // Compute active locality
-  const currentCity = internalLocation?.city || context?.location?.city || propLocation?.city || 'Alwar';
-  const currentColony =
-    internalLocation?.colony ||
-    internalLocation?.locality ||
-    context?.location?.colony ||
-    context?.location?.locality ||
-    propLocation?.colony ||
-    propLocation?.locality ||
-    'Budh Vihar';
-
-  const displayLocality = `${currentColony}, ${currentCity}`;
-  const isLocatingActive = internalLocating || context?.isLocating || propIsLocating;
-
-  const allListings = hyperlocalStore.getAllListings();
-  const [localQuery, setLocalQuery] = useState(searchQuery);
   const [speakingCatId, setSpeakingCatId] = useState(null);
+  const [currentLocation, setCurrentLocation] = useState(`${currentLocality}, ${selectedCity}`);
+  const [isLocating, setIsLocating] = useState(false);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (onSearchChange) onSearchChange(localQuery);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [localQuery, onSearchChange]);
-
-  // Direct Hardware GPS Trigger
-  const handleGpsPinClick = () => {
-    setInternalLocating(true);
-
-    if (typeof propOnRefreshLocation === 'function') {
-      propOnRefreshLocation();
-    }
-
-    if (context && typeof context.detectLiveGPS === 'function') {
-      context.detectLiveGPS();
-    }
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const lat = Number(pos.coords.latitude.toFixed(6));
-          const lng = Number(pos.coords.longitude.toFixed(6));
-          const colony = findNearestColony(lat, lng);
-
-          const resolved = {
-            colony,
-            locality: colony,
-            city: currentCity,
-            lat,
-            lng,
-          };
-
-          setInternalLocation(resolved);
-          try {
-            localStorage.setItem('alwar_user_precise_location', JSON.stringify(resolved));
-          } catch {}
-          setInternalLocating(false);
-        },
-        (err) => {
-          console.warn('GPS detection note:', err.message);
-          setInternalLocating(false);
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
-      );
-    } else {
-      setInternalLocating(false);
-    }
-  };
-
+  // 🔊 Audio Pronunciation for Accessibility
   const handleSpeakCategory = (e, cat) => {
     e.stopPropagation();
     if (!('speechSynthesis' in window)) return;
@@ -331,219 +169,162 @@ export default function HyperlocalHomeFeed({
     window.speechSynthesis.cancel();
     setSpeakingCatId(cat.id);
 
-    const utterance = new SpeechSynthesisUtterance(`${cat.name}. ${cat.hindi}`);
+    const textToSpeak = `${cat.hindiName || cat.name}, आपके करीब ${selectedCity}`;
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.lang = 'hi-IN';
     utterance.rate = 0.95;
+
     utterance.onend = () => setSpeakingCatId(null);
     utterance.onerror = () => setSpeakingCatId(null);
 
     window.speechSynthesis.speak(utterance);
   };
 
-  const filteredCategories = useMemo(() => {
-    if (!searchQuery.trim()) return ALWAR_CATEGORIES;
-    const q = searchQuery.toLowerCase().trim();
-    return ALWAR_CATEGORIES.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.hindi.toLowerCase().includes(q) ||
-        c.id.toLowerCase().includes(q)
+  // 🔄 GPS Pin Detection
+  const handleDetectGPS = (e) => {
+    e.stopPropagation();
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        setCurrentLocation(`GPS Pin (${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)})`);
+      },
+      () => {
+        setIsLocating(false);
+        setCurrentLocation(`${currentLocality}, ${selectedCity}`);
+      },
+      { timeout: 8000 }
     );
-  }, [searchQuery]);
+  };
 
   return (
-    <div className="p-3.5 space-y-3.5 animate-fade-in font-sans select-none pb-12">
-      {/* 🌟 1. GPS PINNING RADAR & GLOBAL SEARCH CARD */}
-      <section
-        className={`p-4 rounded-3xl border transition-colors shadow-md ${
-          isDark
-            ? 'bg-slate-900 border-slate-800 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-900 shadow-slate-200/50'
-        }`}
-      >
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
-          <div className="min-w-0 flex-1 pr-2">
+    <div className="w-full max-w-2xl mx-auto px-4 py-5 space-y-5 select-none font-sans text-slate-100">
+      
+      {/* 📍 1. TOP LOCATION & SEARCH BAR CARD */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-[#0e1720] border border-[#1d2b38] shadow-2xl space-y-3.5">
+        
+        {/* City & GPS Pin Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
             <div className="flex items-center space-x-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-black uppercase tracking-widest">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-xs shadow-emerald-400 animate-pulse" />
+              <span className="text-[10.5px] font-black uppercase text-amber-400 tracking-wider">
                 AAPKE KAREEB • आपके करीब
               </span>
             </div>
-
-            <h2 className="text-xs font-black text-slate-900 dark:text-slate-100 mt-1 truncate flex items-center space-x-1">
-              <span>📍</span>
-              <span className="truncate">{displayLocality}</span>
-            </h2>
+            <div className="flex items-center space-x-1.5 pt-0.5">
+              <span className="text-rose-500 text-sm">📍</span>
+              <h2 className="text-sm sm:text-base font-black text-white truncate max-w-[200px] sm:max-w-xs">
+                {currentLocation}
+              </h2>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleGpsPinClick}
-              disabled={isLocatingActive}
-              title="Refresh GPS Location"
-              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer active:scale-95 flex items-center space-x-1.5 shadow-xs disabled:opacity-50 ${
-                isDark
-                  ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-amber-300'
-                  : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-              }`}
-            >
-              <span className={isLocatingActive ? 'animate-spin inline-block' : ''}>
-                🔄
-              </span>
-              <span>{isLocatingActive ? 'Locating...' : 'GPS Pin'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Global Search Input */}
-        <div className="pt-3">
-          <div
-            className={`flex items-center rounded-2xl px-3.5 py-2.5 border transition-all ${
-              isDark
-                ? 'bg-slate-950 border-slate-800 focus-within:border-amber-400'
-                : 'bg-slate-50 border-slate-300 focus-within:border-amber-500 focus-within:bg-white shadow-xs'
-            }`}
+          <button
+            type="button"
+            onClick={handleDetectGPS}
+            disabled={isLocating}
+            className="px-3 py-1.5 rounded-xl bg-[#142634] hover:bg-[#1a3246] border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-md active:scale-95 transition"
           >
-            <span className="text-slate-400 text-xs mr-2.5">🔍</span>
-            <input
-              type="text"
-              placeholder="Search Plumber, 2 BHK Flat, Bolero, Doctor, Cafe..."
-              value={searchQuery}
-              onChange={(e) => {
-                setLocalQuery(e.target.value);
-                if (onSearchChange) onSearchChange(e.target.value);
-              }}
-              className="w-full bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none font-semibold"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setLocalQuery('');
-                  if (onSearchChange) onSearchChange('');
-                }}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
-              >
-                ✕
-              </button>
-            )}
-          </div>
+            <span>{isLocating ? '⏳' : '🔄'}</span>
+            <span>GPS Pin</span>
+          </button>
         </div>
-      </section>
 
-      {/* 🌟 2. CATEGORIES HEADER STRIP */}
-      <div className="flex items-center justify-between px-1 pt-1">
-        <div className="flex items-center space-x-1.5">
-          <span className="text-base">🏛️</span>
-          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-300">
-            ALL ALWAR CATEGORIES (सभी श्रेणियां)
-          </h3>
-        </div>
-        <span
-          className={`px-2.5 py-0.5 rounded-full text-[10px] font-black font-mono border ${
-            isDark
-              ? 'bg-slate-900 text-amber-400 border-slate-800'
-              : 'bg-slate-100 text-slate-700 border-slate-300'
-          }`}
+        {/* Global Search Bar */}
+        <div
+          onClick={() => onOpenSearch && onOpenSearch()}
+          className="w-full bg-[#080e14] border border-[#223340] hover:border-amber-400/60 rounded-2xl px-3.5 py-3 flex items-center space-x-3 cursor-pointer transition shadow-inner group"
         >
-          {filteredCategories.length} Categories
-        </span>
+          <span className="text-slate-400 text-sm group-hover:text-amber-400 transition">🔍</span>
+          <span className="text-xs sm:text-sm text-slate-400 font-semibold truncate flex-1">
+            Search Plumber, 2 BHK Flat, Bolero, Doctor, Cafe...
+          </span>
+          <span className="text-xs text-slate-500 font-mono hidden sm:inline">⌘K</span>
+        </div>
       </div>
 
-      {/* 🌟 3. HIGH-CONTRAST CATEGORY CARDS DIRECTORY */}
-      <div className="space-y-2.5">
-        {filteredCategories.map((cat) => {
-          const isSpeaking = speakingCatId === cat.id;
+      {/* 🏛️ 2. PURE ORGANIC 21 LOCAL CATEGORIES */}
+      <div className="space-y-3.5 animate-fade-in">
+        
+        {/* Section Header */}
+        <div className="flex items-center justify-between px-1 pt-1">
+          <div className="flex items-center space-x-2">
+            <span className="text-lg">🏛️</span>
+            <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-100">
+              ALL {selectedCity.toUpperCase()} CATEGORIES (सभी श्रेणियां)
+            </h3>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-[#14232e] border border-amber-400/40 text-amber-300 text-xs font-bold shadow-xs">
+            {MASTER_CATEGORIES.length} Categories
+          </span>
+        </div>
 
-          return (
-            <div
-              key={cat.id}
-              onClick={() => onSelectCategory(cat.id)}
-              className={`p-3.5 rounded-3xl border transition-all duration-150 cursor-pointer active:scale-[0.98] shadow-sm flex items-center justify-between space-x-3 ${
-                isDark ? cat.darkBg : cat.lightBg
-              }`}
-            >
-              <div className="flex items-center space-x-3.5 min-w-0">
-                <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 border ${
-                    isDark
-                      ? 'bg-slate-950 border-slate-800 shadow-md'
-                      : 'bg-white border-slate-200/80 shadow-xs'
-                  }`}
-                >
-                  {cat.icon}
+        {/* Category Cards */}
+        <div className="space-y-2.5">
+          {MASTER_CATEGORIES.map((cat) => {
+            const isSpeaking = speakingCatId === cat.id;
+
+            return (
+              <div
+                key={cat.id}
+                onClick={() => onSelectCategory && onSelectCategory(cat.id)}
+                className="p-3.5 sm:p-4 rounded-3xl bg-[#0e1720] border border-[#1b2b38] hover:border-amber-400/60 shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-between group active:scale-[0.99]"
+              >
+                {/* Left: Icon & Labels */}
+                <div className="flex items-center space-x-3.5 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-[#14232e] border border-[#223340] group-hover:border-amber-400/40 flex items-center justify-center text-xl shrink-0 shadow-inner transition">
+                    {cat.icon}
+                  </div>
+
+                  <div className="min-w-0 space-y-0.5">
+                    <h4 className="text-sm font-black text-white group-hover:text-amber-200 transition truncate">
+                      {cat.name}
+                    </h4>
+                    <p className="text-xs font-bold text-amber-400 truncate">
+                      {cat.hindiName}
+                    </p>
+                    <div className="flex items-center space-x-1 text-[10px] text-slate-400 pt-0.5">
+                      <span className="text-rose-500">📍</span>
+                      <span>{selectedCity} • {cat.hub}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="min-w-0">
-                  <h4 className="text-[13px] font-black leading-snug truncate text-slate-900 dark:text-slate-100">
-                    {cat.name}
-                  </h4>
-                  <p
-                    className={`text-[11px] leading-snug mt-0.5 truncate ${
-                      isDark ? cat.darkHindi : cat.lightHindi
+                {/* Right: Speaker & Arrow */}
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => handleSpeakCategory(e, cat)}
+                    title="उच्चारण सुनें"
+                    className={`w-9 h-9 rounded-2xl flex items-center justify-center text-xs transition cursor-pointer border ${
+                      isSpeaking
+                        ? 'bg-amber-400 text-slate-950 border-amber-300 animate-bounce shadow-md'
+                        : 'bg-[#14232e] hover:bg-[#1a2d3c] text-slate-300 border-[#223340]'
                     }`}
                   >
-                    {cat.hindi}
-                  </p>
-                  <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
-                    📍 {currentCity} • Verified Hub
-                  </p>
+                    {isSpeaking ? '🔊' : '🔈'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="w-9 h-9 rounded-2xl bg-[#14232e] group-hover:bg-amber-400 group-hover:text-slate-950 text-slate-400 border border-[#223340] group-hover:border-amber-300 flex items-center justify-center text-sm font-bold transition shadow-xs group-hover:translate-x-0.5"
+                  >
+                    ➔
+                  </button>
                 </div>
               </div>
+            );
+          })}
+        </div>
 
-              <div className="flex items-center space-x-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={(e) => handleSpeakCategory(e, cat)}
-                  className={`w-9 h-9 rounded-2xl border flex items-center justify-center text-sm transition cursor-pointer active:scale-90 shadow-xs ${
-                    isSpeaking
-                      ? 'bg-amber-400 text-slate-950 border-amber-500 animate-pulse'
-                      : isDark
-                      ? 'bg-slate-950/80 hover:bg-slate-800 border-slate-800 text-slate-300'
-                      : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-amber-800'
-                  }`}
-                  title="बोलकर सुनें (Listen)"
-                >
-                  {isSpeaking ? '🔊' : '🔈'}
-                </button>
-
-                <span className="text-slate-400 dark:text-slate-500 text-xs font-black">
-                  ➔
-                </span>
-              </div>
-            </div>
-          );
-        })}
       </div>
 
-      {/* 🌟 4. Real-Time Search Overlay */}
-      {searchQuery.trim().length > 0 && (
-        <SearchOverlay
-          query={searchQuery}
-          allListings={allListings}
-          selectedCity={currentCity}
-          onClose={() => {
-            setLocalQuery('');
-            if (onSearchChange) onSearchChange('');
-          }}
-          onSelectIntent={(category, subCategory) => {
-            setLocalQuery('');
-            if (onSearchChange) onSearchChange('');
-            if (onSelectIntent) {
-              onSelectIntent(category, subCategory);
-            } else {
-              onSelectCategory(category, subCategory);
-            }
-          }}
-          onSelectItem={(item) => {
-            if (onSelectItem) onSelectItem(item);
-          }}
-        />
-      )}
     </div>
   );
 }
