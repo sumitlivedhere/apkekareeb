@@ -313,11 +313,13 @@ export function normalizeDBListing(item) {
     title: nameVal,
     name: nameVal,
     category: catId,
-    // 🚀 Paid Promotion Status (Admin-Approved Only + Expiration Check)
+    // 🚀 Paid Promotion Flags
     is_promoted: Boolean(
       (item.is_promoted === true || item.deal_type === 'PAID_PROMO') &&
       (!item.deal_expires_at || new Date(item.deal_expires_at).getTime() > Date.now())
     ),
+    deal_type: item.deal_type || item.dealType || null,
+    deal_expires_at: item.deal_expires_at || null,
     promoted_until: item.promoted_until || item.deal_expires_at || null,
     subCategory: subCatId,
     sub_category: subCatId,
@@ -503,6 +505,35 @@ class HyperlocalEngineStore {
       seen.add(String(item.id));
       return true;
     });
+  }
+
+  // 🚀 Direct In-Memory Promotion Method (Instant UI update for both DB and Mock listings)
+  setListingPromotion(listingId, isPromoted, durationDays = 7) {
+    const strId = String(listingId);
+    const expiresAt = isPromoted
+      ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    Object.keys(this.state).forEach((key) => {
+      if (Array.isArray(this.state[key])) {
+        this.state[key] = this.state[key].map((item) => {
+          if (item && String(item.id) === strId) {
+            return {
+              ...item,
+              is_promoted: isPromoted,
+              deal_type: isPromoted ? 'PAID_PROMO' : null,
+              deal_expires_at: expiresAt,
+              deal_badge: isPromoted ? '🚀 Sponsored' : (item.deal_badge === '🚀 Sponsored' ? null : item.deal_badge),
+              verification_badge: isPromoted ? '🚀 Featured Sponsor' : (item.verification_badge === '🚀 Featured Sponsor' ? 'Verified Listing' : item.verification_badge),
+            };
+          }
+          return item;
+        });
+        this.notify(key);
+      }
+    });
+    this.notify('all');
+    return expiresAt;
   }
 
   getAllListings() {

@@ -204,11 +204,8 @@ export default function HyperlocalHomeFeed({
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-5 space-y-5 select-none font-sans text-slate-100">
-      
-      {/* 📍 1. TOP LOCATION & SEARCH BAR CARD */}
+      {/* 📍 Top Hyperlocal Location & Search Bar Card */}
       <div className="p-4 sm:p-5 rounded-3xl bg-[#0e1720] border border-[#1d2b38] shadow-2xl space-y-3.5">
-        
-        {/* City & GPS Pin Header */}
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <div className="flex items-center space-x-1.5">
@@ -249,10 +246,8 @@ export default function HyperlocalHomeFeed({
         </div>
       </div>
 
-      {/* 🏛️ 2. PURE ORGANIC 21 LOCAL CATEGORIES */}
+      {/* 🏛️ 100% Organic Category Grid (Zero Promotions / Ads) */}
       <div className="space-y-3.5 animate-fade-in">
-        
-        {/* Section Header */}
         <div className="flex items-center justify-between px-1 pt-1">
           <div className="flex items-center space-x-2">
             <span className="text-lg">🏛️</span>
@@ -265,7 +260,6 @@ export default function HyperlocalHomeFeed({
           </span>
         </div>
 
-        {/* Category Cards */}
         <div className="space-y-2.5">
           {MASTER_CATEGORIES.map((cat) => {
             const isSpeaking = speakingCatId === cat.id;
@@ -276,7 +270,6 @@ export default function HyperlocalHomeFeed({
                 onClick={() => onSelectCategory && onSelectCategory(cat.id)}
                 className="p-3.5 sm:p-4 rounded-3xl bg-[#0e1720] border border-[#1b2b38] hover:border-amber-400/60 shadow-lg hover:shadow-xl transition-all cursor-pointer flex items-center justify-between group active:scale-[0.99]"
               >
-                {/* Left: Icon & Labels */}
                 <div className="flex items-center space-x-3.5 min-w-0">
                   <div className="w-12 h-12 rounded-2xl bg-[#14232e] border border-[#223340] group-hover:border-amber-400/40 flex items-center justify-center text-xl shrink-0 shadow-inner transition">
                     {cat.icon}
@@ -296,7 +289,6 @@ export default function HyperlocalHomeFeed({
                   </div>
                 </div>
 
-                {/* Right: Speaker & Arrow */}
                 <div className="flex items-center space-x-2 shrink-0">
                   <button
                     type="button"
@@ -322,9 +314,7 @@ export default function HyperlocalHomeFeed({
             );
           })}
         </div>
-
       </div>
-
     </div>
   );
 }

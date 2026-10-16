@@ -57,6 +57,9 @@ const FIELD_ISSUE_PRESETS = {
 };
 
 // 🚀 Admin Handler: Approve / Revoke Paid Promotion
+const isValidUuid = (id) =>
+    Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
+
   const handleTogglePaidPromotion = async (item) => {
     if (!item) return;
     const isCurrentlyPromoted = Boolean(
@@ -69,7 +72,7 @@ const FIELD_ISSUE_PRESETS = {
         `🚀 APPROVE PAID PROMOTION for "${item.title}":\n\nEnter number of days to feature in the Paid Promotions tab (e.g. 7, 15, 30):`,
         '7'
       );
-      if (input === null) return; // Cancelled
+      if (input === null) return;
       durationDays = Math.max(1, parseInt(input, 10) || 7);
     } else {
       if (!window.confirm(`🛑 Remove "${item.title}" from Paid Promotions?`)) return;
@@ -77,32 +80,37 @@ const FIELD_ISSUE_PRESETS = {
 
     setActionInProgressId(item.id);
     const nextState = !isCurrentlyPromoted;
-    const res = await adminTogglePaidPromotion(item.id, nextState, durationDays);
+
+    // 1. Instant in-memory store update (Works immediately on both mock items & Supabase rows)
+    const expiresAt = hyperlocalStore.setListingPromotion(item.id, nextState, durationDays);
+
+    // 2. Persist to Supabase if it's a database UUID (uses existing schema columns only)
+    if (supabase && isValidUuid(item.id)) {
+      try {
+        await supabase.from('listings').update({
+          deal_type: nextState ? 'PAID_PROMO' : null,
+          deal_expires_at: expiresAt,
+          deal_badge: nextState ? '🚀 Sponsored' : null,
+          verification_badge: nextState ? '🚀 Featured Sponsor' : 'Verified Listing',
+          updated_at: new Date().toISOString(),
+        }).eq('id', item.id);
+      } catch (err) {
+        console.warn('Supabase promo update notice:', err);
+      }
+    }
+
     setActionInProgressId(null);
-
-    if (res.success) {
-      // Update in-memory store immediately so the Promotions tile updates live
-      hyperlocalStore.insertListing(item.category || 'listings', {
-        ...item,
-        is_promoted: nextState,
-        deal_type: nextState ? 'PAID_PROMO' : null,
-        deal_expires_at: res.expiresAt,
-        verification_badge: nextState ? '🚀 Featured Sponsor' : 'Verified Listing',
-      });
-
-      notifyAdmin(
+    if (typeof showNotice === 'function') {
+      showNotice(
         nextState
           ? `🚀 "${item.title}" is now LIVE in Paid Promotions for ${durationDays} days!`
           : `🛑 Removed "${item.title}" from Paid Promotions.`
       );
-      if (typeof onRefresh === 'function') onRefresh();
-    } else {
-      alert(`Failed to update promotion: ${res.error}`);
     }
+    if (typeof onRefresh === 'function') onRefresh();
   };
 
-const isValidUuid = (id) =>
-  Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
+
 
 // 🔍 Helper: Cascade delete all child rows referencing a list of listing UUIDs
 async function deleteListingDependenciesInDB(listingIds = []) {
@@ -812,13 +820,13 @@ export default function DesktopAdminDashboard({
   // Dynamic Time Window & Multi-Factor Sorting
   const processedListings = useMemo(() => {
     const rawList =
-    activeTab === 'pending'
-    ? pendingApprovals
-    : activeTab === 'promoted'
-    ? allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO')
-    : activeTab === 'approved'
-    ? approvedListings
-    : allFilteredListings;
+      activeTab === 'pending'
+        ? pendingApprovals
+        : activeTab === 'promoted'
+        ? allListings.filter((i) => i.is_promoted || i.deal_type === 'PAID_PROMO')
+        : activeTab === 'approved'
+        ? approvedListings
+        : allFilteredListings;
 
     const now = Date.now();
     const activePreset = TIME_PRESETS.find((p) => p.value === timeFilterType) || TIME_PRESETS[0];

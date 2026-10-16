@@ -3,7 +3,6 @@ import { hyperlocalStore } from '../../store/hyperlocalStore';
 
 const cleanPhoneNum = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
-// Category Normalization Dictionary (Aliases & Taxonomy keys)
 const CATEGORY_ALIAS_MAP = {
   property: 'property',
   realestate: 'property',
@@ -58,25 +57,30 @@ export default function CategoryPromotionsBar({
   }, [category]);
 
   const targetCategoryKey = useMemo(() => {
-    const raw = String(category || '').toLowerCase().trim();
+    const raw = String(category || '').toLowerCase().replace(/-hub|-feed/g, '').trim();
     return CATEGORY_ALIAS_MAP[raw] || raw;
   }, [category]);
 
-  // Filter ONLY admin-approved, non-expired promotions for THIS active category
+  // Filter ONLY admin-approved, non-expired promotions for this active category
   const categoryPromotions = useMemo(() => {
     const now = Date.now();
 
     return allListings.filter((item) => {
-      const itemCat = String(item.category || '').toLowerCase().trim();
+      const itemCat = String(item.category || '').toLowerCase().replace(/-hub|-feed/g, '').trim();
       const normalizedItemCat = CATEGORY_ALIAS_MAP[itemCat] || itemCat;
 
       if (normalizedItemCat !== targetCategoryKey) return false;
 
-      // Must be marked as promoted or have 'PAID_PROMO' deal_type
-      const isPromoted = Boolean(item.is_promoted || item.deal_type === 'PAID_PROMO');
+      // Check promotion flags
+      const isPromoted = Boolean(
+        item.is_promoted ||
+        item.deal_type === 'PAID_PROMO' ||
+        String(item.verification_badge || '').includes('Sponsor') ||
+        String(item.deal_badge || '').includes('Sponsored')
+      );
       if (!isPromoted) return false;
 
-      // Expiry verification
+      // Check expiry date if set
       if (item.deal_expires_at) {
         const expiryTime = new Date(item.deal_expires_at).getTime();
         if (expiryTime <= now) return false;
@@ -92,13 +96,13 @@ export default function CategoryPromotionsBar({
   }
 
   return (
-    <div className="w-full max-w-md mx-auto px-3 pt-3 pb-1 space-y-2 animate-fade-in font-sans select-none">
+    <div className="w-full max-w-md mx-auto px-3 pt-3 pb-1 space-y-2.5 animate-fade-in font-sans select-none">
       {/* Spotlight Header Bar */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center space-x-2">
           <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-xs shadow-amber-400 animate-pulse" />
-          <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider">
-            👑 FEATURED {targetCategoryKey.toUpperCase()} SPOTLIGHT ({categoryPromotions.length})
+          <span className="text-[10.5px] font-black uppercase text-amber-300 tracking-wider">
+            👑 FEATURED {targetCategoryKey.toUpperCase()} SPONSORS ({categoryPromotions.length})
           </span>
         </div>
 
@@ -111,7 +115,7 @@ export default function CategoryPromotionsBar({
         </button>
       </div>
 
-      {/* Collapsible Sponsor Showcase */}
+      {/* Horizontal Carousel */}
       {!isCollapsed && (
         <div className="flex items-stretch space-x-3 overflow-x-auto pb-2 scrollbar-none snap-x">
           {categoryPromotions.map((item) => {
@@ -150,12 +154,12 @@ export default function CategoryPromotionsBar({
                       )}
                     </div>
 
-                    <span className="absolute bottom-2 right-2 px-2.5 py-0.5 rounded-md bg-slate-950/85 backdrop-blur-xs text-amber-300 font-bold text-[10px] border border-amber-400/30">
+                    <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-slate-950/85 backdrop-blur-xs text-amber-300 font-bold text-[10px] border border-amber-400/30">
                       {item.subCategory || item.sub_category || 'Featured'}
                     </span>
                   </div>
 
-                  {/* Listing Details */}
+                  {/* Body Details */}
                   <div className="p-3.5 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <h4 className="text-xs font-black text-white line-clamp-1 group-hover:text-amber-200 transition">
@@ -183,7 +187,7 @@ export default function CategoryPromotionsBar({
 
                 {/* Direct Action Buttons */}
                 <div
-                  className="px-3.5 py-2.5 bg-[#080f16] border-t border-slate-800 flex items-center justify-between gap-2"
+                  className="px-3.5 py-2.5 bg-[#0a1017] border-t border-slate-800/80 flex items-center justify-between gap-2"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <a

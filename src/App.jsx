@@ -118,6 +118,48 @@ const CATEGORY_HUB_MAP = {
   creators: 'creators-hub',
 };
 
+// Reverse lookup map so any Hub or Feed screen deterministically knows its category
+const SCREEN_TO_CATEGORY_MAP = {
+  'property-hub': 'property',
+  'property-feed': 'property',
+  'vehicle-hub': 'vehicles',
+  'electronics-hub': 'electronics',
+  'fashion-hub': 'fashion',
+  'furniture-hub': 'furniture',
+  'kaarigar-hub': 'kaarigar',
+  'kaarigar-feed': 'kaarigar',
+  'medical-hub': 'medical',
+  'medical-feed': 'medical',
+  'transporter-hub': 'transporters',
+  'transporter-feed': 'transporters',
+  'white-collar-hub': 'white-collar',
+  'white-collar-feed': 'white-collar',
+  'education-hub': 'education',
+  'education-feed': 'education',
+  'restaurants-hub': 'restaurants',
+  'restaurants-feed': 'restaurants',
+  'malls-hub': 'malls',
+  'malls-feed': 'malls',
+  'shaadi-hub': 'shaadi',
+  'shaadi-feed': 'shaadi',
+  'festival-hub': 'festival',
+  'festival-feed': 'festival',
+  'construction-hub': 'construction',
+  'construction-feed': 'construction',
+  'advertising-hub': 'advertising',
+  'advertising-feed': 'advertising',
+  'community-hub': 'community',
+  'community-feed': 'community',
+  'market-hub': 'market',
+  'market-feed': 'market',
+  'buysell-hub': 'recommerce',
+  'recommerce-feed': 'recommerce',
+  'fitness-hub': 'fitness',
+  'fitness-feed': 'fitness',
+  'creators-hub': 'creators',
+  'creators-feed': 'creators',
+};
+
 export default function App() {
   const { isDark, toggleTheme } = useTheme();
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
@@ -306,17 +348,20 @@ export default function App() {
     [roleFilteredAlerts]
   );
 
-  // 🚀 AUTOMATIC MECHANISM: Determines if current view is a category (Hub or Feed)
-  const isCategoryScreen = useMemo(() => {
+  // 🚀 AUTOMATIC CATEGORY RESOLVER FOR PAID PROMOTIONS:
+  // Returns null on Home, Admin, Provider, and Auth screens.
+  // Returns the exact category ID (e.g. 'property', 'kaarigar') on any Category Hub or Feed screen.
+  const activePromotionCategory = useMemo(() => {
     if (
+      !currentScreen ||
       currentScreen === 'home' ||
       currentScreen === 'admin-dashboard' ||
       currentScreen === 'provider-dashboard' ||
       currentScreen === 'user-auth-dashboard'
     ) {
-      return false;
+      return null;
     }
-    return Boolean(selectedCategory && selectedCategory !== 'all');
+    return SCREEN_TO_CATEGORY_MAP[currentScreen] || selectedCategory || null;
   }, [currentScreen, selectedCategory]);
 
   const navigateTo = (updates) => {
@@ -726,10 +771,12 @@ export default function App() {
           />
         )}
 
-        {/* 🚀 AUTOMATIC CATEGORY PROMOTIONS INJECTOR: Renders dynamically for whatever category is active, ZERO manual edits to 21 category files */}
-        {isCategoryScreen && (
+        {/* 🚀 AUTOMATIC CATEGORY PROMOTIONS INJECTOR:
+            Renders dynamically on any Category Hub or Category Feed screen.
+            Returns 0px (null) if no active sponsor exists for that category. */}
+        {activePromotionCategory && (
           <CategoryPromotionsBar
-            category={selectedCategory}
+            category={activePromotionCategory}
             selectedCity={selectedCity}
             onSelectListing={(item) => setSelectedDetailItem(item)}
           />
@@ -1218,7 +1265,6 @@ export default function App() {
           />
         )}
 
-        {/* Global Public Seller Storefront Modal */}
         <SellerProfileModal
           selectedCity={selectedCity}
           onSelectListing={(item) => {
@@ -1336,7 +1382,7 @@ export default function App() {
       {/* PWA Install Prompt */}
       <PWAInstallBanner />
 
-      {/* Web Analytics */}
+      {/* Metrics */}
       <SpeedInsights />
       <Analytics />
     </div>
