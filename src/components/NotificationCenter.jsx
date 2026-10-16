@@ -33,14 +33,12 @@ export default function NotificationCenter({
     (isAdminMode && currentScreen === 'admin-dashboard')
   );
 
-  // Reactive Local Read State
   const [readIds, setReadIds] = useState(() => getStoredReadNotifs());
 
   useEffect(() => {
     setReadIds(getStoredReadNotifs());
   }, [notifications]);
 
-  // Tab State: If guest, always stay on 'all'
   const [activeTab, setActiveTab] = useState(() => {
     if (!currentUser) return 'all';
     if (currentScreen === 'admin-dashboard' && isAdmin) return 'admin';
@@ -48,7 +46,7 @@ export default function NotificationCenter({
     return 'all';
   });
 
-  // 1. Strict Identity Authorization Gate
+  // 1. Strict Authorization Gate
   const authorizedAlerts = useMemo(() => {
     return (notifications || []).filter((notif) => {
       const role = String(notif.recipient_role || notif.role || 'public').toLowerCase();
@@ -64,12 +62,12 @@ export default function NotificationCenter({
       const isAdmTag = ADMIN_TAGS.has(notif.tag);
       const isSelTag = SELLER_TAGS.has(notif.tag);
 
-      // 🔒 GUEST VISITOR: Only pure public broadcasts
+      // 🔒 GUEST VISITOR: Only true public broadcasts without recipient target
       if (!currentUser) {
         return role === 'public' && !notifUserId && !notifPhone && !isAdmTag && !isSelTag;
       }
 
-      // 👑 ADMIN: Only visible if authorized admin
+      // 👑 ADMIN: Only visible if on admin dashboard
       if (role === 'admin' || isAdmTag) {
         return isAdmin;
       }
@@ -89,7 +87,7 @@ export default function NotificationCenter({
         return false;
       }
 
-      // 📢 PUBLIC: Check for mismatched recipient IDs
+      // 📢 PUBLIC
       if (role === 'public') {
         if (notifUserId && currentUserId && notifUserId !== currentUserId) return false;
         if (notifPhone && userPhone && notifPhone !== userPhone) return false;

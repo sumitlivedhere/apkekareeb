@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../../services/supabaseClient';
+import { hyperlocalStore } from '../../store/hyperlocalStore';
 import {
   approveListingChanges,
   rejectListingChanges,
@@ -53,6 +54,24 @@ const FIELD_ISSUE_PRESETS = {
   location: ['Incorrect Locality Tag', 'GPS Pin Out of Bounds', 'Incomplete Shop Landmark'],
   trial: ['Trial terms not clearly explained', 'Advance requested for doorstep trial is high'],
 };
+
+const isValidUuid = (id) =>
+  Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim()));
+
+// 🔍 Helper: Cascade delete all child rows referencing a list of listing UUIDs
+async function deleteListingDependenciesInDB(listingIds = []) {
+  if (!supabase || !Array.isArray(listingIds)) return;
+  const validUuids = listingIds.filter(isValidUuid);
+  if (validUuids.length === 0) return;
+
+  await Promise.allSettled([
+    supabase.from('listing_threads').delete().in('listing_id', validUuids),
+    supabase.from('listing_reports').delete().in('listing_id', validUuids),
+    supabase.from('listing_interests').delete().in('listing_id', validUuids),
+    supabase.from('listing_reviews').delete().in('listing_id', validUuids),
+    supabase.from('user_carts').delete().in('listing_id', validUuids),
+  ]);
+}
 
 // 🔍 Robust Category Matching
 const matchCategory = (itemCategory, selectedCat) => {
@@ -156,6 +175,12 @@ export default function DesktopAdminDashboard({
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [selectedSubCategory, setSelectedSubCategory] = useState('all');
 
+  // Local Optimistic CRM States for Instantaneous Real-Time UI Feedback
+  const [crmBusy, setCrmBusy] = useState(false);
+  const [userOverrides, setUserOverrides] = useState({});
+  const [deletedUserKeys, setDeletedUserKeys] = useState(new Set());
+  const [purgedListingIds, setPurgedListingIds] = useState(new Set());
+
   // Inspector & Edit Mode States
   const [isAdminEditing, setIsAdminEditing] = useState(false);
   const [inspectorViewMode, setInspectorViewMode] = useState('canvas'); // 'canvas' | 'preview'
@@ -216,6 +241,510 @@ export default function DesktopAdminDashboard({
   const timerRef = useRef(null);
   const searchInputRef = useRef(null);
 
+  const notifyAdmin = (msg) => {
+    if (typeof showNotice === 'function') {
+      showNotice(msg);
+    } else {
+      console.log(msg);
+    }
+  };
+
+  // 🔄 Real-Time Postgres Subscription for Live Studio Updates
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('desktop-admin-studio-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_profiles' },
+        (payload) => {
+          if (payload.eventType === 'DELETE' && payload.old?.id) {
+            setSelectedCrmUser((prev) => (prev?.id === payload.old.id ? null : prev));
+          } else if (payload.new) {
+            setSelectedCrmUser((prev) =>
+              prev && (prev.id === payload.new.id || sanitizePhone(prev.phone) === sanitizePhone(payload.new.phone))
+                ? { ...prev, ...payload.new }
+                : prev
+            );
+          }
+          if (typeof onRefresh === 'function') onRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'listings' },
+        () => {
+          if (typeof onRefresh === 'function') onRefresh();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'listing_reports' },
+        () => {
+          if (typeof onRefresh === 'function') onRefresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [onRefresh]);
+
+  // Keep selectedCrmUser synchronized when parent `profiles` array refreshes
+  useEffect(() => {
+    if (!selectedCrmUser) return;
+    const cleanPhone = sanitizePhone(selectedCrmUser.phone);
+    const updatedFromParent = profiles.find(
+      (p) => (selectedCrmUser.id && p.id === selectedCrmUser.id) || sanitizePhone(p.phone) === cleanPhone
+    );
+    if (updatedFromParent) {
+      const override = userOverrides[selectedCrmUser.id] || userOverrides[cleanPhone] || {};
+      setSelectedCrmUser({ ...updatedFromParent, ...override });
+    }
+  }, [profiles]);
+
+  // Apply optimistic overrides, deletions, and CRM tab filters
+  const liveFilteredProfiles = useMemo(() => {
+    return (filteredProfiles || [])
+      .filter((u) => {
+        const clean = sanitizePhone(u.phone);
+        if (u.id && deletedUserKeys.has(String(u.id))) return false;
+        if (clean && deletedUserKeys.has(clean)) return false;
+        return true;
+      })
+      .map((u) => {
+        const clean = sanitizePhone(u.phone);
+        const override = userOverrides[u.id] || userOverrides[clean];
+        return override ? { ...u, ...override } : u;
+      });
+  }, [filteredProfiles, userOverrides, deletedUserKeys]);
+
+  // ============================================================================
+  // 🛠️ REAL-TIME CRM DOSSIER & TABLE ACTION HANDLERS (100% SCHEMA-ALIGNED)
+  // ============================================================================
+
+  // 1. 📲 Dispatch PIN on WhatsApp
+  const handleCrmDispatchPin = async (user) => {
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      alert('⚠️ Invalid 10-digit mobile number.');
+      return;
+    }
+
+    if (typeof handleGenerateAndDispatchPin === 'function') {
+      await handleGenerateAndDispatchPin(user);
+      return;
+    }
+
+    setCrmBusy(true);
+    const pinCode =
+      user.admin_activation_pin && String(user.admin_activation_pin).trim() !== ''
+        ? String(user.admin_activation_pin).trim()
+        : Math.floor(100000 + Math.random() * 900000).toString();
+
+    try {
+      if (supabase) {
+        let q = supabase.from('user_profiles').update({
+          admin_activation_pin: pinCode,
+          status: 'pin_dispatched',
+          updated_at: new Date().toISOString(),
+        });
+        if (isValidUuid(user.id)) q = q.eq('id', user.id);
+        else q = q.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        await q;
+      }
+
+      const isSeller = Boolean(
+        user.is_merchant ||
+        user.verification_tier === 'merchant' ||
+        user.verification_tier === 'verified_merchant'
+      );
+      const message = encodeURIComponent(
+        `Namaste ${user.full_name || 'Member'} ji! 🙏\n\n` +
+        `Welcome to Aapke Kareeb (${selectedCity})!\n\n` +
+        `Your 6-Digit ${isSeller ? 'Merchant (Seller)' : 'Resident'} Activation PIN is: *${pinCode}*\n\n` +
+        `👉 1. Open the Aapke Kareeb app.\n` +
+        `👉 2. Enter this 6-digit PIN under 'Activate Account'.\n` +
+        `👉 3. Set your 4-digit Security PIN to complete setup.\n\n` +
+        `Dhanyawaad!`
+      );
+
+      window.open(`https://wa.me/91${cleanPhone}?text=${message}`, '_blank');
+      setUserOverrides((prev) => ({
+        ...prev,
+        [user.id || cleanPhone]: { ...(prev[user.id || cleanPhone] || {}), admin_activation_pin: pinCode },
+      }));
+      setSelectedCrmUser((prev) => (prev ? { ...prev, admin_activation_pin: pinCode } : null));
+      notifyAdmin(`✓ PIN (${pinCode}) dispatched to +91 ${cleanPhone}`);
+      if (typeof onRefresh === 'function') onRefresh();
+    } catch (err) {
+      console.error('PIN dispatch error:', err);
+      alert(`Failed to dispatch PIN: ${err.message}`);
+    } finally {
+      setCrmBusy(false);
+    }
+  };
+
+  // 2. ⬇️ Demote to Resident / ⬆️ Promote to Merchant (Aligned with `user_profiles` columns)
+  const handleCrmToggleRole = async (user) => {
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    const isCurrentMerchant = Boolean(
+      user.is_merchant ||
+      user.verification_tier === 'verified_merchant' ||
+      user.verification_tier === 'merchant'
+    );
+
+    const targetIsMerchant = !isCurrentMerchant;
+    const targetTier = targetIsMerchant ? 'merchant' : 'resident';
+    const targetVerifiedAt = targetIsMerchant ? new Date().toISOString() : null;
+
+    const confirmMsg = isCurrentMerchant
+      ? `⬇️ Demote ${user.full_name || cleanPhone} (+91 ${cleanPhone}) from Merchant to Resident?`
+      : `⬆️ Promote ${user.full_name || cleanPhone} (+91 ${cleanPhone}) to Verified Merchant?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setCrmBusy(true);
+
+    // Exact columns present in `public.user_profiles`
+    const dbPatch = {
+      is_merchant: targetIsMerchant,
+      verification_tier: targetTier,
+      merchant_verified_at: targetVerifiedAt,
+      updated_at: new Date().toISOString(),
+    };
+
+    // 1. Optimistic Update for Dossier & Table
+    setUserOverrides((prev) => ({
+      ...prev,
+      ...(user.id ? { [user.id]: { ...(prev[user.id] || {}), ...dbPatch } } : {}),
+      ...(cleanPhone ? { [cleanPhone]: { ...(prev[cleanPhone] || {}), ...dbPatch } } : {}),
+    }));
+    setSelectedCrmUser((prev) => (prev ? { ...prev, ...dbPatch } : null));
+
+    // 2. Real-Time Supabase Update
+    try {
+      if (supabase) {
+        let q = supabase.from('user_profiles').update(dbPatch);
+        if (isValidUuid(user.id)) {
+          q = q.eq('id', user.id);
+        } else {
+          q = q.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        }
+
+        const { error } = await q;
+        if (error) throw error;
+      }
+
+      notifyAdmin(
+        isCurrentMerchant
+          ? `⬇️ Demoted ${user.full_name || cleanPhone} to Resident`
+          : `⬆️ Promoted ${user.full_name || cleanPhone} to Verified Merchant`
+      );
+      if (typeof onRefresh === 'function') onRefresh();
+    } catch (err) {
+      console.error('Role toggle failed:', err);
+      alert(`Failed to update role in database: ${err.message}`);
+    } finally {
+      setCrmBusy(false);
+    }
+  };
+
+  // 3. 🧹 Purge All Listings for Selected User (Handles all FK child dependencies)
+  const handleCrmPurgeListings = async (user) => {
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    const userId = user.id;
+
+    // Combine prop listings and hyperlocalStore listings
+    const storeListings = hyperlocalStore.getAllListings();
+    const combinedMap = new Map();
+    [...allListings, ...storeListings].forEach((item) => {
+      if (item && item.id && !purgedListingIds.has(String(item.id))) {
+        combinedMap.set(String(item.id), item);
+      }
+    });
+
+    const ownedListings = Array.from(combinedMap.values()).filter((l) => {
+      const matchId = userId && (String(l.user_id) === String(userId) || String(l.userId) === String(userId));
+      const matchPhone =
+        cleanPhone &&
+        (sanitizePhone(l.phone) === cleanPhone || sanitizePhone(l.whatsapp) === cleanPhone);
+      return matchId || matchPhone;
+    });
+
+    // Also query DB directly in case any listings aren't in local memory
+    let dbListingIds = ownedListings.map((l) => String(l.id)).filter(isValidUuid);
+    if (supabase) {
+      try {
+        let lQuery = supabase.from('listings').select('id');
+        if (isValidUuid(userId) && cleanPhone) {
+          lQuery = lQuery.or(`user_id.eq.${userId},phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        } else if (isValidUuid(userId)) {
+          lQuery = lQuery.eq('user_id', userId);
+        } else if (cleanPhone) {
+          lQuery = lQuery.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        }
+        const { data: dbRows } = await lQuery;
+        if (Array.isArray(dbRows)) {
+          dbRows.forEach((r) => {
+            if (r.id && !dbListingIds.includes(String(r.id))) {
+              dbListingIds.push(String(r.id));
+            }
+          });
+        }
+      } catch {}
+    }
+
+    const totalCountToPurge = Math.max(ownedListings.length, dbListingIds.length);
+
+    if (totalCountToPurge === 0) {
+      alert(`ℹ️ ${user.full_name || cleanPhone} has 0 live listings posted. Nothing to purge.`);
+      return;
+    }
+
+    const confirmPurge = window.confirm(
+      `🧹 PURGE ALL LISTINGS:\n\nPermanently delete all ${totalCountToPurge} listing(s) posted by ${user.business_name || user.full_name || cleanPhone} (+91 ${cleanPhone})?\n\nThis will immediately remove them from the live Alwar catalog.`
+    );
+    if (!confirmPurge) return;
+
+    setCrmBusy(true);
+
+    // 1. Evict immediately from local memory & state
+    const purgedIds = new Set(purgedListingIds);
+    ownedListings.forEach((l) => {
+      purgedIds.add(String(l.id));
+      hyperlocalStore.removeListing(l.id);
+    });
+    dbListingIds.forEach((id) => {
+      purgedIds.add(String(id));
+      hyperlocalStore.removeListing(id);
+    });
+    setPurgedListingIds(purgedIds);
+
+    // 2. Cascade delete child dependencies in Supabase, then delete the listings
+    try {
+      if (supabase) {
+        await deleteListingDependenciesInDB(dbListingIds);
+
+        if (dbListingIds.length > 0) {
+          await supabase.from('listings').delete().in('id', dbListingIds);
+        }
+        if (isValidUuid(userId)) {
+          await supabase.from('listings').delete().eq('user_id', userId);
+        }
+        if (cleanPhone) {
+          await supabase
+            .from('listings')
+            .delete()
+            .or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone},whatsapp.eq.${cleanPhone}`);
+        }
+
+        // Reset listings_count to 0 on user_profiles
+        let uQuery = supabase.from('user_profiles').update({
+          listings_count: 0,
+          updated_at: new Date().toISOString(),
+        });
+        if (isValidUuid(userId)) uQuery = uQuery.eq('id', userId);
+        else if (cleanPhone) uQuery = uQuery.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        await uQuery;
+      }
+
+      setSelectedCrmUser((prev) => (prev ? { ...prev, listings_count: 0 } : null));
+      notifyAdmin(`🧹 Purged ${totalCountToPurge} listing(s) for ${user.full_name || cleanPhone}`);
+      if (typeof onRefresh === 'function') onRefresh();
+    } catch (err) {
+      console.error('Purge listings failed:', err);
+      alert(`Error purging listings: ${err.message}`);
+    } finally {
+      setCrmBusy(false);
+    }
+  };
+
+  // 4. 🗑️ Cascade Delete User & All Associated Records (Aligned with all FK constraints)
+  const handleCrmDeleteUser = async (user) => {
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    const userId = user.id;
+
+    const confirmDelete = window.confirm(
+      `🚨 PERMANENT CASCADE DELETE:\n\nAre you sure you want to permanently delete ${user.full_name || 'this user'} (+91 ${cleanPhone})?\n\nThis will wipe their user profile, shopping carts, inquiries, reviews, notifications, and all posted listings from the database.`
+    );
+    if (!confirmDelete) return;
+
+    setCrmBusy(true);
+
+    // 1. Evict any owned listings from hyperlocalStore
+    const storeListings = hyperlocalStore.getAllListings();
+    const localMatchedIds = [];
+    storeListings.forEach((l) => {
+      const matchId = userId && (String(l.user_id) === String(userId) || String(l.userId) === String(userId));
+      const matchPhone =
+        cleanPhone &&
+        (sanitizePhone(l.phone) === cleanPhone || sanitizePhone(l.whatsapp) === cleanPhone);
+      if (matchId || matchPhone) {
+        localMatchedIds.push(String(l.id));
+        hyperlocalStore.removeListing(l.id);
+      }
+    });
+
+    // 2. Cascade delete child records in Supabase in exact FK dependency order
+    try {
+      if (supabase) {
+        // Step A: Find all listing IDs in DB owned by this user
+        let ownedDbListingIds = [...localMatchedIds].filter(isValidUuid);
+        let lQuery = supabase.from('listings').select('id');
+        if (isValidUuid(userId) && cleanPhone) {
+          lQuery = lQuery.or(`user_id.eq.${userId},phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        } else if (isValidUuid(userId)) {
+          lQuery = lQuery.eq('user_id', userId);
+        } else if (cleanPhone) {
+          lQuery = lQuery.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        }
+        const { data: dbListingRows } = await lQuery;
+        if (Array.isArray(dbListingRows)) {
+          dbListingRows.forEach((r) => {
+            if (r.id && !ownedDbListingIds.includes(String(r.id))) {
+              ownedDbListingIds.push(String(r.id));
+            }
+          });
+        }
+
+        // Step B: Delete all child rows referencing the user's listings
+        if (ownedDbListingIds.length > 0) {
+          await deleteListingDependenciesInDB(ownedDbListingIds);
+          await supabase.from('listings').delete().in('id', ownedDbListingIds);
+        }
+
+        // Step C: Delete phone-linked records across all tables
+        if (cleanPhone) {
+          const phoneOr = `phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`;
+          await Promise.allSettled([
+            supabase.from('user_carts').delete().or(phoneOr),
+            supabase.from('listing_interests').delete().or(phoneOr),
+            supabase.from('listing_reviews').delete().or(phoneOr),
+            supabase.from('sms_otp_verifications').delete().or(phoneOr),
+            supabase.from('listing_reports').delete().or(`reporter_phone.eq.${cleanPhone},reporter_phone.eq.+91${cleanPhone}`),
+            supabase.from('notifications').delete().or(`recipient_phone.eq.${cleanPhone},recipient_phone.eq.+91${cleanPhone}`),
+            supabase.from('listings').delete().or(`${phoneOr},whatsapp.eq.${cleanPhone}`),
+          ]);
+        }
+
+        // Step D: Delete user_id-linked records across all FK tables
+        if (isValidUuid(userId)) {
+          await Promise.allSettled([
+            supabase.from('listing_threads').delete().eq('user_id', userId),
+            supabase.from('listing_reports').delete().eq('reporter_id', userId),
+            supabase.from('listing_reviews').delete().eq('user_id', userId),
+            supabase.from('notifications').delete().eq('user_id', userId),
+            supabase.from('listings').delete().eq('user_id', userId),
+          ]);
+
+          const { error: delErr } = await supabase.from('user_profiles').delete().eq('id', userId);
+          if (delErr) throw delErr;
+        } else if (cleanPhone) {
+          const { error: delErr } = await supabase
+            .from('user_profiles')
+            .delete()
+            .or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+          if (delErr) throw delErr;
+        }
+      }
+
+      // 3. Optimistically remove user from table & close dossier
+      setDeletedUserKeys((prev) => {
+        const next = new Set(prev);
+        if (userId) next.add(String(userId));
+        if (cleanPhone) next.add(cleanPhone);
+        return next;
+      });
+      setSelectedCrmUser(null);
+
+      notifyAdmin(`🗑️ Permanently deleted ${user.full_name || cleanPhone} & all records`);
+      if (typeof onRefresh === 'function') onRefresh();
+    } catch (err) {
+      console.error('Delete user error:', err);
+      alert(`Failed to delete user: ${err.message}`);
+    } finally {
+      setCrmBusy(false);
+    }
+  };
+
+  // 5. ⛔ Ban / Unban User Handler
+  const handleCrmToggleBan = async (user, e) => {
+    if (e) e.stopPropagation();
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    const nextBanned = !user.is_banned;
+
+    if (
+      !window.confirm(
+        nextBanned
+          ? `⛔ Block & Ban ${user.full_name || cleanPhone} (+91 ${cleanPhone})?`
+          : `✓ Unban ${user.full_name || cleanPhone} (+91 ${cleanPhone})?`
+      )
+    ) {
+      return;
+    }
+
+    const patch = { is_banned: nextBanned, updated_at: new Date().toISOString() };
+    setUserOverrides((prev) => ({
+      ...prev,
+      ...(user.id ? { [user.id]: { ...(prev[user.id] || {}), ...patch } } : {}),
+      ...(cleanPhone ? { [cleanPhone]: { ...(prev[cleanPhone] || {}), ...patch } } : {}),
+    }));
+    if (selectedCrmUser && (selectedCrmUser.id === user.id || sanitizePhone(selectedCrmUser.phone) === cleanPhone)) {
+      setSelectedCrmUser((prev) => (prev ? { ...prev, ...patch } : null));
+    }
+
+    try {
+      if (supabase) {
+        let q = supabase.from('user_profiles').update(patch);
+        if (isValidUuid(user.id)) q = q.eq('id', user.id);
+        else q = q.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+        const { error } = await q;
+        if (error) throw error;
+      }
+
+      notifyAdmin(nextBanned ? `⛔ Banned +91 ${cleanPhone}` : `✓ Unbanned +91 ${cleanPhone}`);
+      if (typeof onRefresh === 'function') onRefresh();
+    } catch (err) {
+      console.error('Ban toggle failed:', err);
+      alert(`Failed to update ban status: ${err.message}`);
+    }
+  };
+
+  // 6. ⭐ Trust Score Adjuster (+10 / -10)
+  const handleCrmTrustAdjust = async (user, delta, e) => {
+    if (e) e.stopPropagation();
+    if (!user) return;
+    const cleanPhone = sanitizePhone(user.phone);
+    const currentScore = Number(user.trust_score ?? 100);
+    const newScore = Math.max(0, Math.min(100, currentScore + delta));
+
+    const patch = { trust_score: newScore, updated_at: new Date().toISOString() };
+    setUserOverrides((prev) => ({
+      ...prev,
+      ...(user.id ? { [user.id]: { ...(prev[user.id] || {}), ...patch } } : {}),
+      ...(cleanPhone ? { [cleanPhone]: { ...(prev[cleanPhone] || {}), ...patch } } : {}),
+    }));
+    if (selectedCrmUser && (selectedCrmUser.id === user.id || sanitizePhone(selectedCrmUser.phone) === cleanPhone)) {
+      setSelectedCrmUser((prev) => (prev ? { ...prev, ...patch } : null));
+    }
+
+    if (supabase) {
+      let q = supabase.from('user_profiles').update(patch);
+      if (isValidUuid(user.id)) q = q.eq('id', user.id);
+      else q = q.or(`phone.eq.${cleanPhone},phone.eq.+91${cleanPhone}`);
+      await q;
+    }
+    notifyAdmin(`⭐ Trust score updated to ${newScore} for ${user.full_name || cleanPhone}`);
+  };
+
   // Inbuilt Subcategories Resolver
   const currentCategoryObj = useMemo(() => {
     if (!selectedCategory || selectedCategory === 'all') return null;
@@ -247,6 +776,7 @@ export default function DesktopAdminDashboard({
     const activePreset = TIME_PRESETS.find((p) => p.value === timeFilterType) || TIME_PRESETS[0];
 
     let list = rawList.filter((item) => {
+      if (!item || purgedListingIds.has(String(item.id))) return false;
       if (activePreset.ms === Infinity) return true;
       const changes = item.pending_changes || {};
       const itemTimeStr = changes.updated_at || changes.created_at || item.updated_at || item.created_at || item.timestamp;
@@ -322,6 +852,7 @@ export default function DesktopAdminDashboard({
     selectedColony,
     selectedOfferType,
     sortBy,
+    purgedListingIds,
   ]);
 
   const activeItem = useMemo(() => {
@@ -387,7 +918,7 @@ export default function DesktopAdminDashboard({
     setActiveMediaTab('photos');
     setActivePhotoIdx(editFormData.images.length);
     e.target.value = '';
-    showNotice(`Attached ${files.length} photo(s).`);
+    notifyAdmin(`Attached ${files.length} photo(s).`);
   };
 
   const handleAdminRemovePhoto = (idx, e) => {
@@ -410,7 +941,7 @@ export default function DesktopAdminDashboard({
     setActiveMediaTab('videos');
     setActiveVideoIdx(editFormData.videos.length);
     e.target.value = '';
-    showNotice('Video attached.');
+    notifyAdmin('Video attached.');
   };
 
   const handleAdminRemoveVideo = (idx, e) => {
@@ -494,13 +1025,11 @@ export default function DesktopAdminDashboard({
       let finalVideos = editFormData.videos;
 
       if (isAdminEditing) {
-        // Upload any newly selected image files
         const newImageFiles = finalImages.filter((img) => img?.file).map((img) => img.file);
         const uploadedNewImageUrls = newImageFiles.length > 0 ? await uploadListingImagesToStorage(newImageFiles) : [];
         const existingImageUrls = finalImages.filter((img) => typeof img === 'string' || (!img?.file && img?.url)).map((img) => (typeof img === 'string' ? img : img.url));
         finalImages = [...existingImageUrls, ...uploadedNewImageUrls];
 
-        // Upload any newly selected video files
         const newVideoObjects = finalVideos.filter((v) => v?.file);
         const uploadedNewVideos = newVideoObjects.length > 0 ? await uploadListingVideosToStorage(newVideoObjects) : [];
         const existingVideos = finalVideos.filter((v) => !v?.file).map((v) => (typeof v === 'string' ? v : v.url));
@@ -540,10 +1069,11 @@ export default function DesktopAdminDashboard({
       };
 
       await approveListingChanges(item.id, updatedPayload);
-      showNotice(`✓ Published "${finalChanges.title || item.title}"`);
+      notifyAdmin(`✓ Published "${finalChanges.title || item.title}"`);
 
       const remaining = processedListings.filter((p) => p.id !== item.id);
       if (remaining.length > 0) setSelectedItemId(remaining[0].id);
+      if (typeof onRefresh === 'function') onRefresh();
     } catch (err) {
       console.error(err);
       alert('Failed to approve listing.');
@@ -566,10 +1096,11 @@ export default function DesktopAdminDashboard({
 
       const reasonString = JSON.stringify(structuredFeedback);
       await rejectListingChanges(item.id, reasonString, sanitizePhone(item.phone));
-      showNotice(`Rejected "${item.title}" with ${totalFlaggedIssuesCount} flagged issue(s)`);
+      notifyAdmin(`Rejected "${item.title}" with ${totalFlaggedIssuesCount} flagged issue(s)`);
 
       const remaining = processedListings.filter((p) => p.id !== item.id);
       if (remaining.length > 0) setSelectedItemId(remaining[0].id);
+      if (typeof onRefresh === 'function') onRefresh();
     } catch (err) {
       console.error(err);
       alert('Failed to reject listing.');
@@ -595,7 +1126,7 @@ export default function DesktopAdminDashboard({
 
     try {
       await sendAdminFeedbackToSeller(activeItem.id, sanitizePhone(activeItem.phone), feedbackPayload);
-      showNotice(`✓ Dispatched feedback with ${totalFlaggedIssuesCount} flagged item(s) to merchant!`);
+      notifyAdmin(`✓ Dispatched feedback with ${totalFlaggedIssuesCount} flagged item(s) to merchant!`);
       setFieldIssues({});
       setFeedbackText('');
       setRecordedVoiceNote(null);
@@ -630,13 +1161,14 @@ export default function DesktopAdminDashboard({
       }
     }
     setIsBatchProcessing(false);
-    showNotice(`🎉 Approved & published ${count} listings!`);
+    notifyAdmin(`🎉 Approved & published ${count} listings!`);
+    if (typeof onRefresh === 'function') onRefresh();
   };
 
   const handleSendAlwarBroadcast = async (e) => {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastMsg.trim()) {
-      showNotice('⚠️ Please enter broadcast title and message.');
+      notifyAdmin('⚠️ Please enter broadcast title and message.');
       return;
     }
     setIsSendingBroadcast(true);
@@ -649,7 +1181,7 @@ export default function DesktopAdminDashboard({
         recipient_phone: null,
         metadata: { broadcastBy: 'Master Admin Studio', timestamp: new Date().toISOString() },
       });
-      showNotice(`📢 Broadcast dispatched to ${broadcastRole.toUpperCase()} members!`);
+      notifyAdmin(`📢 Broadcast dispatched to ${broadcastRole.toUpperCase()} members!`);
       setBroadcastTitle('');
       setBroadcastMsg('');
     } catch (err) {
@@ -790,13 +1322,13 @@ export default function DesktopAdminDashboard({
         <div className="flex items-center space-x-3">
           <span className="text-emerald-400 font-bold">📦 Live Catalog:</span>
           <span className="font-mono text-white bg-slate-950 px-3 py-0.5 rounded-lg border border-slate-800 text-sm font-black">
-            {approvedListings.length}
+            {Math.max(0, approvedListings.length - purgedListingIds.size)}
           </span>
         </div>
         <div className="flex items-center space-x-3">
           <span className="text-pink-400 font-bold">🏬 Merchants:</span>
           <span className="font-mono text-white bg-slate-950 px-3 py-0.5 rounded-lg border border-slate-800 text-sm font-black">
-            {profiles.filter((p) => p.is_merchant || p.verification_tier === 'merchant').length}
+            {liveFilteredProfiles.filter((p) => p.is_merchant || p.verification_tier === 'merchant' || p.verification_tier === 'verified_merchant').length}
           </span>
         </div>
         <div className="flex items-center space-x-3">
@@ -825,9 +1357,9 @@ export default function DesktopAdminDashboard({
 
             {[
               { id: 'pending', label: 'Listing Approvals', icon: '⚡', count: pendingApprovals.length, badgeColor: 'bg-amber-400 text-slate-950 font-black' },
-              { id: 'approved', label: 'Live Catalog Feed', icon: '🟢', count: approvedListings.length, badgeColor: 'bg-emerald-500 text-slate-950 font-black' },
-              { id: 'all', label: 'Master Registry', icon: '📦', count: allFilteredListings.length, badgeColor: 'bg-slate-700 text-white font-bold' },
-              { id: 'crm', label: 'Member CRM & WhatsApp', icon: '👥', count: profiles.length, badgeColor: 'bg-purple-500 text-white font-bold' },
+              { id: 'approved', label: 'Live Catalog Feed', icon: '🟢', count: Math.max(0, approvedListings.length - purgedListingIds.size), badgeColor: 'bg-emerald-500 text-slate-950 font-black' },
+              { id: 'all', label: 'Master Registry', icon: '📦', count: Math.max(0, allFilteredListings.length - purgedListingIds.size), badgeColor: 'bg-slate-700 text-white font-bold' },
+              { id: 'crm', label: 'Member CRM & WhatsApp', icon: '👥', count: liveFilteredProfiles.length, badgeColor: 'bg-purple-500 text-white font-bold' },
               { id: 'reports', label: 'Dispute Reports', icon: '🚩', count: reports.length, badgeColor: 'bg-rose-500 text-white font-bold' },
               { id: 'interactions', label: 'Inquiries & Reviews', icon: '💬', count: threads.length, badgeColor: 'bg-cyan-500 text-slate-950 font-bold' },
               { id: 'broadcast', label: 'Broadcast & Coverage', icon: '📢' },
@@ -1820,7 +2352,9 @@ export default function DesktopAdminDashboard({
             </div>
           )}
 
-          {/* MODULE B: CRM */}
+          {/* ========================================================================= */}
+          {/* MODULE B: MEMBER CRM & WHATSAPP DESK (REAL-TIME CONNECTED)                */}
+          {/* ========================================================================= */}
           {activeTab === 'crm' && (
             <div className="flex-1 flex flex-col p-6 overflow-hidden space-y-4">
               <div className="flex items-center justify-between bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow">
@@ -1890,11 +2424,20 @@ export default function DesktopAdminDashboard({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800 font-semibold text-slate-200">
-                        {filteredProfiles.map((user) => {
-                          const isSelected = selectedCrmUser?.id === user.id;
+                        {liveFilteredProfiles.map((user) => {
+                          const isSelected =
+                            selectedCrmUser &&
+                            ((selectedCrmUser.id && selectedCrmUser.id === user.id) ||
+                              sanitizePhone(selectedCrmUser.phone) === sanitizePhone(user.phone));
+                          const isUserMerchant = Boolean(
+                            user.is_merchant ||
+                            user.verification_tier === 'verified_merchant' ||
+                            user.verification_tier === 'merchant'
+                          );
+
                           return (
                             <tr
-                              key={user.id}
+                              key={user.id || user.phone}
                               onClick={() => setSelectedCrmUser(user)}
                               className={`cursor-pointer transition ${
                                 isSelected ? 'bg-amber-400/10' : 'hover:bg-slate-800/50'
@@ -1906,14 +2449,14 @@ export default function DesktopAdminDashboard({
                                   <span className="text-amber-400 block text-[10px]">🏬 {user.business_name}</span>
                                 )}
                               </td>
-                              <td className="p-3.5 font-mono text-cyan-300 font-bold">+91 {user.phone}</td>
+                              <td className="p-3.5 font-mono text-cyan-300 font-bold">+91 {sanitizePhone(user.phone)}</td>
                               <td className="p-3.5">
                                 <span
                                   className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                                    user.is_merchant ? 'bg-pink-950 text-pink-300' : 'bg-blue-950 text-blue-300'
+                                    isUserMerchant ? 'bg-pink-950 text-pink-300' : 'bg-blue-950 text-blue-300'
                                   }`}
                                 >
-                                  {user.is_merchant ? 'Merchant' : 'Resident'}
+                                  {isUserMerchant ? 'Merchant' : 'Resident'}
                                 </span>
                                 {user.is_banned && (
                                   <span className="ml-1.5 bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded text-[9px] font-bold">
@@ -1924,24 +2467,18 @@ export default function DesktopAdminDashboard({
                               <td className="p-3.5">{user.area_name || 'Alwar'}</td>
                               <td className="p-3.5">
                                 <div className="flex items-center space-x-1.5">
-                                  <span className="font-bold text-amber-400">{user.trust_score || 100}</span>
+                                  <span className="font-bold text-amber-400">{user.trust_score ?? 100}</span>
                                   <button
                                     type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAdjustTrustScore(user.phone, 10);
-                                    }}
-                                    className="px-1.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 text-[10px]"
+                                    onClick={(e) => handleCrmTrustAdjust(user, 10, e)}
+                                    className="px-1.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 text-[10px] cursor-pointer"
                                   >
                                     +
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAdjustTrustScore(user.phone, -10);
-                                    }}
-                                    className="px-1.5 bg-slate-800 hover:bg-slate-700 rounded text-rose-300 text-[10px]"
+                                    onClick={(e) => handleCrmTrustAdjust(user, -10, e)}
+                                    className="px-1.5 bg-slate-800 hover:bg-slate-700 rounded text-rose-300 text-[10px] cursor-pointer"
                                   >
                                     -
                                   </button>
@@ -1955,7 +2492,7 @@ export default function DesktopAdminDashboard({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleGenerateAndDispatchPin(user);
+                                    handleCrmDispatchPin(user);
                                   }}
                                   className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] rounded-lg cursor-pointer"
                                 >
@@ -1963,10 +2500,7 @@ export default function DesktopAdminDashboard({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    adminToggleBanUser(user.phone, !user.is_banned);
-                                  }}
+                                  onClick={(e) => handleCrmToggleBan(user, e)}
                                   className={`px-3 py-1 rounded-lg font-bold text-[10.5px] cursor-pointer ${
                                     user.is_banned
                                       ? 'bg-emerald-600 text-white'
@@ -1984,6 +2518,7 @@ export default function DesktopAdminDashboard({
                   </div>
                 </div>
 
+                {/* RIGHT DRAWER: MEMBER DOSSIER & AUDITING */}
                 {selectedCrmUser && (
                   <div className="w-96 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-2xl shrink-0 overflow-y-auto space-y-3">
                     <div className="space-y-2.5">
@@ -2004,75 +2539,104 @@ export default function DesktopAdminDashboard({
                       </div>
 
                       <div className="text-xs text-slate-300 space-y-1">
-                        <p>📞 <strong>Phone:</strong> +91 {selectedCrmUser.phone}</p>
+                        <p>📞 <strong>Phone:</strong> +91 {sanitizePhone(selectedCrmUser.phone)}</p>
                         <p>📍 <strong>Locality:</strong> {selectedCrmUser.area_name || 'Alwar'}</p>
-                        <p>🏷️ <strong>Role:</strong> {selectedCrmUser.is_merchant ? 'Merchant' : 'Resident'}</p>
+                        <p>
+                          🏷️ <strong>Role:</strong>{' '}
+                          {selectedCrmUser.is_merchant ||
+                          selectedCrmUser.verification_tier === 'verified_merchant' ||
+                          selectedCrmUser.verification_tier === 'merchant'
+                            ? 'Merchant'
+                            : 'Resident'}
+                        </p>
                         {selectedCrmUser.business_name && (
                           <p>🏬 <strong>Business Name:</strong> {selectedCrmUser.business_name}</p>
                         )}
-                        <p>⭐ <strong>Trust Score:</strong> {selectedCrmUser.trust_score || 100}/100</p>
+                        <p>⭐ <strong>Trust Score:</strong> {selectedCrmUser.trust_score ?? 100}/100</p>
                         <p>🔑 <strong>Admin Activation PIN:</strong> {selectedCrmUser.admin_activation_pin || 'Verified ✓'}</p>
                       </div>
 
                       <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                        <span className="text-[10px] font-black text-amber-300 uppercase block">
-                          Owned Listings:
-                        </span>
                         {(() => {
-                          const owned = allListings.filter(
-                            (l) => sanitizePhone(l.phone) === sanitizePhone(selectedCrmUser.phone)
-                          );
-                          if (owned.length === 0) return <p className="text-[10px] text-slate-500">No listings posted yet.</p>;
+                          const targetPhone = sanitizePhone(selectedCrmUser.phone);
+                          const targetId = selectedCrmUser.id;
+                          const owned = allListings.filter((l) => {
+                            if (!l || purgedListingIds.has(String(l.id))) return false;
+                            const matchId = targetId && (String(l.user_id) === String(targetId) || String(l.userId) === String(targetId));
+                            const matchPhone =
+                              targetPhone &&
+                              (sanitizePhone(l.phone) === targetPhone || sanitizePhone(l.whatsapp) === targetPhone);
+                            return matchId || matchPhone;
+                          });
 
                           return (
-                            <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                              {owned.map((ol) => (
-                                <div
-                                  key={ol.id}
-                                  onClick={() => {
-                                    setSelectedItemId(ol.id);
-                                    setActiveTab('all');
-                                  }}
-                                  className="p-1.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] cursor-pointer hover:border-amber-400"
-                                >
-                                  <span className="text-slate-200 truncate max-w-[160px]">{ol.title}</span>
-                                  <span className="text-emerald-400 font-mono font-bold">{ol.price}</span>
+                            <>
+                              <span className="text-[10px] font-black text-amber-300 uppercase block">
+                                Owned Listings ({owned.length}):
+                              </span>
+                              {owned.length === 0 ? (
+                                <p className="text-[10px] text-slate-500">No listings posted yet.</p>
+                              ) : (
+                                <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                                  {owned.map((ol) => (
+                                    <div
+                                      key={ol.id}
+                                      onClick={() => {
+                                        setSelectedItemId(ol.id);
+                                        setActiveTab('all');
+                                      }}
+                                      className="p-1.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] cursor-pointer hover:border-amber-400"
+                                    >
+                                      <span className="text-slate-200 truncate max-w-[160px]">{ol.title}</span>
+                                      <span className="text-emerald-400 font-mono font-bold">{ol.price}</span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              )}
+                            </>
                           );
                         })()}
                       </div>
                     </div>
 
-                    <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                    {/* 🔥 REAL-TIME CONNECTED BOTTOM-RIGHT DOSSIER ACTION SUITE */}
+                    <div className="space-y-2 pt-3 border-t border-slate-800">
                       <button
                         type="button"
-                        onClick={() => handleGenerateAndDispatchPin(selectedCrmUser)}
-                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow cursor-pointer"
+                        disabled={crmBusy}
+                        onClick={() => handleCrmDispatchPin(selectedCrmUser)}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow cursor-pointer active:scale-98 transition disabled:opacity-50"
                       >
                         📲 Dispatch PIN on WhatsApp
                       </button>
-                      {selectedCrmUser.is_merchant && (
-                        <button
-                          type="button"
-                          onClick={() => adminDemoteMerchant(selectedCrmUser.phone)}
-                          className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
-                        >
-                          ⬇️ Demote to Resident
-                        </button>
-                      )}
+
                       <button
                         type="button"
-                        onClick={() => adminDeleteAllSellerListings(selectedCrmUser.phone)}
-                        className="w-full py-1.5 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 font-bold text-xs rounded-xl cursor-pointer"
+                        disabled={crmBusy}
+                        onClick={() => handleCrmToggleRole(selectedCrmUser)}
+                        className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl cursor-pointer active:scale-98 transition disabled:opacity-50"
+                      >
+                        {selectedCrmUser.is_merchant ||
+                        selectedCrmUser.verification_tier === 'verified_merchant' ||
+                        selectedCrmUser.verification_tier === 'merchant'
+                          ? '⬇️ Demote to Resident'
+                          : '⬆️ Promote to Merchant'}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={crmBusy}
+                        onClick={() => handleCrmPurgeListings(selectedCrmUser)}
+                        className="w-full py-2 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 font-bold text-xs rounded-xl cursor-pointer active:scale-98 transition disabled:opacity-50"
                       >
                         🧹 Purge All Listings
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => adminDeleteUser(selectedCrmUser.id, selectedCrmUser.phone)}
-                        className="w-full py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow cursor-pointer"
+                        disabled={crmBusy}
+                        onClick={() => handleCrmDeleteUser(selectedCrmUser)}
+                        className="w-full py-2 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow cursor-pointer active:scale-98 transition disabled:opacity-50"
                       >
                         🗑️ Delete User & Records
                       </button>
@@ -2216,17 +2780,25 @@ export default function DesktopAdminDashboard({
                     <div className="flex space-x-2">
                       <button
                         type="button"
-                        onClick={() => supabase.from('listing_reports').delete().eq('id', rep.id)}
+                        onClick={async () => {
+                          if (supabase) await supabase.from('listing_reports').delete().eq('id', rep.id);
+                          notifyAdmin('Dispute dismissed.');
+                          if (typeof onRefresh === 'function') onRefresh();
+                        }}
                         className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
                       >
                         Dismiss
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           if (window.confirm(`Delete reported listing ${rep.listing_id}?`)) {
-                            deleteListingFromDB(rep.listing_id);
-                            showNotice('Listing removed and dispute resolved.');
+                            hyperlocalStore.removeListing(rep.listing_id);
+                            await deleteListingDependenciesInDB([rep.listing_id]);
+                            await deleteListingFromDB(rep.listing_id);
+                            if (supabase) await supabase.from('listing_reports').delete().eq('id', rep.id);
+                            notifyAdmin('Listing removed and dispute resolved.');
+                            if (typeof onRefresh === 'function') onRefresh();
                           }
                         }}
                         className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl cursor-pointer shadow"
@@ -2377,7 +2949,7 @@ export default function DesktopAdminDashboard({
       )}
 
       {/* 🌟 5. FULLSCREEN HIGH-RESOLUTION LIGHTBOX */}
-      {isLightboxOpen && inspectingItem && (
+      {isLightboxOpen && activeItem && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between p-6 animate-fade-in select-none">
           <div className="flex items-center justify-between text-white pb-3 border-b border-slate-800">
             <div>
@@ -2398,7 +2970,7 @@ export default function DesktopAdminDashboard({
               src={
                 typeof editFormData.images[lightboxIndex] === 'string'
                   ? editFormData.images[lightboxIndex]
-                  : editFormData.images[lightboxIndex]?.url || editFormData.images[lightboxIndex]?.preview || inspectingItem.image
+                  : editFormData.images[lightboxIndex]?.url || editFormData.images[lightboxIndex]?.preview || activeItem.image
               }
               alt="Fullscreen Zoom"
               className="max-h-[85vh] max-w-full object-contain rounded-2xl shadow-2xl"

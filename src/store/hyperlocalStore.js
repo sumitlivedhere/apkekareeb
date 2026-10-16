@@ -1996,7 +1996,7 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
       return { ...n, is_read: isRead, read: isRead };
     });
 
-    // 🔒 GUEST MODE: NOT LOGGED IN
+    // 🔒 GUEST VISITOR: NOT LOGGED IN
     if (!currentUser) {
       return notifsWithRead.filter((n) => {
         const role = String(n.recipient_role || n.role || '').toLowerCase();
@@ -2004,7 +2004,6 @@ export function useRoleFilteredNotifications(currentUser, currentScreen = 'home'
         const hasPhone = Boolean(n.recipient_phone);
         const isInternalTag = ADMIN_TAGS.has(n.tag) || SELLER_TAGS.has(n.tag);
 
-        // ONLY show true public announcements
         return role === 'public' && !hasUserId && !hasPhone && !isInternalTag;
       });
     }
