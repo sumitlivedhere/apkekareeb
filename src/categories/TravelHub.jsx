@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStoreSlice } from '../store/hyperlocalStore';
+import ListingInteractiveCard from '../components/common/ListingInteractiveCard';
+import ListingDetailModal from '../components/common/ListingDetailModal';
 
 const TRAVEL_SUBCATEGORIES = [
   {
@@ -37,22 +39,24 @@ export default function TravelHub({
   onSelectSubCategory,
   onPostClick,
   onBack,
+  onNewNotification,
 }) {
   const travelListings = useStoreSlice('travelListings');
+  const [selectedDetailItem, setSelectedDetailItem] = useState(null);
 
-  const getSubCount = (subId) => {
-    if (!Array.isArray(travelListings)) return 0;
-    return travelListings.filter(
+  const activeListings = (travelListings || []).filter(
+    (i) => i && i.is_active !== false && !i.has_pending_approval
+  );
+
+  const getSubCount = (subId) =>
+    activeListings.filter(
       (i) =>
-        i &&
-        i.is_active !== false &&
-        !i.has_pending_approval &&
-        String(i.subCategory || i.sub_category || '').toLowerCase() === subId.toLowerCase()
+        String(i.subCategory || i.sub_category || '').toLowerCase() ===
+        subId.toLowerCase()
     ).length;
-  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-3.5 pt-3 pb-24 space-y-4 font-sans select-none">
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-3.5 pt-3 pb-24 space-y-5 font-sans select-none">
       
       {/* Top Hero Banner */}
       <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#122230] via-[#0e1720] to-[#1d192b] border border-amber-400/30 shadow-2xl space-y-3">
@@ -84,7 +88,6 @@ export default function TravelHub({
           </p>
         </div>
 
-        {/* View All & Post Business Action Bar */}
         <div className="flex items-center gap-2.5 pt-1">
           <button
             type="button"
@@ -92,7 +95,7 @@ export default function TravelHub({
             className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/40 font-black text-xs cursor-pointer active:scale-95 transition flex items-center justify-center space-x-1.5"
           >
             <span>🌟</span>
-            <span>Explore All ({travelListings.length})</span>
+            <span>Explore All ({activeListings.length})</span>
           </button>
 
           {onPostClick && (
@@ -155,6 +158,59 @@ export default function TravelHub({
           );
         })}
       </div>
+
+      {/* Featured Fun & Travel Listings (Clickable -> Opens Full Listing Detail Modal) */}
+      {activeListings.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+              🌟 Popular Experiences & Destinations ({activeListings.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => onSelectSubCategory && onSelectSubCategory('all')}
+              className="text-xs font-bold text-cyan-400 hover:underline cursor-pointer"
+            >
+              View All ➔
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {activeListings.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => setSelectedDetailItem(item)}
+                className="cursor-pointer"
+              >
+                <ListingInteractiveCard
+                  item={item}
+                  listing={item}
+                  category="travel"
+                  selectedCity={selectedCity}
+                  onSelect={() => setSelectedDetailItem(item)}
+                  onClick={() => setSelectedDetailItem(item)}
+                  onCardClick={() => setSelectedDetailItem(item)}
+                  onSelectListing={() => setSelectedDetailItem(item)}
+                  onNewNotification={onNewNotification}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Full Listing Detail Modal */}
+      {selectedDetailItem && (
+        <ListingDetailModal
+          item={selectedDetailItem}
+          listing={selectedDetailItem}
+          isOpen={Boolean(selectedDetailItem)}
+          selectedCity={selectedCity}
+          onClose={() => setSelectedDetailItem(null)}
+          onNewNotification={onNewNotification}
+          onSelectListing={(nextItem) => setSelectedDetailItem(nextItem)}
+        />
+      )}
     </div>
   );
 }

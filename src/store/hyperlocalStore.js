@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { initialShaadiVendors } from '../data/shaadiData';
 import { initialTransportFirms, initialIndividualTransporters } from '../data/transporterData';
 import { initialKaarigarWorkers } from '../data/kaarigarData';
-import { initialMarketProducts } from '../data/marketData';
+
 import { initialAdvertisingProviders } from '../data/advertisingData';
 import { initialEducationListings } from '../data/educationData';
 import { initialConstructionListings } from '../data/constructionData';
@@ -823,9 +823,7 @@ class HyperlocalEngineStore {
       creatorsListings: (initialCreatorsListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'creators' })
       ),
-      marketProducts: (initialMarketProducts || []).map((i) =>
-        normalizeDBListing({ ...i, category: 'market' })
-      ),
+      
       kaarigarWorkers: (initialKaarigarWorkers || []).map((i) =>
         normalizeDBListing({ ...i, category: 'kaarigar' })
       ),

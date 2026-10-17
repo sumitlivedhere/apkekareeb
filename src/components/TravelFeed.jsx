@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStoreSlice } from '../store/hyperlocalStore';
 import ListingInteractiveCard from './common/ListingInteractiveCard';
 import ListingDetailModal from './common/ListingDetailModal';
+import CategoryPromotionsBar from './common/CategoryPromotionsBar';
 import { CITY_ZONES } from '../data/cityZones';
 
 const SUBCATEGORY_TABS = [
@@ -69,7 +70,7 @@ export default function TravelFeed({
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 px-3.5 pt-3 space-y-4 font-sans select-none">
       
-      {/* Header & Controls */}
+      {/* Top Header & Filters */}
       <div className="p-4 rounded-3xl bg-[#0e1720] border border-[#1d2b38] shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <button
@@ -78,7 +79,7 @@ export default function TravelFeed({
             className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold flex items-center space-x-1.5 cursor-pointer active:scale-95 transition"
           >
             <span>←</span>
-            <span>Back</span>
+            <span>Back to Hub</span>
           </button>
 
           {onPostClick && (
@@ -87,7 +88,7 @@ export default function TravelFeed({
               onClick={onPostClick}
               className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black text-xs shadow cursor-pointer active:scale-95 transition"
             >
-              + Showcase Business
+              + List Activity / Spot
             </button>
           )}
         </div>
@@ -98,11 +99,11 @@ export default function TravelFeed({
             <span>Fun & Travel • {selectedCity}</span>
           </h1>
           <p className="text-[11px] text-amber-400 font-bold">
-            मनोरंजन, पर्यटन स्थल, रिसॉर्ट्स व ट्रैवल सेवाएं ({filteredListings.length})
+            Tap any listing for full details, reviews, ratings, cart & map ({filteredListings.length})
           </p>
         </div>
 
-        {/* Subcategory Pills */}
+        {/* Subcategory Filter Pills */}
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
           {SUBCATEGORY_TABS.map((tab) => (
             <button
@@ -136,7 +137,7 @@ export default function TravelFeed({
             onChange={(e) => setSelectedLocality(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-slate-200 font-bold outline-none"
           >
-            <option value="all">All Locations</option>
+            <option value="all">📍 All Locations</option>
             {Object.keys(CITY_ZONES || {}).map((zone) => (
               <option key={zone} value={zone}>
                 {zone}
@@ -146,11 +147,18 @@ export default function TravelFeed({
         </div>
       </div>
 
-      {/* Listings Stream */}
+      {/* Category Promotions Spotlight */}
+      <CategoryPromotionsBar
+        category="travel"
+        selectedCity={selectedCity}
+        onSelectListing={(item) => setSelectedDetailItem(item)}
+      />
+
+      {/* Interactive Clickable Listings Stream */}
       {filteredListings.length === 0 ? (
         <div className="p-12 text-center bg-[#0e1720] border border-slate-800 rounded-3xl space-y-3">
           <span className="text-4xl block">🎡</span>
-          <h3 className="text-sm font-black text-white">No Listings Found</h3>
+          <h3 className="text-sm font-black text-white">No Fun & Travel Listings Found</h3>
           <p className="text-xs text-slate-400 max-w-xs mx-auto">
             Have a fun activity, turf, resort, or travel service in {selectedCity}? Showcase it here!
           </p>
@@ -158,21 +166,33 @@ export default function TravelFeed({
       ) : (
         <div className="space-y-4">
           {filteredListings.map((item) => (
-            <ListingInteractiveCard
+            <div
               key={item.id}
-              item={item}
-              category="travel"
-              selectedCity={selectedCity}
-              onSelect={() => setSelectedDetailItem(item)}
-              onNewNotification={onNewNotification}
-            />
+              onClick={() => setSelectedDetailItem(item)}
+              className="cursor-pointer"
+            >
+              <ListingInteractiveCard
+                item={item}
+                listing={item}
+                category="travel"
+                selectedCity={selectedCity}
+                onSelect={() => setSelectedDetailItem(item)}
+                onClick={() => setSelectedDetailItem(item)}
+                onCardClick={() => setSelectedDetailItem(item)}
+                onSelectListing={() => setSelectedDetailItem(item)}
+                onNewNotification={onNewNotification}
+              />
+            </div>
           ))}
         </div>
       )}
 
+      {/* Full Listing Detail Page Modal (Info, Ratings, Cart, Reviews, Location, Discussion) */}
       {selectedDetailItem && (
         <ListingDetailModal
           item={selectedDetailItem}
+          listing={selectedDetailItem}
+          isOpen={Boolean(selectedDetailItem)}
           selectedCity={selectedCity}
           onClose={() => setSelectedDetailItem(null)}
           onNewNotification={onNewNotification}

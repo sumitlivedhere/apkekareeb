@@ -1,2 +1,98 @@
-// 🎊 Newly Open & City Business Marketing Data (Starts clean so only real/approved businesses appear)
-export const initialMarketProducts = [];
+// 🎊 Newly Open (नए खुले व्यापार व स्टोर) Seed Listings for Alwar
+export const initialMarketListings = [
+  {
+    id: 'newly-open-1',
+    title: 'The Royal Brew Rooftop Cafe & Woodfire Pizzeria',
+    category: 'market',
+    subCategory: 'new-food-cafe',
+    price: '₹199 Starting',
+    original_price: '₹299',
+    deal_badge: '🎊 Grand Opening:Flat 25% OFF',
+    sellerName: 'Royal Brew Hospitality',
+    phone: '9829044112',
+    whatsapp: '9829044112',
+    location: 'Bhagat Singh Circle, Alwar',
+    timing: '11:00 AM - 11:00 PM',
+    description:
+      'Newly inaugurated rooftop cafe in Alwar offering wood-fired Neapolitan pizzas, specialty cold coffee, mocktails, and live acoustic weekends. Inaugural 25% discount on all dine-in bills!',
+    image: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=700',
+    images: [
+      'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=700',
+      'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=700',
+    ],
+    interestCount: 64,
+    rating: 4.9,
+    verified: true,
+  },
+  {
+    id: 'newly-open-2',
+    title: 'Urban Trendz Multi-Brand Family Fashion Showroom',
+    category: 'market',
+    subCategory: 'new-showroom-store',
+    price: '₹499 Starting',
+    original_price: '₹999',
+    deal_badge: '🎁 Buy 2 Get 1 Free (Opening Offer)',
+    sellerName: 'Urban Trendz Retail',
+    phone: '9414088223',
+    whatsapp: '9414088223',
+    location: 'Hope Circus, Church Road, Alwar',
+    timing: '10:00 AM - 09:30 PM',
+    description:
+      'Brand new 3-floor air-conditioned family fashion showroom in Alwar featuring ethnic wear, bridal lehengas, menswear, denim, and kids collection with inaugural combo deals.',
+    image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=700',
+    images: [
+      'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=700',
+    ],
+    interestCount: 51,
+    rating: 4.8,
+    verified: true,
+  },
+  {
+    id: 'newly-open-3',
+    title: 'Apex Pro Unisex Fitness & Recovery Studio',
+    category: 'market',
+    subCategory: 'new-salon-fitness',
+    price: '₹999 / Month',
+    original_price: '₹1,800',
+    deal_badge: '🔥 First 50 Members: Zero Joining Fee',
+    sellerName: 'Apex Fitness Alwar',
+    phone: '9928077334',
+    whatsapp: '9928077334',
+    location: 'Scheme No. 2, Lajpat Nagar, Alwar',
+    timing: '05:30 AM - 10:00 PM',
+    description:
+      'Newly launched luxury fitness studio with imported biomechanical strength machines, steam bath, Zumba arena, and certified personal trainers.',
+    image: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=700',
+    images: [
+      'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=700',
+    ],
+    interestCount: 47,
+    rating: 4.9,
+    verified: true,
+  },
+  {
+    id: 'newly-open-4',
+    title: 'MedLife Advanced Diagnostics & Multispecialty Polyclinic',
+    category: 'market',
+    subCategory: 'new-services-agency',
+    price: '₹299 Full Body Basic',
+    original_price: '₹799',
+    deal_badge: '🏥 Free Opening Health Camp',
+    sellerName: 'MedLife Healthcare',
+    phone: '9785066445',
+    whatsapp: '9785066445',
+    location: 'Moti Dungri, Alwar',
+    timing: '07:00 AM - 08:30 PM',
+    description:
+      'Newly opened automated pathology lab, digital X-ray, ECG, and specialist OPD consultations with free home blood sample collection across Alwar.',
+    image: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=700',
+    images: [
+      'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=700',
+    ],
+    interestCount: 39,
+    rating: 4.8,
+    verified: true,
+  },
+];
+
+export default initialMarketListings;

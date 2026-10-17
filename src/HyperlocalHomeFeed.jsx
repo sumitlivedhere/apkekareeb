@@ -10,6 +10,7 @@ import {
   resolveListingCoordinates,
 } from './hooks/useUserLocation';
 import { CITY_ZONES } from './data/cityZones';
+import ListingDetailModal from './components/common/ListingDetailModal';
 
 // 🏛️ Master 22 Local Alwar Categories Specification
 export const MASTER_CATEGORIES = [
@@ -439,13 +440,16 @@ export default function HyperlocalHomeFeed({
     }));
   }, [isSearching, searchResults.listings]);
 
+  const [selectedDetailItem, setSelectedDetailItem] = useState(null);
+
   const handleOpenListingDetail = (item) => {
-    if (typeof onSelectItem === 'function') {
-      onSelectItem(item);
-    } else if (typeof onSelectListing === 'function') {
-      onSelectListing(item);
-    }
-  };
+  setSelectedDetailItem(item);
+  if (typeof onSelectItem === 'function') {
+    onSelectItem(item);
+  } else if (typeof onSelectListing === 'function') {
+    onSelectListing(item);
+  }
+};
 
   const handleOpenIntent = (intent) => {
     if (intent.subCategory?.id && typeof onSelectIntent === 'function') {
@@ -1081,6 +1085,16 @@ export default function HyperlocalHomeFeed({
             })}
           </div>
         </div>
+      )}
+            {selectedDetailItem && (
+        <ListingDetailModal
+          item={selectedDetailItem}
+          listing={selectedDetailItem}
+          isOpen={Boolean(selectedDetailItem)}
+          selectedCity={selectedCity}
+          onClose={() => setSelectedDetailItem(null)}
+          onSelectListing={(nextItem) => setSelectedDetailItem(nextItem)}
+        />
       )}
     </div>
   );
