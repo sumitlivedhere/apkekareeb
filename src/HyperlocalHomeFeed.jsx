@@ -442,13 +442,10 @@ export default function HyperlocalHomeFeed({
 
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
 
-  const handleOpenListingDetail = (item) => {
+  // ✅ Cleaner single-modal handler:
+const handleOpenListingDetail = (item) => {
+  if (!item) return;
   setSelectedDetailItem(item);
-  if (typeof onSelectItem === 'function') {
-    onSelectItem(item);
-  } else if (typeof onSelectListing === 'function') {
-    onSelectListing(item);
-  }
 };
 
   const handleOpenIntent = (intent) => {

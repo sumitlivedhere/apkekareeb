@@ -7,53 +7,31 @@
 export const CATEGORY_FORM_SCHEMAS = {
   // ── 1. RETAIL & GENERAL MARKET ─────────────────────────────────
   market: {
-    categoryName: 'Town Marketplace & Kirana',
-    isService: false,
-    pricing: {
-      priceLabel: 'Selling / Offer Price (बिक्री मूल्य)',
-      pricePlaceholder: 'e.g. 450 or 120 / Kg',
-      showOriginalPrice: true,
-      priceTypes: ['Fixed Price', 'Per Kg / Weight', 'Per Pack / Box', 'Special Combo Offer'],
-      defaultTiming: '09:00 AM - 09:30 PM',
-    },
-    specifications: [
+    category: 'market',
+    titlePlaceholder: 'e.g. Grand Opening: The Royal Brew Rooftop Cafe & Pizzeria',
+    sellerPlaceholder: 'e.g. Royal Brew Hospitality',
+    priceLabel: 'Starting Price / Inaugural Offer Price (₹)',
+    pricePlaceholder: 'e.g. ₹199 Starting / Flat 25% OFF',
+    fields: [
       {
-        key: 'stock_status',
-        label: 'Stock Availability (उपलब्धता)',
-        type: 'select',
-        options: ['Ready Stock in Shop', 'Limited Stock (1-2 Left)', 'Made to Order', 'Pre-Order (1 Day)'],
-        default: 'Ready Stock in Shop',
+        name: 'openingDate',
+        label: 'Grand Opening Date / Launch Month (उद्घाटन तिथि)',
+        type: 'text',
+        placeholder: 'e.g. Opened This Week / Grand Launch Offer',
       },
       {
-        key: 'condition',
-        label: 'Item Condition (स्थिति)',
-        type: 'select',
-        options: ['Brand New / Fresh Stock', 'Packaged & Sealed', 'Handcrafted / Freshly Prepared'],
-        default: 'Brand New / Fresh Stock',
+        name: 'timing',
+        label: 'Store / Business Timings (समय)',
+        type: 'text',
+        placeholder: 'e.g. 10:00 AM - 09:30 PM',
       },
       {
-        key: 'delivery_option',
-        label: 'Delivery & Pickup (डिलीवरी सुविधा)',
-        type: 'select',
-        options: ['Shop Pickup & Home Delivery', 'Shop Pickup Only', 'Free Local Home Delivery'],
-        default: 'Shop Pickup & Home Delivery',
+        name: 'inauguralOffer',
+        label: 'Special Opening Offer for Customers (उद्घाटन ऑफर)',
+        type: 'text',
+        placeholder: 'e.g. Flat 25% OFF on First Bill / Free Welcome Gift',
       },
     ],
-    guidance: {
-      step1Title: 'Product & Shop Basics',
-      titleLabel: 'Product / Deal Title *',
-      titlePlaceholder: 'e.g. Pure Desi Ghee Sweets & Dry Fruit Box',
-      titleHelp: 'Mention the brand, item name, and pack size or variant.',
-      sellerLabel: 'Shop / Business Name *',
-      sellerPlaceholder: 'e.g. Bikaner Sweets & Namkeen Bhandar',
-      photoHelp: 'Upload clear front photos of the product packaging and price tag.',
-      bulletPlaceholders: [
-        'Fresh quality guarantee & preparation date',
-        'Ingredients / Material details & weight options',
-        'Special festival or bulk purchase discount',
-        'Home delivery available across local colonies in Alwar',
-      ],
-    },
   },
 
   // ── 2. FASHION, APPAREL & FOOTWEAR ─────────────────────────────
@@ -560,6 +538,33 @@ export const CATEGORY_FORM_SCHEMAS = {
         'Custom packages available for Haldi, Mehendi, Sangeet & Reception nights',
       ],
     },
+  },
+  travel: {
+    category: 'travel',
+    titlePlaceholder: 'e.g. Sariska Gypsy Safari / ProPlay Box Cricket Turf / Aravalli Pool Resort',
+    sellerPlaceholder: 'e.g. Aravalli Wildlife Tours / Siliserh Adventure Club',
+    priceLabel: 'Ticket / Per Hour / Package Price (₹)',
+    pricePlaceholder: 'e.g. ₹800 / Hour or ₹850 / Person',
+    fields: [
+      {
+        name: 'timing',
+        label: 'Opening Hours / Slot Timings (समय)',
+        type: 'text',
+        placeholder: 'e.g. 06:00 AM - 11:00 PM (All Days)',
+      },
+      {
+        name: 'highlights',
+        label: 'Key Attractions / Facilities Included',
+        type: 'text',
+        placeholder: 'e.g. Floodlights, Equipment Included, Swimming Pool, Guide',
+      },
+      {
+        name: 'groupSize',
+        label: 'Ideal For (किसके लिए उपयुक्त)',
+        type: 'select',
+        options: ['Families & Kids', 'Friends & Groups', 'Couples', 'Corporate / School Trips', 'All Visitors'],
+      },
+    ],
   },
 };
 

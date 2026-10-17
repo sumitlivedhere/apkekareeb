@@ -65,19 +65,19 @@ export const TAXONOMY_REGISTRY = [
   ],
 },
 
-{
-  id: 'travel',
-  name: 'Fun & Travel (घूमना-फिरना व मनोरंजन)',
-  hindiName: 'घूमना-फिरना व मनोरंजन',
-  icon: '🎡',
-  bucketKey: 'travelListings',
-  subCategories: [
-    { id: 'fun-activities', name: 'Fun Activities, Gaming & Sports (मनोरंजन व गेमिंग ज़ोन)' },
-    { id: 'destinations', name: 'Tourist Spots & Sightseeing (पर्यटन स्थल व सफारी)' },
-    { id: 'resorts-stays', name: 'Resorts, Farm Stays & Camping (रिसॉर्ट्स व फार्म स्टे)' },
-    { id: 'tour-operators', name: 'Tour Packages, Guides & Travel Agencies (टूर पैकेज व गाइड)' },
-  ],
-},
+ {
+    id: 'travel',
+    name: 'Fun & Travel (घूमना-फिरना व मनोरंजन)',
+    hindiName: 'घूमना-फिरना व मनोरंजन',
+    icon: '🎡',
+    bucketKey: 'travelListings',
+    subCategories: [
+      { id: 'fun-activities', name: 'Fun Activities, Gaming & Sports (मनोरंजन, टर्फ व गेमिंग)' },
+      { id: 'destinations', name: 'City Tourist Spots & Sightseeing (पर्यटन स्थल व सफारी)' },
+      { id: 'resorts-stays', name: 'Resorts, Farm Stays & Day-Out (रिसॉर्ट्स व फार्म स्टे)' },
+      { id: 'tour-operators', name: 'Tour Packages, Guides & Travel Desks (टूर पैकेज व गाइड)' },
+    ],
+  },
 
   {
   id: 'white-collar',
@@ -425,8 +425,13 @@ export const TAXONOMY_REGISTRY = [
     name: 'Newly Open (नए खुले व्यापार व स्टोर)',
     hindiName: 'नए खुले व्यापार व स्टोर',
     icon: '🎊',
-    bucketKey: 'marketProducts',
-    subCategories: [],
+    bucketKey: 'marketListings',
+    subCategories: [
+      { id: 'new-showroom-store', name: 'New Retail Shops & Showrooms (नए शोरूम व दुकान)' },
+      { id: 'new-food-cafe', name: 'New Restaurants, Cafes & Bakeries (नए कैफे व रेस्टोरेंट)' },
+      { id: 'new-salon-fitness', name: 'New Salons, Gyms & Studios (नए सैलून व जिम)' },
+      { id: 'new-services-agency', name: 'New Clinics, Coaching & Services (नए क्लिनिक व कोचिंग)' },
+    ],
   },
 
   

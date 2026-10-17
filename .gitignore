@@ -30,3 +30,6 @@ dist-ssr
 # Supabase CLI Local Staging
 supabase/.temp/
 .supabase/
+.env
+.env.local
+.env.*.local
