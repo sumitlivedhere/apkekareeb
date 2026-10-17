@@ -5,6 +5,10 @@ import {
   TRENDING_SEARCH_CHIPS,
   CATEGORY_SYNONYMS,
 } from './utils/searchEngine';
+import {
+  calculateDistanceKm,
+  resolveListingCoordinates,
+} from './hooks/useUserLocation';
 import { CITY_ZONES } from './data/cityZones';
 
 // 🏛️ Master 22 Local Alwar Categories Specification
@@ -165,6 +169,13 @@ export const MASTER_CATEGORIES = [
   },
 ];
 
+const RADIUS_OPTIONS = [
+  { label: 'Within 2 km', value: 2 },
+  { label: 'Within 5 km', value: 5 },
+  { label: 'Within 10 km', value: 10 },
+  { label: 'All Alwar', value: Infinity },
+];
+
 const cleanPhoneNum = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
 export default function HyperlocalHomeFeed({
@@ -178,21 +189,39 @@ export default function HyperlocalHomeFeed({
   searchQuery: externalSearchQuery = '',
   onSearchChange,
   selectedCity = 'Alwar',
-  currentLocality = 'Kali Mori',
 }) {
   const allListings = useAllListingsSlice();
   const searchInputRef = useRef(null);
 
-  // Sync with parent searchQuery or local query
+  // Search States
   const [localQuery, setLocalQuery] = useState(externalSearchQuery || '');
   const [selectedSearchCategory, setSelectedSearchCategory] = useState('all');
   const [selectedSearchZone, setSelectedSearchZone] = useState('all');
   const [searchSortBy, setSearchSortBy] = useState('relevance');
   const [isListeningVoice, setIsListeningVoice] = useState(false);
 
-  const [speakingCatId, setSpeakingCatId] = useState(null);
-  const [fallbackLocation, setFallbackLocation] = useState(`${currentLocality}, ${selectedCity}`);
+  // 📡 Direct GPS Nearby Mode States (No Colony Guessing)
+  const [gpsCoords, setGpsCoords] = useState(() =>
+    userLocation?.lat && userLocation?.lng
+      ? { lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy }
+      : null
+  );
+  const [isNearbyViewOpen, setIsNearbyViewOpen] = useState(false);
+  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(5);
+  const [nearbyCategoryFilter, setNearbyCategoryFilter] = useState('all');
   const [localLocating, setLocalLocating] = useState(false);
+  const [speakingCatId, setSpeakingCatId] = useState(null);
+
+  // Sync coordinates if updated from parent hook
+  useEffect(() => {
+    if (userLocation?.lat && userLocation?.lng) {
+      setGpsCoords({
+        lat: userLocation.lat,
+        lng: userLocation.lng,
+        accuracy: userLocation.accuracy || null,
+      });
+    }
+  }, [userLocation?.lat, userLocation?.lng, userLocation?.accuracy]);
 
   useEffect(() => {
     if (externalSearchQuery !== undefined && externalSearchQuery !== localQuery) {
@@ -225,6 +254,52 @@ export default function HyperlocalHomeFeed({
     }
   };
 
+  // 📡 Trigger Live GPS for Nearby Discovery (Never guesses a colony name)
+  const handleToggleNearbyGPS = (e) => {
+    if (e) e.stopPropagation();
+
+    // If Nearby mode is already open, toggling closes it back to categories
+    if (isNearbyViewOpen && gpsCoords) {
+      setIsNearbyViewOpen(false);
+      return;
+    }
+
+    // If we already have fresh GPS coords, open Nearby view immediately and refresh in background
+    if (gpsCoords?.lat && gpsCoords?.lng) {
+      setIsNearbyViewOpen(true);
+      setSearchSortBy('nearest');
+    }
+
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setLocalLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = {
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+          accuracy: Math.round(pos.coords.accuracy || 0),
+        };
+        setGpsCoords(coords);
+        setLocalLocating(false);
+        setIsNearbyViewOpen(true);
+        setSearchSortBy('nearest');
+
+        if (typeof onRefreshLocation === 'function') {
+          onRefreshLocation();
+        }
+      },
+      () => {
+        setLocalLocating(false);
+        alert('Please allow GPS location access in your browser to see services & shops near you.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  };
+
   // 🎤 Bilingual Voice Search (Hindi & English Speech-to-Text)
   const handleVoiceSearch = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -250,13 +325,8 @@ export default function HyperlocalHomeFeed({
         setIsListeningVoice(false);
       };
 
-      recognition.onerror = () => {
-        setIsListeningVoice(false);
-      };
-
-      recognition.onend = () => {
-        setIsListeningVoice(false);
-      };
+      recognition.onerror = () => setIsListeningVoice(false);
+      recognition.onend = () => setIsListeningVoice(false);
 
       recognition.start();
     } catch {
@@ -283,65 +353,74 @@ export default function HyperlocalHomeFeed({
     window.speechSynthesis.speak(utterance);
   };
 
-  // 🔄 GPS Pin Detection
-  const handleDetectGPS = (e) => {
-    e.stopPropagation();
-    if (typeof onRefreshLocation === 'function') {
-      onRefreshLocation();
-      return;
-    }
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser.');
-      return;
-    }
-
-    setLocalLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocalLocating(false);
-        setFallbackLocation(`GPS Pin (${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)})`);
-      },
-      () => {
-        setLocalLocating(false);
-        setFallbackLocation(`${currentLocality}, ${selectedCity}`);
-      },
-      { timeout: 8000 }
-    );
-  };
-
-  const displayLocationLabel = useMemo(() => {
-    if (userLocation?.area && userLocation?.city) {
-      return `${userLocation.area}, ${userLocation.city}`;
-    }
-    if (userLocation?.label) return userLocation.label;
-    return fallbackLocation;
-  }, [userLocation, fallbackLocation]);
-
   const isLocating = parentIsLocating || localLocating;
   const isSearching = Boolean(localQuery && localQuery.trim().length > 0);
 
-  // 🔍 Run Real-Time Unified Search Engine
+  // 📐 Attach live distance (`liveDistanceKm`) to any listing when GPS is active
+  const getListingDistanceKm = (item) => {
+    if (!gpsCoords?.lat || !gpsCoords?.lng) return null;
+    const itemCoords = resolveListingCoordinates(item);
+    if (!itemCoords) return null;
+    return calculateDistanceKm(gpsCoords.lat, gpsCoords.lng, itemCoords.lat, itemCoords.lng);
+  };
+
+  // 📡 Compute Nearby Listings Sorted by Live GPS Distance
+  const nearbyListings = useMemo(() => {
+    if (!gpsCoords?.lat || !gpsCoords?.lng) return [];
+
+    const withDist = [];
+    for (const item of allListings) {
+      if (!item || item.is_active === false || item.has_pending_approval) continue;
+
+      if (nearbyCategoryFilter !== 'all') {
+        if (String(item.category || '').toLowerCase() !== nearbyCategoryFilter.toLowerCase()) {
+          continue;
+        }
+      }
+
+      const distKm = getListingDistanceKm(item);
+      if (distKm !== null && distKm <= nearbyRadiusKm) {
+        withDist.push({ ...item, liveDistanceKm: distKm });
+      }
+    }
+
+    return withDist.sort((a, b) => a.liveDistanceKm - b.liveDistanceKm);
+  }, [allListings, gpsCoords, nearbyRadiusKm, nearbyCategoryFilter]);
+
+  // 🔍 Run Real-Time Unified Search Engine (+ Live GPS Distance Sorting)
   const searchResults = useMemo(() => {
     if (!isSearching) {
       return { intents: [], listings: [], totalCount: 0, constraints: {} };
     }
-    return performUnifiedSearch(allListings, localQuery, {
+    const base = performUnifiedSearch(allListings, localQuery, {
       categoryFilter: selectedSearchCategory,
       localityFilter: selectedSearchZone,
-      sortBy: searchSortBy,
-      limit: 50,
+      sortBy: searchSortBy === 'nearest' ? 'relevance' : searchSortBy,
+      limit: 60,
     });
-  }, [allListings, localQuery, isSearching, selectedSearchCategory, selectedSearchZone, searchSortBy]);
 
-  // Distinct categories present in current search results for quick filter pills
+    const enriched = base.listings.map((item) => ({
+      ...item,
+      liveDistanceKm: getListingDistanceKm(item),
+    }));
+
+    if (searchSortBy === 'nearest' && gpsCoords) {
+      enriched.sort((a, b) => {
+        const dA = a.liveDistanceKm ?? Infinity;
+        const dB = b.liveDistanceKm ?? Infinity;
+        return dA - dB;
+      });
+    }
+
+    return {
+      ...base,
+      listings: enriched,
+    };
+  }, [allListings, localQuery, isSearching, selectedSearchCategory, selectedSearchZone, searchSortBy, gpsCoords]);
+
+  // Distinct categories present in current search results
   const matchedCategoriesInResults = useMemo(() => {
     if (!isSearching) return [];
-    const counts = {};
-    allListings.forEach((item) => {
-      if (!item || item.is_active === false || item.has_pending_approval) return;
-      const cat = String(item.category || '').toLowerCase();
-      counts[cat] = (counts[cat] || 0);
-    });
     const resCats = new Map();
     searchResults.listings.forEach((item) => {
       const cat = String(item.category || '').toLowerCase();
@@ -353,7 +432,7 @@ export default function HyperlocalHomeFeed({
       icon: CATEGORY_SYNONYMS[catId]?.icon || '📦',
       count,
     }));
-  }, [isSearching, searchResults.listings, allListings]);
+  }, [isSearching, searchResults.listings]);
 
   const handleOpenListingDetail = (item) => {
     if (typeof onSelectItem === 'function') {
@@ -374,12 +453,12 @@ export default function HyperlocalHomeFeed({
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-5 space-y-5 select-none font-sans text-slate-100">
       
-      {/* 📍 1. TOP HYPERLOCAL LOCATION & INTERACTIVE LIVE SEARCH CARD */}
+      {/* 📍 1. TOP HYPERLOCAL HEADER & LIVE SEARCH CARD (NO GUESSED COLONY) */}
       <div className="p-4 sm:p-5 rounded-3xl bg-[#0e1720] border border-[#1d2b38] shadow-2xl space-y-3.5">
         
-        {/* City & GPS Pin Bar */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
+        {/* City Title & Direct GPS Nearby Button */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="space-y-0.5 min-w-0">
             <div className="flex items-center space-x-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-xs shadow-emerald-400 animate-pulse" />
               <span className="text-[10.5px] font-black uppercase text-amber-400 tracking-wider">
@@ -388,20 +467,38 @@ export default function HyperlocalHomeFeed({
             </div>
             <div className="flex items-center space-x-1.5 pt-0.5">
               <span className="text-rose-500 text-sm">📍</span>
-              <h2 className="text-sm sm:text-base font-black text-white truncate max-w-[200px] sm:max-w-xs">
-                {displayLocationLabel}
+              <h2 className="text-sm sm:text-base font-black text-white truncate">
+                {selectedCity}, Rajasthan
               </h2>
+              {gpsCoords && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[9.5px] font-black">
+                  📡 GPS Ready
+                </span>
+              )}
             </div>
           </div>
 
+          {/* Direct Nearby Me Button (Uses raw GPS coordinates for distance sorting) */}
           <button
             type="button"
-            onClick={handleDetectGPS}
+            onClick={handleToggleNearbyGPS}
             disabled={isLocating}
-            className="px-3 py-1.5 rounded-xl bg-[#142634] hover:bg-[#1a3246] border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-md active:scale-95 transition"
+            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 cursor-pointer shadow-md active:scale-95 transition shrink-0 border ${
+              isNearbyViewOpen
+                ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 border-amber-300'
+                : gpsCoords
+                ? 'bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border-emerald-500/50'
+                : 'bg-[#142634] hover:bg-[#1a3246] border-cyan-500/40 text-cyan-300'
+            }`}
           >
-            <span>{isLocating ? '⏳' : '🔄'}</span>
-            <span>GPS Pin</span>
+            <span>{isLocating ? '⏳' : '📡'}</span>
+            <span>
+              {isLocating
+                ? 'Locating...'
+                : isNearbyViewOpen
+                ? 'Nearby Active ✓'
+                : 'Nearby Me (आस-पास)'}
+            </span>
           </button>
         </div>
 
@@ -560,7 +657,7 @@ export default function HyperlocalHomeFeed({
                 onChange={(e) => setSelectedSearchZone(e.target.value)}
                 className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-200 font-bold outline-none"
               >
-                <option value="all">📍 All {selectedCity} Colonies</option>
+                <option value="all">📍 All {selectedCity} Localities</option>
                 {Object.keys(CITY_ZONES || {}).map((z) => (
                   <option key={z} value={z}>
                     {z}
@@ -574,6 +671,7 @@ export default function HyperlocalHomeFeed({
                 className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-[11px] text-amber-300 font-bold outline-none"
               >
                 <option value="relevance">🎯 Best Match First</option>
+                {gpsCoords && <option value="nearest">📡 Nearest to My GPS</option>}
                 <option value="popular">⭐ Most Popular</option>
                 <option value="price_asc">₹ Price: Low to High</option>
                 <option value="price_desc">₹ Price: High to Low</option>
@@ -688,6 +786,11 @@ export default function HyperlocalHomeFeed({
                             <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-amber-300 text-[9.5px] font-black uppercase">
                               {catMeta.icon} {catMeta.title}
                             </span>
+                            {item.liveDistanceKm !== null && item.liveDistanceKm !== undefined && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/40 text-emerald-300 text-[9.5px] font-mono font-bold">
+                                📡 {item.liveDistanceKm} km away
+                              </span>
+                            )}
                             {item.deal_badge && (
                               <span className="px-2 py-0.5 rounded-md bg-rose-600/90 text-white text-[9px] font-black">
                                 {item.deal_badge}
@@ -745,9 +848,165 @@ export default function HyperlocalHomeFeed({
             )}
           </div>
         </div>
+      ) : isNearbyViewOpen && gpsCoords ? (
+        /* ===================================================================== */
+        /* 📡 3. DIRECT GPS NEARBY FEED (SORTED BY REAL-TIME DISTANCE)           */
+        /* ===================================================================== */
+        <div className="space-y-4 animate-fade-in">
+          <div className="p-4 rounded-3xl bg-gradient-to-br from-[#102329] via-[#0e1720] to-[#141d29] border border-emerald-500/40 shadow-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-emerald-300">
+                  📡 Nearby Around Your GPS ({nearbyListings.length})
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsNearbyViewOpen(false)}
+                className="px-3 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700 cursor-pointer"
+              >
+                ← Back to Categories
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-300">
+              Showing services, shops, and listings sorted by shortest distance from your live GPS signal.
+            </p>
+
+            {/* Radius Selector Pills + Category Filter */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {RADIUS_OPTIONS.map((rad) => (
+                  <button
+                    key={rad.label}
+                    type="button"
+                    onClick={() => setNearbyRadiusKm(rad.value)}
+                    className={`px-3 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
+                      nearbyRadiusKm === rad.value
+                        ? 'bg-emerald-400 text-slate-950 font-black shadow'
+                        : 'bg-slate-950 text-slate-300 border border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {rad.label}
+                  </button>
+                ))}
+              </div>
+
+              <select
+                value={nearbyCategoryFilter}
+                onChange={(e) => setNearbyCategoryFilter(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] text-amber-300 font-bold outline-none"
+              >
+                <option value="all">All 22 Categories</option>
+                {MASTER_CATEGORIES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.icon} {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {nearbyListings.length === 0 ? (
+            <div className="p-10 text-center rounded-3xl bg-[#0e1720] border border-slate-800 space-y-2.5">
+              <span className="text-3xl block">📡</span>
+              <h4 className="text-sm font-black text-white">
+                No Listings Within {nearbyRadiusKm} km
+              </h4>
+              <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                Expand your radius to view more listings across {selectedCity}.
+              </p>
+              <button
+                type="button"
+                onClick={() => setNearbyRadiusKm(Infinity)}
+                className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-xs cursor-pointer"
+              >
+                Show All Nearest in {selectedCity}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {nearbyListings.slice(0, 50).map((item) => {
+                const coverImg =
+                  item.image ||
+                  item.image_url ||
+                  (Array.isArray(item.images) && item.images[0]) ||
+                  'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=500';
+                const phone = cleanPhoneNum(item.phone || item.whatsapp);
+                const catMeta = CATEGORY_SYNONYMS[item.category] || {
+                  title: item.category,
+                  icon: '📦',
+                };
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleOpenListingDetail(item)}
+                    className="p-3.5 rounded-3xl bg-[#0e1720] border border-[#1b2b38] hover:border-emerald-400/50 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-lg"
+                  >
+                    <div className="flex items-start space-x-3.5 min-w-0 flex-1">
+                      <img
+                        src={coverImg}
+                        alt={item.title}
+                        className="w-20 h-20 rounded-2xl object-cover bg-slate-950 border border-slate-800 shrink-0"
+                      />
+
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-black">
+                            📡 {item.liveDistanceKm} km away
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-amber-300 text-[9.5px] font-black uppercase">
+                            {catMeta.icon} {catMeta.title}
+                          </span>
+                        </div>
+
+                        <h4 className="text-sm font-black text-white truncate">
+                          {item.title || item.name}
+                        </h4>
+
+                        <p className="text-xs font-mono font-black text-emerald-400">
+                          {item.price || item.rates || 'Contact for Price'}
+                        </p>
+
+                        <p className="text-[11px] text-slate-400 truncate">
+                          🏬 {item.sellerName || item.seller_name} • 📍 {item.location || selectedCity}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className="flex sm:flex-col items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <a
+                        href={`tel:+91${phone}`}
+                        className="flex-1 sm:w-28 py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] text-center transition"
+                      >
+                        📞 Call
+                      </a>
+                      <a
+                        href={`https://wa.me/91${phone}?text=${encodeURIComponent(
+                          `Namaste! I saw your nearby listing "${item.title}" on Aapke Kareeb.`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 sm:w-28 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] text-center transition"
+                      >
+                        💬 WhatsApp
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       ) : (
         /* ===================================================================== */
-        /* 🏛️ 3. DEFAULT ORGANIC FEED: ALL 22 ALWAR CATEGORIES                  */
+        /* 🏛️ 4. DEFAULT ORGANIC FEED: ALL 22 ALWAR CATEGORIES                  */
         /* ===================================================================== */
         <div className="space-y-3.5 animate-fade-in">
           <div className="flex items-center justify-between px-1 pt-1">
