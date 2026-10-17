@@ -1,7 +1,6 @@
 import { supabase } from './supabaseClient';
 import { compressMultipleImages } from '../utils/imageCompressor';
-import { hyperlocalStore } from '../store/hyperlocalStore';
-
+import { hyperlocalStore, getUniqueSubcategoryFallback } from '../store/hyperlocalStore';
 /**
  * Validates UUID or numeric ID format
  */
@@ -1120,15 +1119,23 @@ export async function reportListing(listingId, reporterPhone, reason, listingTit
 export function formatListingRow(row, selectedCity = 'Alwar') {
   if (!row) return null;
 
-  const rowImages =
-    row.image_urls && row.image_urls.length > 0
-      ? row.image_urls
-      : row.image_url
-      ? [row.image_url]
-      : [getCategoryFallback(row.category)];
+  const uniqueFallback =
+    typeof getUniqueSubcategoryFallback === 'function'
+      ? getUniqueSubcategoryFallback(row.category, row.sub_category, `${row.id}_${row.title}`)
+      : getCategoryFallback(row.category);
 
-  const rowVideos = Array.isArray(row.videos) ? row.videos : [];
-  const rowVideoUrls = Array.isArray(row.video_urls) ? row.video_urls : [];
+  const rawFirstUrl =
+    (row.image_urls && row.image_urls[0]) || row.image_url || '';
+
+  const isLegacyDefault =
+    !rawFirstUrl || rawFirstUrl.includes('photo-1560518883-ce09059eeffa');
+
+  const rowImages =
+    !isLegacyDefault && row.image_urls && row.image_urls.length > 0
+      ? row.image_urls
+      : !isLegacyDefault && row.image_url
+      ? [row.image_url]
+      : [uniqueFallback];
 
   return {
     id: row.id,

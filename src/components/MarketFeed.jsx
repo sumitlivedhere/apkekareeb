@@ -1,260 +1,201 @@
-import React, { useMemo, useState } from 'react';
-import { useStoreSlice, useInterestSlice, hyperlocalStore } from '../store/hyperlocalStore';
-import { getCategoryById } from '../data/taxonomyRegistry';
-import ActionButtons from './common/ActionButtons';
+import React, { useState, useMemo } from 'react';
+import { useStoreSlice } from '../store/hyperlocalStore';
+import ListingInteractiveCard from './common/ListingInteractiveCard';
 import ListingDetailModal from './common/ListingDetailModal';
-
-function MarketCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
-  const interestCount = useInterestSlice(
-    item.id,
-    Number(item.interestCount || item.interest_count || 0)
-  );
-
-  const handleStarClick = (e) => {
-    e.stopPropagation();
-    hyperlocalStore.incrementInterest(
-      item.id,
-      interestCount,
-      item.title || item.name,
-      item.shopName || item.sellerName || 'Merchant'
-    );
-  };
-
-  const gallery =
-    item.images && item.images.length > 0
-      ? item.images
-      : item.image
-      ? [item.image]
-      : ['https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=700'];
-
-  const coverImg = gallery[0];
-
-  const mapUrl =
-    item.mapUrl ||
-    (item.lat && item.lng
-      ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
-      : null);
-
-  return (
-    <article
-      onClick={onSelect}
-      className={`bg-white rounded-2xl overflow-hidden shadow-xs border transition p-3.5 space-y-3 relative cursor-pointer hover:shadow-md active:scale-99 ${
-        item.isNew ? 'border-emerald-400 ring-2 ring-emerald-400/20' : 'border-slate-200'
-      }`}
-    >
-      {/* Photo Banner */}
-      <div className="relative h-48 w-full bg-slate-100 rounded-2xl overflow-hidden shadow-inner select-none">
-        <img
-          src={coverImg}
-          alt={item.title || item.name}
-          loading="lazy"
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            e.target.src = 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=700';
-          }}
-        />
-
-        {/* Price / Offer Tag */}
-        <span className="absolute bottom-2.5 left-2.5 text-xs font-black px-2.5 py-1 rounded-xl text-white bg-slate-950/85 backdrop-blur-md border border-white/10">
-          {item.price || 'Special Deal'}
-        </span>
-
-        {/* Multi-Photo Indicator */}
-        {gallery.length > 1 && (
-          <span className="absolute top-2.5 left-2.5 text-[9px] font-black px-2 py-0.5 rounded-lg text-white bg-slate-950/80 backdrop-blur-xs border border-white/10">
-            📷 {gallery.length} Photos
-          </span>
-        )}
-
-        {/* Live Star Interest Badge */}
-        <button
-          type="button"
-          onClick={handleStarClick}
-          className="absolute top-2.5 right-2.5 px-2 py-1 rounded-xl bg-slate-950/80 hover:bg-slate-950 text-amber-300 border border-amber-400/30 text-[10px] font-black flex items-center space-x-1 backdrop-blur-xs transition active:scale-90 cursor-pointer shadow-md"
-        >
-          <span>⭐</span>
-          <span>{interestCount}</span>
-        </button>
-      </div>
-
-      {/* Card Details */}
-      <div className="pt-0.5 space-y-1.5">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <h3 className="font-black text-slate-900 text-sm leading-snug truncate max-w-[220px]">
-              {item.title || item.name}
-            </h3>
-            {(item.shopName || item.sellerName) && (
-              <p className="text-[10px] text-emerald-700 font-bold mt-0.5 truncate">
-                🛍️ {item.shopName || item.sellerName}
-              </p>
-            )}
-          </div>
-          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md shrink-0 ml-2">
-            {String(item.subCategory || 'DEAL').toUpperCase()}
-          </span>
-        </div>
-
-        {item.description && (
-          <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
-            {item.description}
-          </p>
-        )}
-
-        <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100">
-          <div className="flex items-center space-x-1 text-slate-700 font-semibold truncate max-w-[220px]">
-            <span>📍</span>
-            <span className="truncate">{item.location || selectedCity}</span>
-          </div>
-
-          {mapUrl && (
-            <a
-              href={mapUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="px-2 py-1 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 rounded-lg text-[10px] font-black flex items-center space-x-1 shrink-0 transition"
-            >
-              <span>🗺️</span>
-              <span>View Map</span>
-            </a>
-          )}
-        </div>
-      </div>
-
-      {/* 1-Click Action Buttons */}
-      <div onClick={(e) => e.stopPropagation()}>
-        <ActionButtons
-          phone={item.phone || '9876543210'}
-          whatsapp={item.whatsapp || item.phone || '919876543210'}
-          message={getMessageTemplate(item)}
-        />
-      </div>
-    </article>
-  );
-}
+import { CITY_ZONES } from '../data/cityZones';
 
 export default function MarketFeed({
-  products: propProducts,
-  selectedSubCategory,
-  selectedCategory,
   selectedCity = 'Alwar',
   searchQuery = '',
   onBack,
+  onPostClick,
   onNewNotification,
 }) {
-  const storeProducts = useStoreSlice('marketProducts') || [];
-  const allProducts = propProducts && propProducts.length > 0 ? propProducts : storeProducts;
-
-  const targetSub = (selectedSubCategory || selectedCategory || 'all').toLowerCase().trim();
-  const categoryConfig = getCategoryById('market') || { subCategories: [] };
-  const subCategories = categoryConfig.subCategories || [];
-
+  const marketListings = useStoreSlice('marketProducts');
+  const [localSearch, setLocalSearch] = useState(searchQuery || '');
+  const [selectedLocality, setSelectedLocality] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
 
-  const filteredProducts = useMemo(() => {
-    const q = (searchQuery || '').toLowerCase().trim();
-    const city = (selectedCity || '').toLowerCase().trim();
+  // Filter & Sort Direct Business Listings (No Subcategories)
+  const displayedBusinesses = useMemo(() => {
+    let list = (marketListings || []).filter(
+      (item) => item && item.is_active !== false && !item.has_pending_approval
+    );
 
-    const uniqueMap = new Map();
+    // Colony / Locality filter
+    if (selectedLocality !== 'all') {
+      list = list.filter((item) =>
+        String(item.location || item.location_name || '')
+          .toLowerCase()
+          .includes(selectedLocality.toLowerCase())
+      );
+    }
 
-    (allProducts || []).forEach((item) => {
-      if (!item || !item.id) return;
+    // Search query filter
+    const q = (localSearch || searchQuery || '').toLowerCase().trim();
+    if (q) {
+      list = list.filter(
+        (item) =>
+          String(item.title || item.name || '').toLowerCase().includes(q) ||
+          String(item.sellerName || item.seller_name || '').toLowerCase().includes(q) ||
+          String(item.description || '').toLowerCase().includes(q) ||
+          String(item.location || item.location_name || '').toLowerCase().includes(q)
+      );
+    }
 
-      // 1. City Match
-      const itemCity = (item.city || '').toLowerCase().trim();
-      const itemLoc = (item.location || '').toLowerCase().trim();
-      const matchesCity =
-        !city ||
-        itemCity === city ||
-        itemLoc.includes(city) ||
-        city.includes(itemCity);
+    return [...list].sort((a, b) => {
+      // Promoted / Featured businesses first
+      const aPromo = a.is_promoted || a.deal_type === 'PAID_PROMO' ? 1 : 0;
+      const bPromo = b.is_promoted || b.deal_type === 'PAID_PROMO' ? 1 : 0;
+      if (bPromo !== aPromo) return bPromo - aPromo;
 
-      if (!matchesCity) return;
-
-      // 2. Strict Subcategory Filter
-      const itemSub = (item.subCategory || item.sub_category || '').toLowerCase().trim();
-      const matchesSub = targetSub === 'all' || itemSub === targetSub;
-      if (!matchesSub) return;
-
-      // 3. Search Query Filter
-      if (q) {
-        const matchesQuery =
-          item.name?.toLowerCase().includes(q) ||
-          item.title?.toLowerCase().includes(q) ||
-          item.shopName?.toLowerCase().includes(q) ||
-          item.sellerName?.toLowerCase().includes(q) ||
-          item.description?.toLowerCase().includes(q) ||
-          item.location?.toLowerCase().includes(q);
-        if (!matchesQuery) return;
+      if (sortBy === 'popular') {
+        return (Number(b.interestCount || 0) - Number(a.interestCount || 0));
       }
-
-      uniqueMap.set(String(item.id), item);
+      const aTime = new Date(a.created_at || 0).getTime();
+      const bTime = new Date(b.created_at || 0).getTime();
+      return bTime - aTime;
     });
-
-    return Array.from(uniqueMap.values());
-  }, [allProducts, targetSub, selectedCity, searchQuery]);
-
-  const getMarketTitle = () => {
-    if (targetSub === 'all') return 'All Market & Retail Deals';
-    const sub = subCategories.find((s) => s.id === targetSub);
-    return sub ? sub.name : targetSub.replace('-', ' ').toUpperCase();
-  };
-
-  const getMessageTemplate = (item) => {
-    return `Namaste ${item.shopName || item.sellerName || ''}, I want to inquire about "${item.title || item.name}" seen on TownHub Market in ${selectedCity}. Is this offer/product currently available?`;
-  };
+  }, [marketListings, localSearch, searchQuery, selectedLocality, sortBy]);
 
   return (
-    <main className="p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-800 pb-16">
-      {/* Header */}
-      <div className="bg-white/85 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-black text-slate-900 capitalize">
-            {getMarketTitle()}
-          </h2>
-          <p className="text-[10px] text-slate-500">
-            {filteredProducts.length} live verified offers & products in {selectedCity}
-          </p>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 px-3.5 pt-3 space-y-4 font-sans select-none">
+      
+      {/* 🎊 1. Top Navigation & Newly Open Header */}
+      <div className="p-4 rounded-3xl bg-gradient-to-br from-[#131d28] via-[#0e1720] to-[#1a1829] border border-amber-400/30 shadow-2xl space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold flex items-center space-x-1.5 cursor-pointer active:scale-95 transition"
+          >
+            <span>←</span>
+            <span>Home</span>
+          </button>
+
+          <span className="px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+            🎊 City Business Spotlight
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 px-3 py-1.5 rounded-xl font-bold active:scale-95 transition cursor-pointer"
-        >
-          ← Categories
-        </button>
+
+        <div className="flex items-start justify-between gap-3 pt-1">
+          <div className="space-y-1">
+            <h1 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
+              <span>🎊</span>
+              <span>Newly Open in {selectedCity}</span>
+            </h1>
+            <p className="text-xs font-bold text-amber-400">
+              नए खुले स्टोर, शोरूम व व्यापार प्रचार • Direct Business Showcase
+            </p>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Explore newly launched shops, showrooms, cafes, clinics, and city business promotions across {selectedCity}.
+            </p>
+          </div>
+        </div>
+
+        {/* Direct Business Marketing CTA Banner */}
+        {onPostClick && (
+          <div className="p-3 rounded-2xl bg-slate-950/90 border border-amber-400/40 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-black text-white truncate">
+                📢 Opened a New Shop or Promoting Your Business?
+              </p>
+              <p className="text-[10.5px] text-slate-400 truncate">
+                अपने नए व्यापार या स्टोर का सीधा विज्ञापन यहाँ डालें
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onPostClick}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs shrink-0 shadow-md cursor-pointer active:scale-95 transition"
+            >
+              + List Business
+            </button>
+          </div>
+        )}
+
+        {/* Search & Locality Filter Bar (Zero Subcategories) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+          <input
+            type="text"
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
+            placeholder="Search store name, offer, locality..."
+            className="sm:col-span-2 bg-slate-950 border border-slate-800 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 font-bold outline-none"
+          />
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <select
+              value={selectedLocality}
+              onChange={(e) => setSelectedLocality(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-slate-200 font-bold outline-none"
+            >
+              <option value="all">All Colonies</option>
+              {Object.keys(CITY_ZONES || {}).map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-amber-300 font-bold outline-none"
+            >
+              <option value="newest">🕒 Newest</option>
+              <option value="popular">⭐ Popular</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      {/* Cards List */}
-      {filteredProducts.length === 0 ? (
-        <div className="bg-white/80 rounded-2xl p-8 text-center border border-slate-200">
-          <span className="text-3xl">🛒</span>
-          <p className="text-slate-600 font-bold text-xs mt-2">
-            No listings found under {targetSub !== 'all' ? targetSub : 'this section'} in {selectedCity}.
+      {/* 🏪 2. Direct Business Listings Feed */}
+      {displayedBusinesses.length === 0 ? (
+        <div className="p-12 text-center bg-[#0e1720] border border-slate-800/80 rounded-3xl space-y-3">
+          <span className="text-4xl block">🎊</span>
+          <h3 className="text-sm font-black text-white">
+            No Newly Open Businesses Listed Yet
+          </h3>
+          <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+            Be the first business in {selectedCity} to showcase your grand opening, new showroom, or store launch here!
           </p>
+          {onPostClick && (
+            <button
+              type="button"
+              onClick={onPostClick}
+              className="mt-2 px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg cursor-pointer active:scale-95 transition"
+            >
+              + Post Newly Open Business
+            </button>
+          )}
         </div>
       ) : (
-        filteredProducts.map((p) => (
-          <MarketCardItem
-            key={p.id}
-            item={p}
-            selectedCity={selectedCity}
-            onSelect={() => setSelectedDetailItem(p)}
-            getMessageTemplate={getMessageTemplate}
-          />
-        ))
+        <div className="space-y-4">
+          {displayedBusinesses.map((item) => (
+            <ListingInteractiveCard
+              key={item.id}
+              item={item}
+              category="market"
+              selectedCity={selectedCity}
+              onSelect={() => setSelectedDetailItem(item)}
+              onNewNotification={onNewNotification}
+            />
+          ))}
+        </div>
       )}
 
-      {/* Dedicated Detail View Modal */}
+      {/* Detail Modal */}
       {selectedDetailItem && (
         <ListingDetailModal
           item={selectedDetailItem}
           selectedCity={selectedCity}
           onClose={() => setSelectedDetailItem(null)}
           onNewNotification={onNewNotification}
+          onSelectListing={(nextItem) => setSelectedDetailItem(nextItem)}
         />
       )}
-    </main>
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import { initialFitnessListings } from '../data/fitnessData';
 import { initialFestivalOffers } from '../data/festivalData';
 import { initialMedicalListings } from '../data/medicalData';
 import { initialCreatorsListings } from '../data/creatorsData';
+import { initialTravelListings } from '../data/travelData';
 
 import { supabase } from '../services/supabaseClient';
 import {
@@ -40,7 +41,321 @@ function isValidUuid(id) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id).trim());
 }
 
-// 🚀 Persistent Paid Promotions Registry (Survives refreshes, tab switches, and mock IDs)
+// Old static single-category fallback URLs that caused duplicate thumbnails
+const LEGACY_GENERIC_FALLBACK_IDS = new Set([
+  'photo-1560518883-ce09059eeffa',
+  'photo-1519003722824-194d4455a60c',
+  'photo-1586528116311-ad8dd3c8310d',
+  'photo-1549399542-7e3f8b79c341',
+  'photo-1511707171634-5f897ff02aa9',
+  'photo-1550009158-9ebf69173e03',
+  'photo-1489987707025-afc232f7ea0f',
+  'photo-1490481651871-ab68de25d43d',
+  'photo-1555041469-a586c61ea9bc',
+  'photo-1621905251189-08b45d6a269e',
+  'photo-1581578731548-c64695cc6952',
+  'photo-1584622650111-993a426fbf0a',
+  'photo-1519494026892-80bbd2d6fd0d',
+  'photo-1517248135467-4c7edcad34c4',
+  'photo-1542751371-adc38448a05e',
+  'photo-1542601906990-b4d3fb778b09',
+  'photo-1504307651254-35680f356dfd',
+  'photo-1574717024653-61fd2cf4d44d',
+  'photo-1523240795612-9a054b0db644',
+  'photo-1509062522246-3755977927d7',
+  'photo-1534438327276-14e5300c3a48',
+  'photo-1441986300917-64674bd600d8',
+  'photo-1542838132-92c53300491e',
+  'photo-1519741497674-611481863552',
+  'photo-1554224155-8d04cb21cd6c',
+  'photo-1526170375885-4d8ecf77b99f',
+  'photo-1526304640581-d334cdbbf45e',
+]);
+
+// 🎨 Curated Multi-Image Pools by Category & Subcategory Keyword
+const SUBCATEGORY_IMAGE_POOLS = {
+  // Property subcategories
+  property_rent: [
+    'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=700',
+    'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=700',
+    'https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=700',
+    'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=700',
+    'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=700',
+    'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=700',
+  ],
+
+  travel: [
+  'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=700',
+  'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=700',
+  'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=700',
+  'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=700',
+  'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=700',
+],
+
+  property_house: [
+    'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=700',
+    'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=700',
+    'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=700',
+    'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=700',
+    'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=700',
+    'https://images.unsplash.com/photo-1583608205776-bfd35f0d9f83?w=700',
+  ],
+  property_plot: [
+    'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=700',
+    'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=700',
+    'https://images.unsplash.com/photo-1592595896551-12b371d546d5?w=700',
+    'https://images.unsplash.com/photo-1516156008625-3a9d6067fab5?w=700',
+    'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=700',
+  ],
+  property_commercial: [
+    'https://images.unsplash.com/photo-1497366216548-37526070297c?w=700',
+    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=700',
+    'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=700',
+    'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=700',
+    'https://images.unsplash.com/photo-1582037928769-181f2644ecb7?w=700',
+  ],
+  property_pg: [
+    'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=700',
+    'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=700',
+    'https://images.unsplash.com/photo-1540518614846-7ede433c4efb?w=700',
+    'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=700',
+  ],
+
+  // Kaarigar & Mistri
+  kaarigar: [
+    'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=700',
+    'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=700',
+    'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=700',
+    'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=700',
+    'https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=700',
+    'https://images.unsplash.com/photo-1562259949-e8e7689d7828?w=700',
+    'https://images.unsplash.com/photo-1585704032915-c3400ca199e7?w=700',
+    'https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=700',
+  ],
+
+  // Transporters
+  transporters: [
+    'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=700',
+    'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=700',
+    'https://images.unsplash.com/photo-1566576721346-d4a3b4eaeb55?w=700',
+    'https://images.unsplash.com/photo-1578575437130-527eed3abbec?w=700',
+    'https://images.unsplash.com/photo-1580674285054-bed31e145f59?w=700',
+    'https://images.unsplash.com/photo-1519003722824-194d4455a60c?w=700',
+  ],
+
+  // Vehicles
+  vehicles: [
+    'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=700',
+    'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=700',
+    'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=700',
+    'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=700',
+    'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=700',
+    'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=700',
+  ],
+
+  // Market / Kirana
+  market: [
+    'https://images.unsplash.com/photo-1542838132-92c53300491e?w=700',
+    'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=700',
+    'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=700',
+    'https://images.unsplash.com/photo-1588964895597-cfccd6e2dbf9?w=700',
+    'https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=700',
+    'https://images.unsplash.com/photo-1506617420156-8e4536971650?w=700',
+  ],
+
+  // Malls & Showrooms
+  malls: [
+    'https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=700',
+    'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=700',
+    'https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?w=700',
+    'https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?w=700',
+    'https://images.unsplash.com/photo-1582037928769-181f2644ecb7?w=700',
+  ],
+
+  // Restaurants & Food
+  restaurants: [
+    'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=700',
+    'https://images.unsplash.com/photo-1552566626-52f8b828add9?w=700',
+    'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=700',
+    'https://images.unsplash.com/photo-1544025162-d76694265947?w=700',
+    'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=700',
+    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=700',
+  ],
+
+  // Medical & Doctors
+  medical: [
+    'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=700',
+    'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?w=700',
+    'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=700',
+    'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=700',
+    'https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=700',
+    'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=700',
+  ],
+
+  // Fitness & Gym
+  fitness: [
+    'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=700',
+    'https://images.unsplash.com/photo-1571902943202-507ec2618e8f?w=700',
+    'https://images.unsplash.com/photo-1540497077202-7c8a3999166f?w=700',
+    'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=700',
+    'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=700',
+  ],
+
+  // Education & Coaching
+  education: [
+    'https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=700',
+    'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=700',
+    'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=700',
+    'https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=700',
+    'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=700',
+  ],
+
+  // Shaadi & Events
+  shaadi: [
+    'https://images.unsplash.com/photo-1519741497674-611481863552?w=700',
+    'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=700',
+    'https://images.unsplash.com/photo-1465495976277-4387d4b0b4c6?w=700',
+    'https://images.unsplash.com/photo-1520854221256-17451cc331bf?w=700',
+    'https://images.unsplash.com/photo-1519225421980-715cb0215aed?w=700',
+  ],
+
+  // Electronics
+  electronics: [
+    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700',
+    'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=700',
+    'https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=700',
+    'https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=700',
+    'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=700',
+  ],
+
+  // Fashion
+  fashion: [
+    'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=700',
+    'https://images.unsplash.com/photo-1445205170230-053b83016050?w=700',
+    'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=700',
+    'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=700',
+    'https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=700',
+  ],
+
+  // Furniture
+  furniture: [
+    'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=700',
+    'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=700',
+    'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=700',
+    'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=700',
+    'https://images.unsplash.com/photo-1540574163026-643ea20ade25?w=700',
+  ],
+
+  // Construction
+  construction: [
+    'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=700',
+    'https://images.unsplash.com/photo-1541888946425-d09bb18086f6?w=700',
+    'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=700',
+    'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=700',
+    'https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=700',
+  ],
+
+  // ReCommerce / Purana Bazaar
+  recommerce: [
+    'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=700',
+    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700',
+    'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=700',
+    'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700',
+    'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=700',
+  ],
+
+  // White Collar / Jobs
+  'white-collar': [
+    'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=700',
+    'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=700',
+    'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=700',
+    'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=700',
+  ],
+
+  // Creators
+  creators: [
+    'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=700',
+    'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=700',
+    'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=700',
+    'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=700',
+  ],
+
+  // Advertising
+  advertising: [
+    'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=700',
+    'https://images.unsplash.com/photo-1557838923-2985c318be48?w=700',
+    'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=700',
+    'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=700',
+  ],
+
+  // Community
+  community: [
+    'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=700',
+    'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=700',
+    'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=700',
+    'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=700',
+  ],
+
+  // Festival
+  festival: [
+    'https://images.unsplash.com/photo-1514222134-b57cbb8ce073?w=700',
+    'https://images.unsplash.com/photo-1604514628550-37477afdf4e3?w=700',
+    'https://images.unsplash.com/photo-1577083552431-6e5fd01aa342?w=700',
+    'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=700',
+  ],
+};
+
+function computeDeterministicHash(str = '') {
+  let hash = 0;
+  const clean = String(str);
+  for (let i = 0; i < clean.length; i++) {
+    hash = (hash << 5) - hash + clean.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * 🎨 Picks a unique, subcategory-accurate image for a listing based on its category, subCategory, title & ID
+ */
+export function getUniqueSubcategoryFallback(category = 'property', subCategory = 'all', seedStr = '') {
+  const cat = String(category || 'property').toLowerCase().trim();
+  const sub = String(subCategory || '').toLowerCase().trim();
+  const combinedText = `${sub} ${seedStr}`.toLowerCase();
+
+  let pool = SUBCATEGORY_IMAGE_POOLS[cat];
+
+  if (cat === 'property') {
+    if (combinedText.includes('plot') || combinedText.includes('land') || combinedText.includes('farm') || combinedText.includes('bigha')) {
+      pool = SUBCATEGORY_IMAGE_POOLS.property_plot;
+    } else if (combinedText.includes('shop') || combinedText.includes('showroom') || combinedText.includes('godown') || combinedText.includes('office') || combinedText.includes('commercial')) {
+      pool = SUBCATEGORY_IMAGE_POOLS.property_commercial;
+    } else if (combinedText.includes('pg') || combinedText.includes('hostel') || combinedText.includes('student')) {
+      pool = SUBCATEGORY_IMAGE_POOLS.property_pg;
+    } else if (combinedText.includes('rent') || combinedText.includes('flat')) {
+      pool = SUBCATEGORY_IMAGE_POOLS.property_rent;
+    } else {
+      pool = SUBCATEGORY_IMAGE_POOLS.property_house;
+    }
+  }
+
+  if (!pool || pool.length === 0) {
+    pool = SUBCATEGORY_IMAGE_POOLS.property_house;
+  }
+
+  const hashIndex = computeDeterministicHash(`${cat}_${sub}_${seedStr}`) % pool.length;
+  return pool[hashIndex];
+}
+
+function isGenericFallbackUrl(url) {
+  if (!url || typeof url !== 'string') return true;
+  for (const id of LEGACY_GENERIC_FALLBACK_IDS) {
+    if (url.includes(id)) return true;
+  }
+  return false;
+}
+
+// 🚀 Persistent Paid Promotions Registry
 export function getStoredPromotionsMap() {
   try {
     const raw = localStorage.getItem(PROMOTED_STORAGE_KEY);
@@ -216,6 +531,7 @@ export const CATEGORY_SLICE_MAP = {
   kaarigar: 'kaarigarWorkers',
   market: 'marketProducts',
   shaadi: 'shaadiVendors',
+  travel: 'travelListings',
   medical: 'medicalListings',
   fitness: 'fitnessListings',
   creators: 'creatorsListings',
@@ -229,13 +545,14 @@ export const CATEGORY_SLICE_MAP = {
   festival: 'festivalOffers',
 };
 
-export function sanitizeImageUrl(url, category = 'property') {
-  if (!url || typeof url !== 'string') return getCategoryFallback(category);
+/**
+ * 🛠️ Fixed: Returns `null` when URL is missing/invalid so `||` chains in `normalizeDBListing`
+ * never short-circuit over valid `item.image`, `item.photo`, or `item.images` fields!
+ */
+export function sanitizeImageUrl(url) {
+  if (!url || typeof url !== 'string') return null;
   const clean = url.trim();
-
-  if (clean.startsWith('blob:')) {
-    return getCategoryFallback(category);
-  }
+  if (!clean || clean.startsWith('blob:')) return null;
 
   if (clean.startsWith('photo-')) {
     return `https://images.unsplash.com/${clean}`;
@@ -245,7 +562,7 @@ export function sanitizeImageUrl(url, category = 'property') {
     return clean;
   }
 
-  return getCategoryFallback(category);
+  return null;
 }
 
 export function normalizeDBListing(item) {
@@ -264,7 +581,9 @@ export function normalizeDBListing(item) {
     item.cuisine ||
     'all';
   const subCatId = sanitizeSubCategoryId ? sanitizeSubCategoryId(catId, rawSub) : rawSub;
+  const nameVal = item.title || item.name || 'Untitled Listing';
 
+  // 1. Gather all candidate images from every possible property name
   let rawImages = [];
   if (Array.isArray(item.image_urls) && item.image_urls.length > 0) {
     rawImages = item.image_urls;
@@ -277,17 +596,35 @@ export function normalizeDBListing(item) {
   }
 
   let sanitizedImages = rawImages
-    .map((img) => (typeof img === 'string' ? sanitizeImageUrl(img, catId) : sanitizeImageUrl(img?.url, catId)))
-    .filter((img) => img && !img.startsWith('blob:'));
+    .map((img) => (typeof img === 'string' ? sanitizeImageUrl(img) : sanitizeImageUrl(img?.url)))
+    .filter(Boolean);
 
-  let coverImage =
-    sanitizeImageUrl(item.image_url, catId) ||
-    (sanitizedImages.length > 0 ? sanitizedImages[0] : null) ||
-    sanitizeImageUrl(item.image, catId) ||
-    getCategoryFallback(catId);
+  // 2. Check explicit single-image properties (`image`, `photo`, `avatar`, `image_url`)
+  const explicitSingleImage =
+    sanitizeImageUrl(item.image) ||
+    sanitizeImageUrl(item.photo) ||
+    sanitizeImageUrl(item.avatar) ||
+    sanitizeImageUrl(item.image_url);
+
+  // 3. Determine unique cover image:
+  // If the only image on the record is one of the old overused generic category fallbacks,
+  // upgrade it to a deterministic subcategory-specific image so listings inside a subcategory look distinct.
+  const uniqueFallback = getUniqueSubcategoryFallback(catId, subCatId, `${itemId}_${nameVal}`);
+
+  let coverImage = explicitSingleImage || (sanitizedImages.length > 0 ? sanitizedImages[0] : null);
+  if (!coverImage || isGenericFallbackUrl(coverImage)) {
+    coverImage = uniqueFallback;
+  }
+
+  // Filter out generic fallback duplicates from array if replaced
+  sanitizedImages = sanitizedImages.map((imgUrl) =>
+    isGenericFallbackUrl(imgUrl) ? coverImage : imgUrl
+  );
 
   if (sanitizedImages.length === 0 && coverImage) {
     sanitizedImages = [coverImage];
+  } else if (coverImage && !sanitizedImages.includes(coverImage)) {
+    sanitizedImages = [coverImage, ...sanitizedImages];
   }
 
   let allVideos = [];
@@ -320,7 +657,6 @@ export function normalizeDBListing(item) {
   const rawStock = String(item.stock_count || item.stockCount || item.capacity || '').replace(/\D/g, '');
   const capacityVal = item.capacity || (rawStock ? `${rawStock} Units Available` : 'Ready Stock');
 
-  const nameVal = item.title || item.name || 'Untitled Listing';
   const rawLocation = item.location_name || item.location || 'Alwar';
   const resolvedCity = item.city || (rawLocation.toLowerCase().includes('jaipur') ? 'Jaipur' : 'Alwar');
 
@@ -478,6 +814,9 @@ class HyperlocalEngineStore {
       fitnessListings: (initialFitnessListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'fitness' })
       ),
+      travelListings: (initialTravelListings || []).map((i) =>
+       normalizeDBListing({ ...i, category: 'travel' })
+      ),
       medicalListings: (initialMedicalListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'medical' })
       ),
@@ -543,7 +882,6 @@ class HyperlocalEngineStore {
       this.loadUserCart(initialPhone);
     }
 
-    // Cross-Tab Promotion & Store Sync Listener
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => {
         if (e.key === PROMOTED_STORAGE_KEY) {
@@ -553,7 +891,6 @@ class HyperlocalEngineStore {
     }
   }
 
-  // 🚀 Synchronizes localStorage promotions across all memory buckets
   syncPromotionsFromStorage() {
     const promoMap = getStoredPromotionsMap();
     Object.keys(this.state).forEach((key) => {
@@ -576,17 +913,14 @@ class HyperlocalEngineStore {
     this.notify('all');
   }
 
-  // 🚀 Instantaneous & Persistent Paid Promotion Setter (Works for Mock & DB items)
   setListingPromotion(listingId, isPromoted, durationDays = 7) {
     const strId = String(listingId);
     const expiresAt = isPromoted
       ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-    // 1. Save to localStorage so it survives page reloads & works across tabs
     saveStoredPromotion(strId, isPromoted, expiresAt);
 
-    // 2. Update every slice in memory
     Object.keys(this.state).forEach((key) => {
       if (Array.isArray(this.state[key]) && key !== 'notifications' && key !== 'cart') {
         let changed = false;
@@ -635,6 +969,7 @@ class HyperlocalEngineStore {
       'fitnessListings',
       'medicalListings',
       'creatorsListings',
+      'travelListings',
       'marketProducts',
       'kaarigarWorkers',
       'transportFirms',
@@ -822,7 +1157,26 @@ class HyperlocalEngineStore {
       );
 
       if (idx !== -1) {
-        list[idx] = { ...list[idx], ...normalized };
+        // Preserve original mock image if the DB row only had a generic fallback URL
+        const existingImg = list[idx].image;
+        const incomingRawImg = row.image_url || row.image;
+        const keepExistingImage =
+          existingImg && !isGenericFallbackUrl(existingImg) && isGenericFallbackUrl(incomingRawImg);
+
+        list[idx] = {
+          ...list[idx],
+          ...normalized,
+          ...(keepExistingImage
+            ? {
+                image: existingImg,
+                image_url: existingImg,
+                photo: existingImg,
+                avatar: existingImg,
+                images: list[idx].images?.length ? list[idx].images : [existingImg],
+                image_urls: list[idx].image_urls?.length ? list[idx].image_urls : [existingImg],
+              }
+            : {}),
+        };
       } else {
         list.unshift(normalized);
       }

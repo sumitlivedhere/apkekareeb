@@ -56,6 +56,8 @@ const MarketHub = lazy(() => import('./categories/MarketHub'));
 const ReCommerceHub = lazy(() => import('./categories/ReCommerceHub'));
 const FitnessHub = lazy(() => import('./categories/FitnessHub'));
 const CreatorsHub = lazy(() => import('./categories/CreatorsHub'));
+const TravelHub = lazy(() => import('./categories/TravelHub'));
+const TravelFeed = lazy(() => import('./components/TravelFeed'));
 
 // Code-Split Lazy Loaded Category Feeds
 const ListingsFeed = lazy(() => import('./components/ListingsFeed'));
@@ -102,6 +104,7 @@ const CATEGORY_HUB_MAP = {
   furniture: 'furniture-hub',
   kaarigar: 'kaarigar-hub',
   medical: 'medical-hub',
+  travel: 'travel-hub',
   transporters: 'transporter-hub',
   'white-collar': 'white-collar-hub',
   education: 'education-hub',
@@ -112,7 +115,7 @@ const CATEGORY_HUB_MAP = {
   construction: 'construction-hub',
   advertising: 'advertising-hub',
   community: 'community-hub',
-  market: 'market-hub',
+  market: 'market-feed', // 🚀 Opens Newly Open feed directly (Zero subcategories)
   recommerce: 'buysell-hub',
   fitness: 'fitness-hub',
   creators: 'creators-hub',
@@ -126,6 +129,8 @@ const SCREEN_TO_CATEGORY_MAP = {
   'electronics-hub': 'electronics',
   'fashion-hub': 'fashion',
   'furniture-hub': 'furniture',
+  'travel-hub': 'travel',
+  'travel-feed': 'travel',
   'kaarigar-hub': 'kaarigar',
   'kaarigar-feed': 'kaarigar',
   'medical-hub': 'medical',
@@ -413,6 +418,10 @@ export default function App() {
 
   const handleBackToCategoryHub = (catId = selectedCategory) => {
     const targetCat = catId || selectedCategory || 'property';
+    if (targetCat === 'market') {
+      goToHome();
+      return;
+    }
     const targetHub = CATEGORY_HUB_MAP[targetCat] || 'town-hub';
     navigateTo({
       screen: targetHub,
@@ -589,6 +598,7 @@ export default function App() {
       vehicles: 'listings',
       electronics: 'listings',
       fashion: 'listings',
+      travel: 'travel-feed',
       furniture: 'listings',
       kaarigar: 'kaarigar-feed',
       medical: 'medical-feed',
@@ -820,6 +830,26 @@ export default function App() {
               onSelectSubCategory={(sub) => handleOpenFeed('medical', sub)}
               onPostClick={handleOpenPostModal}
               onBack={goToHome}
+            />
+          )}
+
+          {currentScreen === 'travel-hub' && (
+            <TravelHub
+              selectedCity={selectedCity}
+              onSelectSubCategory={(sub) => handleOpenFeed('travel', sub)}
+              onPostClick={handleOpenPostModal}
+              onBack={goToHome}
+            />
+          )}
+
+          {currentScreen === 'travel-feed' && (
+            <TravelFeed
+              selectedSubCategory={selectedSubCategory}
+              selectedCity={selectedCity}
+              searchQuery={searchQuery}
+              onBack={() => handleBackToCategoryHub('travel')}
+              onPostClick={handleOpenPostModal}
+              onNewNotification={handleNewNotification}
             />
           )}
 
@@ -1135,10 +1165,11 @@ export default function App() {
           )}
           {currentScreen === 'market-feed' && (
             <MarketFeed
-              selectedSubCategory={selectedSubCategory}
+              selectedSubCategory="all"
               selectedCity={selectedCity}
               searchQuery={searchQuery}
-              onBack={() => handleBackToCategoryHub('market')}
+              onBack={goToHome}
+              onPostClick={handleOpenPostModal}
               onNewNotification={handleNewNotification}
             />
           )}

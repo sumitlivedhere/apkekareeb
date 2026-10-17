@@ -64,6 +64,21 @@ export const TAXONOMY_REGISTRY = [
     { id: 'towing-crane-recovery', name: '24x7 Breakdown Towing & Recovery Crane (टोइंग क्रेन)', icon: '🚨', tag: 'EMERGENCY TOW' },
   ],
 },
+
+{
+  id: 'travel',
+  name: 'Fun & Travel (घूमना-फिरना व मनोरंजन)',
+  hindiName: 'घूमना-फिरना व मनोरंजन',
+  icon: '🎡',
+  bucketKey: 'travelListings',
+  subCategories: [
+    { id: 'fun-activities', name: 'Fun Activities, Gaming & Sports (मनोरंजन व गेमिंग ज़ोन)' },
+    { id: 'destinations', name: 'Tourist Spots & Sightseeing (पर्यटन स्थल व सफारी)' },
+    { id: 'resorts-stays', name: 'Resorts, Farm Stays & Camping (रिसॉर्ट्स व फार्म स्टे)' },
+    { id: 'tour-operators', name: 'Tour Packages, Guides & Travel Agencies (टूर पैकेज व गाइड)' },
+  ],
+},
+
   {
   id: 'white-collar',
   name: 'Doctor / CA / Lawyer / Consultant (प्रोफेशनल्स व विशेषज्ञ)',
@@ -404,19 +419,14 @@ export const TAXONOMY_REGISTRY = [
       { id: 'home-decor-curtains', name: 'Curtains, Blinds & Wallpaper (पर्दे व वॉलपेपर)' },
     ],
   },
+  
   {
     id: 'market',
-    name: 'Market & Retail (लोकल बाज़ार व डील्स)',
-    icon: '🛒',
+    name: 'Newly Open (नए खुले व्यापार व स्टोर)',
+    hindiName: 'नए खुले व्यापार व स्टोर',
+    icon: '🎊',
     bucketKey: 'marketProducts',
-    subCategories: [
-      { id: 'new-openings', name: 'New Openings & Launches (नई दुकानें व उद्घाटन)' },
-      { id: 'sales-clearance', name: 'Mega Sales & Clearance (सेल व भारी छूट)' },
-      { id: 'special-deals', name: 'Special Deals & Offers (खास ऑफर्स व डील्स)' },
-      { id: 'wholesalers', name: 'Wholesalers & Bulk Supply (थोक विक्रेता व मंडी)' },
-      { id: 'brand-showrooms', name: 'Brand Showrooms & Outlets (ब्रांडेड शोरूम)' },
-      { id: 'miscellaneous', name: 'Miscellaneous Retail (अन्य बाज़ार स्टोर्स)' },
-    ],
+    subCategories: [],
   },
 
   

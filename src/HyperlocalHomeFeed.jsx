@@ -25,11 +25,20 @@ const MASTER_CATEGORIES = [
   },
   {
     id: 'market',
-    name: 'Kirana & Mandi Market',
-    hindiName: 'मंडी व किराना बाज़ार',
-    icon: '🛒',
-    hub: 'Verified Hub',
+    name: 'Newly Open',
+    hindiName: 'नए खुले व्यापार व स्टोर (प्रचार)',
+    icon: '🎊',
+    hub: 'Business Spotlight',
   },
+
+  {
+    id: 'travel',
+    name: 'Fun & Travel',
+    hindiName: 'घूमना-फिरना, मनोरंजन व पर्यटन',
+    icon: '🎡',
+    hub: 'Tourism & Fun Hub',
+  },
+
   {
     id: 'malls',
     name: 'Malls & Showrooms',
