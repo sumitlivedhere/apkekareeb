@@ -13,12 +13,13 @@ import { CITY_ZONES } from './data/cityZones';
 
 // 🏛️ Master 22 Local Alwar Categories Specification
 export const MASTER_CATEGORIES = [
+
   {
-    id: 'kaarigar',
-    name: 'Kaarigar & Mistri',
-    hindiName: 'कारीगर व मिस्त्री सेवा',
-    icon: '🛠️',
-    hub: 'Verified Hub',
+    id: 'market',
+    name: 'Newly Open',
+    hindiName: 'नए खुले व्यापार व स्टोर (प्रचार)',
+    icon: '🎊',
+    hub: 'Business Spotlight',
   },
   {
     id: 'property',
@@ -28,18 +29,11 @@ export const MASTER_CATEGORIES = [
     hub: 'Verified Hub',
   },
   {
-    id: 'transporters',
-    name: 'Transporters / Loading',
-    hindiName: 'ट्रांसपोर्ट व माल ढुलाई',
-    icon: '🚚',
+    id: 'restaurants',
+    name: 'Restaurants & Food',
+    hindiName: 'रेस्टोरेंट व खान-पान',
+    icon: '🍽️',
     hub: 'Verified Hub',
-  },
-  {
-    id: 'market',
-    name: 'Newly Open',
-    hindiName: 'नए खुले व्यापार व स्टोर (प्रचार)',
-    icon: '🎊',
-    hub: 'Business Spotlight',
   },
   {
     id: 'travel',
@@ -48,18 +42,19 @@ export const MASTER_CATEGORIES = [
     icon: '🎡',
     hub: 'Tourism & Fun Hub',
   },
+
+  {
+    id: 'fashion',
+    name: 'Clothes & Boutique',
+    hindiName: 'कपड़े व फैशन बुटीक',
+    icon: '👗',
+    hub: 'Verified Hub',
+  },
   {
     id: 'malls',
     name: 'Malls & Showrooms',
     hindiName: 'मॉल्स व रिटेल शोरूम',
     icon: '🛍️',
-    hub: 'Verified Hub',
-  },
-  {
-    id: 'restaurants',
-    name: 'Restaurants & Food',
-    hindiName: 'रेस्टोरेंट व खान-पान',
-    icon: '🍽️',
     hub: 'Verified Hub',
   },
   {
@@ -77,6 +72,34 @@ export const MASTER_CATEGORIES = [
     hub: 'Verified Hub',
   },
   {
+    id: 'recommerce',
+    name: 'Purana Bazaar / 2nd Hand',
+    hindiName: 'पुराना सामान खरीद-बिक्री',
+    icon: '♻️',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'electronics',
+    name: 'Electronics & Mobile',
+    hindiName: 'इलेक्ट्रॉनिक्स व मोबाइल',
+    icon: '📱',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'furniture',
+    name: 'Furniture & Decor',
+    hindiName: 'फर्नीचर व सजावट',
+    icon: '🪑',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'vehicles',
+    name: 'Cars & Two-Wheelers',
+    hindiName: 'गाड़ी व बाइक बाज़ार',
+    icon: '🚗',
+    hub: 'Verified Hub',
+  },
+  {
     id: 'education',
     name: 'Coaching & Schools',
     hindiName: 'कोचिंग व शिक्षण संस्थान',
@@ -89,14 +112,7 @@ export const MASTER_CATEGORIES = [
     hindiName: 'शादी व इवेंट्स',
     icon: '💍',
     hub: 'Verified Hub',
-  },
-  {
-    id: 'vehicles',
-    name: 'Cars & Two-Wheelers',
-    hindiName: 'गाड़ी व बाइक बाज़ार',
-    icon: '🚗',
-    hub: 'Verified Hub',
-  },
+  }, 
   {
     id: 'creators',
     name: 'Artists & Creators',
@@ -109,20 +125,6 @@ export const MASTER_CATEGORIES = [
     name: 'Flex, Hoardings & Ads',
     hindiName: 'प्रचार व विज्ञापन',
     icon: '📢',
-    hub: 'Verified Hub',
-  },
-  {
-    id: 'construction',
-    name: 'Building & Construction',
-    hindiName: 'भवन निर्माण सामग्री',
-    icon: '🏗️',
-    hub: 'Verified Hub',
-  },
-  {
-    id: 'recommerce',
-    name: 'Purana Bazaar / 2nd Hand',
-    hindiName: 'पुराना सामान खरीद-बिक्री',
-    icon: '♻️',
     hub: 'Verified Hub',
   },
   {
@@ -139,6 +141,29 @@ export const MASTER_CATEGORIES = [
     icon: '🤝',
     hub: 'Verified Hub',
   },
+  
+  {
+    id: 'transporters',
+    name: 'Transporters / Loading',
+    hindiName: 'ट्रांसपोर्ट व माल ढुलाई',
+    icon: '🚚',
+    hub: 'Verified Hub',
+  },
+  
+  {
+    id: 'construction',
+    name: 'Building & Construction',
+    hindiName: 'भवन निर्माण सामग्री',
+    icon: '🏗️',
+    hub: 'Verified Hub',
+  },
+  {
+    id: 'kaarigar',
+    name: 'Kaarigar & Mistri',
+    hindiName: 'कारीगर व मिस्त्री सेवा',
+    icon: '🛠️',
+    hub: 'Verified Hub',
+  },
   {
     id: 'white-collar',
     name: 'Jobs & Consultants',
@@ -146,27 +171,7 @@ export const MASTER_CATEGORIES = [
     icon: '💼',
     hub: 'Verified Hub',
   },
-  {
-    id: 'electronics',
-    name: 'Electronics & Mobile',
-    hindiName: 'इलेक्ट्रॉनिक्स व मोबाइल',
-    icon: '📱',
-    hub: 'Verified Hub',
-  },
-  {
-    id: 'fashion',
-    name: 'Clothes & Boutique',
-    hindiName: 'कपड़े व फैशन बुटीक',
-    icon: '👗',
-    hub: 'Verified Hub',
-  },
-  {
-    id: 'furniture',
-    name: 'Furniture & Decor',
-    hindiName: 'फर्नीचर व सजावट',
-    icon: '🪑',
-    hub: 'Verified Hub',
-  },
+  
 ];
 
 const RADIUS_OPTIONS = [
