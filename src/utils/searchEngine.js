@@ -1,893 +1,657 @@
-/**
- * TownHub Deep Hyperlocal Search & Semantic Intent Engine
- * - Boot-Time Precompiled Intent Registry (<0.5ms keystroke latency)
- * - Deep Lister Corpus Scanner: Description, details, bio, features, amenities, tags, specs, condition & brand
- * - Phonetic Transliteration Normalizer (ee/i, oo/u, z/j, v/w, ph/f, kh/k, gh/g, th/t, dh/d, bh/b, ch/c, s/sh)
- * - Hindi Grammatical Suffix Stemmer (-wala, -wali, -wale, -daar, -giri, -kari, -iyan, -on, -aan, -e, -iya)
- * - 17-Sector Semantic Concept Graph: Expands generic terms ("gaadi", "makan", "dawa", "khana", "rashan", etc.)
- * - Multi-Token Weighted Scorer with Locality & Distance Bias
- */
+import { TAXONOMY_REGISTRY } from '../data/taxonomyRegistry';
+import { CITY_ZONES } from '../data/cityZones';
+import { parseNumericPrice } from '../store/hyperlocalStore';
 
-// ============================================================================
-// 1. DEEP PHONETIC NORMALIZER & STEMMER
-// ============================================================================
-
-export function normalizeHindiRomanized(word = '') {
-  if (!word) return '';
-  let str = word.toLowerCase().trim();
-
-  // 1. Strip Common Dialect & Hindi Suffixes (Professions, Plurals, Obliques)
-  str = str
-    .replace(/(waala|waale|waali|wala|wale|wali|vaala|vaale|vaali|vala|vale|vali)$/g, '')
-    .replace(/(iyaan|iyan|iya|aayein|ein|on|aan|yaan|yan|io|iyo)$/g, '')
-    .replace(/(daan|kari|giri|daar|dar|baaj|baaz|khana|ghar|kendra)$/g, '');
-
-  // Handle plural -e to -a (e.g., kamre -> kamra, pankhe -> pankha, kapde -> kapda, sariye -> sariya)
-  if (str.length > 3 && str.endsWith('e')) {
-    str = str.slice(0, -1) + 'a';
-  }
-
-  // 2. Collapse repetitive identical vowels & letters
-  str = str
-    .replace(/ee+/g, 'i')
-    .replace(/oo+/g, 'u')
-    .replace(/aa+/g, 'a')
-    .replace(/ii+/g, 'i')
-    .replace(/uu+/g, 'u');
-
-  // 3. Normalize Hindi Consonant Aspirations & Ambiguities to Canonical Sounds
-  str = str
-    .replace(/ph/g, 'f')
-    .replace(/bh/g, 'b')
-    .replace(/dh/g, 'd')
-    .replace(/th/g, 't')
-    .replace(/kh/g, 'k')
-    .replace(/gh/g, 'g')
-    .replace(/chh/g, 'c')
-    .replace(/ch/g, 'c')
-    .replace(/sh/g, 's')
-    .replace(/zh/g, 'j')
-    .replace(/z/g, 'j')
-    .replace(/w/g, 'v')
-    .replace(/q/g, 'k')
-    .replace(/x/g, 'ks')
-    .replace(/rr/g, 'r')
-    .replace(/tt/g, 't')
-    .replace(/dd/g, 'd')
-    .replace(/nn/g, 'n')
-    .replace(/mm/g, 'm')
-    .replace(/ll/g, 'l')
-    .replace(/ss/g, 's');
-
-  return str;
-}
-
-// ============================================================================
-// 2. EXHAUSTIVE CONCEPT EXPANSION GRAPH (GENERIC HINDI -> DB & ITEM TERMS)
-// ============================================================================
-
-export const CONCEPT_EXPANSIONS = {
-  // --- VEHICLES & AUTOMOTIVE ---
-  gaadi: ['vehicle', 'vehicles', 'car', 'bike', 'motorcycle', 'scooty', 'auto', 'tempo', 'truck', 'tractor', 'bolero', 'swift', 'activa', 'splendor', 'transporters', 'pickup', 'chota hathi', 'e-rickshaw', 'garage', 'mechanic', 'puncture', 'diesel', 'petrol'],
-  gadi: ['vehicle', 'vehicles', 'car', 'bike', 'motorcycle', 'scooty', 'auto', 'tempo', 'truck', 'tractor', 'bolero', 'swift', 'activa', 'splendor', 'transporters', 'pickup', 'garage', 'puncture'],
-  vahan: ['vehicle', 'vehicles', 'car', 'bike', 'motorcycle', 'scooty', 'auto', 'truck', 'tractor', 'bus', 'tempo'],
-  chakka: ['tyre', 'wheel', 'puncture', 'stepney', 'alignment', 'vehicles', 'tube', 'air'],
-  sawari: ['auto', 'tempo', 'e-rickshaw', 'rickshaw', 'taxi', 'bus', 'transporters', 'passenger'],
-  motarsaikil: ['bike', 'motorcycle', 'splendor', 'bullet', 'pulsar', 'platina', 'hf deluxe', 'shine', 'vehicles'],
-  motercycle: ['bike', 'motorcycle', 'splendor', 'bullet', 'pulsar', 'platina', 'shine', 'vehicles'],
-  scooter: ['scooty', 'activa', 'jupiter', 'access', 'electric scooter', 'ola', 'ather', 'vehicles'],
-  scooty: ['scooter', 'activa', 'jupiter', 'access', 'pleasure', 'dio', 'vehicles'],
-  dhulai: ['car wash', 'bike wash', 'foam wash', 'pressure wash', 'cleaning', 'vehicles', 'mal dhulai', 'loading'],
-  pancjar: ['puncture', 'tyre repair', 'tube leak', 'air pump', 'wheel', 'vehicles'],
-  puncture: ['pancjar', 'tyre repair', 'tube leak', 'air', 'stepney', 'vehicles'],
-  thela: ['loading', 'pickup', 'mini-truck', 'rickshaw', 'goods carrier', 'transporters'],
-  traula: ['truck', 'heavy truck', 'trailer', '10 wheeler', '14 wheeler', 'trolley', 'transporters'],
-  trolly: ['trolley', 'tractor trolley', 'trailer', 'dumper', 'transporters', 'construction'],
-
-  // --- PROPERTY & REAL ESTATE ---
-  makan: ['property', 'house', 'flat', 'room', 'kothi', '1 bhk', '2 bhk', '3 bhk', 'rent', 'residential-rent', 'residential-buy', 'independent house', 'ghar', 'bachelor', 'family', 'furnished'],
-  ghar: ['property', 'house', 'flat', 'room', 'kothi', 'bhk', 'rent', 'residential-rent', 'residential-buy'],
-  kamra: ['room', 'flat', 'pg', 'hostel', '1 bhk', '2 bhk', 'residential-rent', 'student room', 'kholi', 'set', 'single room'],
-  kholi: ['room', 'kamra', 'single room', 'residential-rent', '1 bhk'],
-  kiraya: ['rent', 'tolet', 'residential-rent', 'commercial-rent', 'room rent', 'flat rent', 'shop rent', 'pg'],
-  kirayedar: ['rent', 'tolet', 'tenant', 'residential-rent', 'pg-hostel'],
-  zameen: ['plots-land', 'plot', 'land', 'khet', 'bigha', 'gaj', 'agriculture', 'property', 'corner plot'],
-  jameen: ['plots-land', 'plot', 'land', 'khet', 'bigha', 'gaj', 'agriculture', 'property', 'corner plot'],
-  khet: ['plots-land', 'agriculture', 'land', 'bigha', 'krishi', 'farm', 'farmhouse'],
-  dukan: ['shop', 'commercial-rent', 'showroom', 'godown', 'office', 'property', 'commercial plot'],
-  godam: ['godown', 'warehouse', 'storage', 'commercial-rent', 'property'],
-  kothi: ['villa', 'bungalow', 'duplex', 'luxury house', 'residential-buy', 'property'],
-
-  // --- KAARIGAR & BLUE COLLAR ---
-  mistri: ['kaarigar', 'plumber', 'electrician', 'carpenter', 'mason-mistri', 'painter', 'welder', 'ac-appliance', 'repair', 'chinai', 'plaster'],
-  rajmistri: ['mason-mistri', 'mason', 'chinai', 'plaster', 'eent', 'cement', 'kaarigar', 'tiles'],
-  chinai: ['mason-mistri', 'eent', 'plaster', 'cement', 'wall construction', 'kaarigar'],
-  nal: ['kaarigar', 'plumber', 'pipe', 'leak', 'tanki', 'tap', 'tooti', 'sanitary', 'motor fitting', 'drainage'],
-  nalwala: ['plumber', 'pipe repair', 'water tank', 'tap repair', 'kaarigar'],
-  paani: ['plumber', 'water tank', 'tanki safai', 'motor', 'submersible', 'ro repair', 'water purifier'],
-  bijli: ['kaarigar', 'electrician', 'wiring', 'light', 'fan', 'pankha', 'switch', 'inverter', 'short circuit', 'fuse'],
-  bijliwala: ['electrician', 'wiring', 'board repair', 'fan repair', 'kaarigar'],
-  pankha: ['electrician', 'cooler motor', 'ceiling fan', 'table fan', 'exhaust', 'kaarigar'],
-  lakdi: ['kaarigar', 'carpenter', 'badhai', 'khati', 'wood', 'door', 'darwaja', 'furniture', 'almari', 'bed'],
-  khati: ['carpenter', 'badhai', 'woodwork', 'furniture repair', 'kaarigar'],
-  darwaja: ['carpenter', 'door repair', 'chaukhat', 'kunda', 'lock', 'tala', 'kaarigar'],
-  safedi: ['painter', 'paint', 'putty', 'chunna', 'whitewash', 'distemper', 'kaarigar'],
-  rangai: ['painter', 'paint', 'color', 'texture', 'asian paints', 'putty', 'kaarigar'],
-  chuna: ['painter', 'whitewash', 'safedi', 'distemper', 'kaarigar'],
-  loha: ['kaarigar', 'welder-fabrication', 'welder', 'lohar', 'iron gate', 'grill', 'sariya', 'fabrication', 'construction'],
-  lohar: ['welder', 'fabrication', 'iron gate', 'grill', 'shutter repair', 'kaarigar'],
-  safai: ['kaarigar', 'cleaning-deepclean', 'cleaning', 'pest control', 'deep clean', 'jhaadu', 'tanki safai', 'house cleaning'],
-  deemak: ['pest control', 'termite', 'deemak dawa', 'kide', 'cleaning-deepclean', 'kaarigar'],
-  kooler: ['cooler', 'ac-appliance', 'pankha', 'cooler motor', 'water pump', 'kaarigar'],
-  fridge: ['refrigerator', 'ac-appliance', 'ac repair', 'compressor', 'cooling', 'kaarigar'],
-
-  // --- MARKET & DAILY ESSENTIALS ---
-  rashan: ['market', 'grocery', 'grocery-kirana', 'kirana', 'atta', 'rice', 'dal', 'oil', 'masala', 'daily', 'ration', 'general store'],
-  ration: ['market', 'grocery', 'grocery-kirana', 'kirana', 'atta', 'rice', 'dal', 'oil', 'masala', 'daily'],
-  kirana: ['market', 'grocery-kirana', 'grocery', 'general store', 'atta', 'dal', 'oil', 'spices', 'sugar', 'salt'],
-  sauda: ['kirana', 'grocery', 'ration', 'market', 'daily essentials'],
-  aata: ['atta', 'flour', 'chakki', 'wheat', 'gehu', 'kirana', 'market'],
-  atta: ['aata', 'flour', 'chakki', 'wheat', 'gehu', 'kirana', 'market'],
-  chawal: ['rice', 'basmati', 'kirana', 'ration', 'market'],
-  daal: ['dal', 'pulses', 'moong', 'chana', 'toor', 'urad', 'kirana', 'market'],
-  tel: ['oil', 'mustard oil', 'sarson tel', 'refined oil', 'cooking oil', 'kirana', 'market'],
-  sarson: ['mustard oil', 'tel', 'kacchi ghani', 'kirana', 'market'],
-  masale: ['spices', 'mirchi', 'haldi', 'dhaniya', 'garam masala', 'kirana', 'market'],
-  doodh: ['market', 'dairy', 'dairy-vegetables', 'milk', 'dahi', 'paneer', 'makhan', 'ghee', 'chhaachh'],
-  dudh: ['market', 'dairy', 'dairy-vegetables', 'milk', 'dahi', 'paneer', 'makhan', 'ghee', 'chhaachh'],
-  dahi: ['curd', 'dairy', 'paneer', 'chhaachh', 'makhan', 'market'],
-  paneer: ['cheese', 'dairy', 'doodh', 'fresh paneer', 'market', 'restaurants'],
-  sabzi: ['market', 'dairy-vegetables', 'vegetables', 'fruits', 'aloo', 'pyaz', 'tamatar', 'tarkari', 'bhaji'],
-  tarkari: ['sabzi', 'vegetables', 'aloo', 'pyaz', 'tamatar', 'market'],
-  bhaji: ['sabzi', 'vegetables', 'market', 'restaurants'],
-  aloo: ['potato', 'aaloo', 'sabzi', 'vegetables', 'market'],
-  pyaz: ['onion', 'pyaaj', 'sabzi', 'vegetables', 'market'],
-  tamatar: ['tomato', 'sabzi', 'vegetables', 'market'],
-  fal: ['fruits', 'apple', 'banana', 'mango', 'seb', 'kela', 'market'],
-
-  // --- MEDICAL & HEALTHCARE ---
-  dawa: ['medical', 'pharmacy', 'chemist', 'medicine', 'tablet', 'syrup', 'doctor', 'clinic', 'dawai', 'goli'],
-  dawai: ['medical', 'pharmacy', 'chemist', 'medicine', 'tablet', 'syrup', 'doctor', 'clinic', 'dawa', 'goli'],
-  dawaiyan: ['medical', 'pharmacy', 'chemist', 'medicine', 'tablet', 'capsule'],
-  goli: ['tablet', 'medicine', 'dawa', 'pharmacy', 'chemist', 'medical'],
-  suie: ['injection', 'tika', 'vaccine', 'medical', 'hospital', 'clinic'],
-  ilaj: ['medical', 'doctor', 'clinic', 'hospital', 'dentist', 'physician', 'checkup', 'chikitsa', 'treatment'],
-  chikitsa: ['treatment', 'hospital', 'doctor', 'clinic', 'medical'],
-  aspatal: ['hospital', 'clinic', 'doctor', 'medical', 'emergency', 'opd', 'icu', 'nursing home'],
-  hospital: ['aspatal', 'clinic', 'doctor', 'medical', 'emergency', 'opd', 'nursing home'],
-  daktar: ['doctor', 'clinic', 'hospital', 'physician', 'mbbs', 'medical', 'specialist', 'vaidya'],
-  vaid: ['ayurvedic', 'vaidya', 'desi dawa', 'jadi buti', 'medical', 'doctor'],
-  vaidya: ['ayurvedic', 'vaid', 'desi dawa', 'jadi buti', 'medical', 'doctor'],
-  dant: ['dentist', 'dental', 'teeth', 'tooth', 'root canal', 'rct', 'braces', 'masooda', 'medical'],
-  daant: ['dentist', 'dental', 'teeth', 'tooth', 'root canal', 'medical'],
-  aankh: ['eye specialist', 'optician', 'chashma', 'lens', 'cataract', 'motiyabind', 'medical'],
-  haddi: ['orthopedic', 'fracture', 'bone specialist', 'plaster', 'joint pain', 'medical'],
-  khoon: ['blood test', 'pathology-lab', 'blood bank', 'rakt daan', 'lab', 'medical', 'community'],
-  janch: ['pathology-lab', 'lab', 'blood test', 'xray', 'mri', 'ct scan', 'ultrasound', 'sugar test', 'medical'],
-  bukhar: ['fever', 'general physician', 'doctor', 'paracetamol', 'clinic', 'medical'],
-  dard: ['pain relief', 'physiotherapy', 'doctor', 'dawa', 'medical'],
-  delivery: ['maternity', 'gynecologist', 'lady doctor', 'hospital', 'women clinic', 'medical'],
-  bacha: ['pediatrician', 'child specialist', 'baby doctor', 'vaccination', 'medical'],
-
-  // --- FOOD, SWEETS & RESTAURANTS ---
-  khana: ['restaurants', 'restaurant', 'food', 'dhaba', 'hotel', 'thali', 'paneer', 'tiffin', 'roti', 'lunch', 'dinner', 'rasoi'],
-  bhojan: ['restaurants', 'restaurant', 'food', 'dhaba', 'thali', 'tiffin', 'rasoi'],
-  roti: ['dhaba', 'restaurant', 'tandoori roti', 'chapati', 'naan', 'restaurants'],
-  dhaba: ['restaurant', 'highway dhaba', 'family dhaba', 'veg thali', 'dal bati', 'food', 'restaurants'],
-  mithai: ['sweets', 'mithai', 'halwai', 'namkeen', 'kachori', 'samosa', 'jalebi', 'laddu', 'rasgulla', 'bakery', 'kaju katli', 'ghewar'],
-  halwai: ['sweets-bakery', 'mithai', 'catering', 'wedding food', 'shadi halwai', 'restaurants', 'shaadi'],
-  namkeen: ['kachori', 'samosa', 'bhujia', 'sev', 'poha', 'sweets-bakery', 'restaurants'],
-  kachori: ['pyaaz kachori', 'dal kachori', 'namkeen', 'nashta', 'sweets-bakery', 'restaurants'],
-  samosa: ['aloo samosa', 'nashta', 'sweets-bakery', 'restaurants'],
-  jalebi: ['jalebi rabdi', 'sweets', 'mithai', 'sweets-bakery', 'restaurants'],
-  nashta: ['cafe-fastfood', 'sweets-bakery', 'kachori', 'samosa', 'poha', 'tea', 'chai', 'sandwich', 'restaurants'],
-  chai: ['tea', 'tapri', 'cafe', 'coffee', 'nashta', 'cafe-fastfood', 'restaurants'],
-  chay: ['tea', 'chai', 'cafe', 'coffee', 'restaurants'],
-  dabba: ['tiffin-catering', 'tiffin', 'tiffin service', 'home food', 'daily meals', 'hostel tiffin'],
-  tiffin: ['dabba', 'tiffin-catering', 'tiffin service', 'lunch box', 'mess food', 'home delivery food'],
-
-  // --- SHAADI, EVENTS & CELEBRATIONS ---
-  shadi: ['shaadi', 'wedding', 'marriage', 'garden', 'vatika', 'tent', 'dj', 'band', 'makeup', 'photographer', 'dulhan', 'baraat', 'halwai'],
-  shaadi: ['shaadi', 'wedding', 'marriage', 'garden', 'vatika', 'tent', 'dj', 'band', 'makeup', 'photographer', 'dulhan', 'baraat', 'halwai'],
-  vivah: ['shaadi', 'wedding', 'marriage', 'vatika', 'mandapam', 'kalyan mandapam'],
-  byah: ['shaadi', 'wedding', 'marriage', 'vatika', 'tent', 'band baja'],
-  baraat: ['band', 'ghodi', 'baggi', 'dhol', 'dj', 'shaadi', 'band-baja-ghodi'],
-  barat: ['band', 'ghodi', 'baggi', 'dhol', 'dj', 'shaadi', 'band-baja-ghodi'],
-  dulhan: ['bridal makeup', 'beauty parlour', 'mehndi', 'mehendi', 'lehenga', 'saree draping', 'shaadi', 'makeup-mehendi'],
-  dulha: ['sherwani', 'safaa', 'pagdi', 'ghodi', 'baggi', 'shaadi'],
-  vatika: ['marriage garden', 'wedding venue', 'resort', 'banquet hall', 'farmhouse wedding', 'shaadi', 'venues-gardens'],
-  pandal: ['tent', 'tent house', 'stage decor', 'jaimala setup', 'sound', 'dj', 'shaadi', 'tent-sound-dj'],
-  kanat: ['tent', 'tent house', 'pandal', 'curtains', 'shaadi'],
-  ghodi: ['baggi', 'rath', 'band baja', 'shehnai', 'baraat', 'shaadi', 'band-baja-ghodi'],
-  baggi: ['ghodi', 'rath', 'royal wedding entry', 'band', 'shaadi', 'band-baja-ghodi'],
-  patakhe: ['fireworks', 'aatishbaji', 'crackers', 'wedding celebration', 'shaadi'],
-
-  // --- EDUCATION, TUITION & SKILLS ---
-  padhai: ['education', 'coaching', 'tuition', 'school', 'tutor', 'classes', 'teacher', 'padai', 'study'],
-  tuition: ['education', 'coaching', 'home-tutors', 'maths tuition', 'science teacher', 'private tutor'],
-  tution: ['education', 'coaching', 'home-tutors', 'maths tuition', 'science teacher', 'private tutor'],
-  masterji: ['home-tutors', 'teacher', 'private tutor', 'tuition', 'coaching', 'education'],
-  kitab: ['books', 'stationery', 'school books', 'notebooks', 'copy', 'education', 'market'],
-  pustak: ['books', 'library', 'study material', 'education'],
-  typing: ['computer training', 'rscit', 'steno', 'shorthand', 'computer-skills', 'education'],
-
-  // --- WHITE COLLAR & LEGAL ---
-  vakil: ['white-collar', 'legal-lawyers', 'lawyer', 'advocate', 'court', 'notary', 'registry', 'dastavej', 'bainama', 'bail'],
-  vakeel: ['white-collar', 'legal-lawyers', 'lawyer', 'advocate', 'court', 'notary', 'registry', 'bail'],
-  kachahri: ['court', 'district court', 'vakil', 'lawyer', 'stamp paper', 'affidavit', 'notary', 'white-collar'],
-  bainama: ['property registry', 'registry', 'vakil', 'stamp paper', 'notary', 'legal-lawyers'],
-  hisab: ['white-collar', 'ca-tax', 'ca', 'gst', 'tax', 'accounting', 'itr', 'audit', 'bahi khata'],
-  bahi: ['accounting', 'ca', 'accountant', 'munim', 'tax', 'white-collar'],
-  karza: ['loan', 'home loan', 'personal loan', 'business loan', 'finance', 'white-collar', 'loans-insurance'],
-  beema: ['insurance', 'lic', 'car insurance', 'health insurance', 'life insurance', 'white-collar', 'loans-insurance'],
-
-  // --- RE引COMMERCE & KABADI ---
-  purana: ['recommerce', 'used', 'second hand', 'resell', 'thrift', 'old mobile', 'used bike', 'old sofa', 'purani'],
-  purani: ['recommerce', 'used', 'second hand', 'resell', 'thrift', 'old mobile', 'used bike', 'old sofa'],
-  bikau: ['recommerce', 'used', 'second hand', 'sale', 'property', 'vehicles', 'for sale'],
-  kabadi: ['recommerce', 'scrap buyer', 'kabadiwala', 'raddi', 'loha scrap', 'old battery', 'e-waste', 'scrap-kabadi'],
-  raddi: ['kabadi', 'newspaper scrap', 'paper raddi', 'scrap-kabadi', 'recommerce'],
-  bhangaar: ['scrap', 'kabadi', 'loha scrap', 'scrap-kabadi', 'recommerce'],
-
-  // --- FITNESS & SPORTS ---
-  kasrat: ['gym', 'fitness', 'workout', 'bodybuilding', 'akhada', 'dand baithak', 'dambal'],
-  akhada: ['gym', 'pehlwani', 'wrestling', 'kasrat', 'fitness', 'bodybuilding'],
-  vajan: ['weight loss', 'weight gain', 'gym', 'diet', 'protein', 'fitness'],
-
-  // --- CREATORS & MEDIA ---
-  reels: ['video-editing', 'creators', 'video editor', 'instagram reels', 'short video', 'youtube shorts', 'premiere pro'],
-  photo: ['photography', 'wedding photographer', 'creators', 'photoshop', 'studio', 'shaadi'],
-  prachar: ['advertising', 'hoarding', 'banner', 'flex', 'pamphlet', 'auto campaign', 'sound campaign'],
-};
-
-// ============================================================================
-// 3. FULL 17-CATEGORY REGISTRY WITH INTENT MAPPINGS
-// ============================================================================
-
-export const COMPREHENSIVE_INTENT_REGISTRY = [
-  // 1. KAARIGAR (कारीगर व मिस्त्री)
-  {
-    category: 'kaarigar',
-    subCategory: 'plumber',
-    label: '🛠️ Kaarigar > Plumber & Sanitary (नल, टंकी व पाइप)',
-    keywords: ['plumber', 'plumbering', 'nal', 'nalwala', 'pipe', 'leak', 'leakage', 'tanki', 'motor', 'tooti', 'faucet', 'flush', 'gutter', 'nali', 'geyser repair', 'commode', 'washbasin', 'sink', 'paani', 'नल', 'प्लंबर', 'पाइप', 'टंकी', 'पानी'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'electrician',
-    label: '🛠️ Kaarigar > Electrician & Wiring (बिजली मिस्त्री व पंखा)',
-    keywords: ['electrician', 'bijli', 'bijlee', 'electric', 'wiring', 'light', 'fan', 'pankha', 'pankhe', 'taar', 'board', 'switch', 'battan', 'mcb', 'inverter', 'battry', 'short circuit', 'fuse', 'cooler motor', 'fitting', 'chhat wiring', 'roshni', 'बिजली', 'इलेक्ट्रीशियन', 'पंखा', 'तार'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'carpenter',
-    label: '🛠️ Kaarigar > Carpenter & Woodwork (बढ़ई, खाती व लकड़ी काम)',
-    keywords: ['carpenter', 'badhai', 'khati', 'wood', 'lakdi', 'lakadi', 'door repair', 'darwaja', 'darwaza', 'window', 'khidki', 'chaukhat', 'kunda', 'tala', 'plywood', 'sunmica', 'sofa repair', 'bed repair', 'almari', 'palang', 'mez', 'kursi', 'wardrobe', 'lock repair', 'talewala', 'बढ़ई', 'खाती', 'लकड़ी', 'दरवाजा'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'painter',
-    label: '🛠️ Kaarigar > Painter, Putty & Polish (पेंटर, पुट्टी व सफेदी)',
-    keywords: ['painter', 'paint', 'rang', 'rangai', 'safedi', 'putty', 'potti', 'chunna', 'chuna', 'wall painting', 'distemper', 'asian paints', 'texture', 'waterproofing', 'varnish', 'polish', 'poliss', 'whitewash', 'lep', 'पेंटर', 'पुट्टी', 'सफेदी', 'रंग'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'mason-mistri',
-    label: '🛠️ Kaarigar > Raj Mistri & Tiles (राज मिस्त्री, चिनाई व टाइल)',
-    keywords: ['mason', 'mistri', 'raj mistri', 'rajmistri', 'rajgir', 'chinai', 'plaster', 'palastar', 'tiles', 'marble fitting', 'chhat dhalai', 'eent', 'eet', 'gaara', 'wall crack', 'cement work', 'bhavan nirman', 'मिस्त्री', 'राजमिस्त्री', 'प्लास्टर', 'चिनाई', 'टाइल'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'ac-appliance',
-    label: '🛠️ Kaarigar > AC, Fridge & Cooler Repair (घरेलू उपकरण रिपेयर)',
-    keywords: ['ac repair', 'ac service', 'ac gas', 'air conditioner', 'fridge repair', 'refrigerator', 'cooler', 'kooler', 'washing machine repair', 'dhone ki machine', 'microwave', 'ro repair', 'water purifier', 'cooler repair', 'geyser', 'heater', 'chulha repair', 'gas chulha', 'silai machine', 'एसी सर्विस', 'फ्रिज', 'कूलर'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'welder-fabrication',
-    label: '🛠️ Kaarigar > Welder & Lohar (लोहार व वेल्डिंग)',
-    keywords: ['welder', 'welding', 'fabrication', 'loha', 'lohar', 'iron gate', 'gate', 'grill', 'chaddar', 'jali', 'jungla', 'shutter repair', 'tin shed', 'steel railing', 'katla', 'angle', 'channel', 'वेल्डिंग', 'लोहार', 'लोहा गेट'],
-  },
-  {
-    category: 'kaarigar',
-    subCategory: 'cleaning-deepclean',
-    label: '🛠️ Kaarigar > Safai & Pest Control (सफाई व दीमक उपचार)',
-    keywords: ['cleaning', 'safai', 'safaiwala', 'jhaadu', 'pochha', 'house cleaning', 'deep clean', 'sofa cleaning', 'water tank clean', 'tanki safai', 'kachra', 'pest control', 'termite', 'deemak', 'dimak', 'kide', 'cockroach', 'khatmal', 'bathroom cleaning', 'सफाई', 'पेस्ट कंट्रोल', 'दीमक'],
-  },
-
-  // 2. PROPERTY (प्रॉपर्टी, मकान व जमीन)
-  {
-    category: 'property',
-    subCategory: 'residential-rent',
-    label: '🏢 Property > Makan & Kamra Rent (किराये का मकान व फ्लैट)',
-    keywords: ['flat', 'makan', 'makaan', 'house', 'room', 'kamra', 'kamre', 'rent', 'kiraya', 'kiraye par', 'kholi', 'chhat', 'set', 'ghar', '1 bhk', '2 bhk', '3 bhk', 'independent house', 'kothi', 'family rent', 'bachelor room', 'to let', 'tolet', 'मकान किराया', 'कमरा', 'फ्लैट', 'किराया'],
-  },
-  {
-    category: 'property',
-    subCategory: 'residential-buy',
-    label: '🏢 Property > Houses & Kothi for Sale (मकान बिक्री व खरीद)',
-    keywords: ['buy house', 'makan kharidna', 'ghar bechna', 'kothi sale', 'kothi', 'villa', 'duplex', 'bangla', 'haveli', 'ready to move', 'flats on sale', 'house sale', 'makan bechna', 'purana makan', 'ready ghar', 'मकान बेचना', 'कोठी', 'विला'],
-  },
-  {
-    category: 'property',
-    subCategory: 'plots-land',
-    label: '🏢 Property > Plots & Zameen (प्लॉट, जमीन व खेत)',
-    keywords: ['plot', 'plots', 'land', 'jameen', 'zameen', 'khet', 'colony plot', 'gaj', 'bigha', 'beegha', 'bhoomi', 'agriculture land', 'farm land', 'corner plot', 'commercial plot', 'sadak kinare', 'krishi bhumi', 'kheti', 'rakba', 'प्लॉट', 'जमीन', 'खेत'],
-  },
-  {
-    category: 'property',
-    subCategory: 'commercial-rent',
-    label: '🏢 Property > Shops & Godown (दुकान, गोदाम व ऑफिस)',
-    keywords: ['shop', 'dukan', 'dokaan', 'office', 'showroom', 'godown', 'godam', 'warehouse', 'commercial rent', 'bazaar shop', 'space for rent', 'dharamsala', 'karkhana', 'दुकान किराया', 'गोदाम', 'ऑफिस'],
-  },
-  {
-    category: 'property',
-    subCategory: 'pg-hostel',
-    label: '🏢 Property > PG & Student Hostels (पीजी व हॉस्टल)',
-    keywords: ['pg', 'hostel', 'boys pg', 'girls pg', 'student room', 'mess with room', 'paying guest', 'single room', 'kamra rent student', 'हॉस्टल', 'पीजी'],
-  },
-
-  // 3. TRANSPORTERS (ट्रांसपोर्ट व माल ढुलाई)
-  {
-    category: 'transporters',
-    subCategory: 'mini-truck',
-    label: '🚛 Transporters > Loading & Chota Hathi (छोटा हाथी व पिकअप)',
-    keywords: ['loading', 'chota hathi', 'chhota hathi', 'tata ace', 'bolero pickup', 'mahindra pickup', 'pickup', 'pikup', 'dost', 'gaadi', 'gadi', 'thela', 'goods carrier', 'mal dhulai', 'saman dhulai', 'luggage tempo', 'छोटा हाथी', 'पिकअप', 'लोडिंग टेम्पो'],
-  },
-  {
-    category: 'transporters',
-    subCategory: 'packers-movers',
-    label: '🚛 Transporters > Packers & Movers (घर शिफ्टिंग)',
-    keywords: ['packers', 'movers', 'shifting', 'house shifting', 'office shifting', 'relocation', 'packing service', 'furniture shifting', 'ghar shifting', 'saman shifting', 'ghar badalna', 'peti packing', 'घर शिफ्टिंग', 'पैकर्स'],
-  },
-  {
-    category: 'transporters',
-    subCategory: 'heavy-truck',
-    label: '🚛 Transporters > Heavy Truck & Trolley (भारी ट्रक व ट्रॉली)',
-    keywords: ['truck', 'heavy truck', '10 wheeler', '14 wheeler', 'trolley', 'trailer', 'container', 'intercity transport', 'all india transport', 'bada truck', 'traula', 'trala', '10 chakki', 'mal gaadi', 'dumper', 'डंपर', 'ट्रक', 'ट्रॉली'],
-  },
-  {
-    category: 'transporters',
-    subCategory: 'auto-tempo',
-    label: '🚛 Transporters > Auto & E-Rickshaw (ऑटो व ई-रिक्शा)',
-    keywords: ['auto', 'rickshaw', 'e-rickshaw', 'tempo', 'sawari auto', 'passenger auto', 'tuktuk', 'e rickshaw', 'sawari', 'ऑटो', 'ई रिक्शा'],
-  },
-
-  // 4. VEHICLES & AUTOMOTIVE (गाड़ियां व वर्कशॉप)
-  {
-    category: 'vehicles',
-    subCategory: 'car-bike-service',
-    label: '🚗 Vehicles > Gadi Service, Garage & Puncture (गाड़ी सर्विस व गैराज)',
-    keywords: ['gaadi', 'gadi', 'car', 'bike', 'motorcycle', 'motarsaikil', 'scooty', 'scooter', 'activa', 'splendor', 'bullet', 'garage', 'mechanic', 'puncture', 'pancjar', 'hawa', 'tyre shop', 'wheel alignment', 'car wash', 'oil change', 'denting painting', 'gaadi mistri', 'dhulai', 'गाड़ी', 'कार', 'बाइक', 'पंचर', 'गैराज'],
-  },
-  {
-    category: 'vehicles',
-    subCategory: 'tractors-commercial',
-    label: '🚗 Vehicles > Tractors & Farm Machines (ट्रैक्टर व कृषि वाहन)',
-    keywords: ['tractor', 'mahindra tractor', 'swaraj', 'farm machinery', 'harvester', 'trolly', 'e-rickshaw dealer', 'electric scooter', 'ट्रैक्टर'],
-  },
-
-  // 5. MEDICAL & HEALTHCARE (डॉक्टर, दवा व जांच)
-  {
-    category: 'medical',
-    subCategory: 'clinic-doctor',
-    label: '🩺 Medical > Doctor & Dawakhana (डॉक्टर व क्लीनिक)',
-    keywords: ['doctor', 'clinic', 'hospital', 'mbbs', 'md', 'physician', 'specialist', 'daktar', 'vaidya', 'vaid', 'chikitsak', 'aspatal', 'fever', 'cough', 'treatment', 'checkup', 'opd', 'ilaj', 'bukhar', 'khansi', 'dard', 'chot', 'bacha doctor', 'lady doctor', 'delivery', 'डॉक्टर', 'अस्पताल', 'इलाज', 'क्लीनिक'],
-  },
-  {
-    category: 'medical',
-    subCategory: 'pharmacy',
-    label: '🩺 Medical > Dawa Dukan & Chemists (दवा दुकान व मेडिकल स्टोर)',
-    keywords: ['pharmacy', 'chemist', 'medical store', 'dawa', 'dawai', 'dawaiyan', 'medicine', 'tablet', 'syrup', 'injection', '24 hours medical', 'goli', 'capsule', 'patti', 'malham', 'tika', 'suie', 'दवा दुकान', 'केमिस्ट', 'दवाई'],
-  },
-  {
-    category: 'medical',
-    subCategory: 'dentist',
-    label: '🩺 Medical > Dant ka Doctor (दांतों के डॉक्टर)',
-    keywords: ['dentist', 'dental', 'teeth', 'dant', 'daant', 'root canal', 'rct', 'braces', 'tooth pain', 'dant nikalna', 'masooda', 'keeda', 'batisi', 'दांत का डॉक्टर', 'दांत'],
-  },
-  {
-    category: 'medical',
-    subCategory: 'pathology-lab',
-    label: '🩺 Medical > Khoon Janch & X-Ray (लैब व जांच केंद्र)',
-    keywords: ['lab', 'pathology', 'blood test', 'urine test', 'xray', 'mri', 'ct scan', 'ultrasound', 'sonography', 'thyroid test', 'sugar test', 'janch', 'khoon janch', 'peshab janch', 'जांच केंद्र', 'ब्लड टेस्ट', 'खून जांच'],
-  },
-  {
-    category: 'medical',
-    subCategory: 'ambulance-emergency',
-    label: '🩺 Medical > Ambulance & Emergency (एंबुलेंस सेवा)',
-    keywords: ['ambulance', 'icu ambulance', 'oxygen ambulance', 'emergency medical', 'urgent hospital', 'ventilator ambulance', 'rogi vahan', 'एंबुलेंस'],
-  },
-
-  // 6. RESTAURANTS & FOOD (ढाबा, खाना व मिठाई)
-  {
-    category: 'restaurants',
-    subCategory: 'restaurant',
-    label: '🍔 Food > Family Restaurants & Dhabas (ढाबा व भोजन)',
-    keywords: ['restaurant', 'dhaba', 'hotel', 'dining', 'family restaurant', 'thali', 'paneer', 'dal bati', 'churma', 'veg thali', 'non veg', 'biryani', 'roti', 'lunch', 'dinner', 'khana', 'bhojan', 'sabzi', 'nashta', 'rasoi', 'ढाबा', 'खाना', 'रेस्टोरेंट', 'रोटी'],
-  },
-  {
-    category: 'restaurants',
-    subCategory: 'cafe-fastfood',
-    label: '🍔 Food > Cafes, Pizza & Fast Food (कैफे, बर्गर व फास्ट फूड)',
-    keywords: ['cafe', 'coffee', 'pizza', 'burger', 'sandwich', 'momos', 'chowmein', 'pasta', 'cold coffee', 'fast food', 'tea', 'chai', 'chay', 'कैफे', 'पिज्जा', 'चाय'],
-  },
-  {
-    category: 'restaurants',
-    subCategory: 'sweets-bakery',
-    label: '🍔 Food > Mithai & Namkeen (मिठाई, कचौरी व समोसा)',
-    keywords: ['sweets', 'mithai', 'halwai', 'namkeen', 'kachori', 'samosa', 'jalebi', 'rasgulla', 'gulab jamun', 'kaju katli', 'laddu', 'barfi', 'peda', 'ghewar', 'poha', 'cake', 'pastry', 'bakery', 'मिठाई', 'कचौरी', 'समोसा', 'केक', 'जलेबी'],
-  },
-  {
-    category: 'restaurants',
-    subCategory: 'tiffin-catering',
-    label: '🍔 Food > Tiffin & Dabba Service (टिफिन व डब्बा सेवा)',
-    keywords: ['tiffin', 'dabba', 'tiffin service', 'home food', 'daily meals', 'catering', 'halwai order', 'hostel tiffin', 'dabba service', 'ghar ka khana', 'khana dabba', 'टिफिन सर्विस', 'टिफिन'],
-  },
-
-  // 7. LOCAL MARKET & DAILY ESSENTIALS (किराना, राशन व सब्जी)
-  {
-    category: 'market',
-    subCategory: 'grocery-kirana',
-    label: '🛒 Market > Kirana, Rashan & Masale (किराना, आटा, दाल व तेल)',
-    keywords: ['kirana', 'grocery', 'rashan', 'ration', 'sauda', 'atta', 'aata', 'rice', 'chawal', 'dal', 'daal', 'oil', 'tel', 'sarson tel', 'ghee', 'spices', 'masala', 'masale', 'chini', 'cheeni', 'namak', 'mirchi', 'haldi', 'dhaniya', 'dry fruits', 'sabun', 'shampoo', 'general store', 'pattal', 'किराना', 'राशन', 'आटा', 'दाल'],
-  },
-  {
-    category: 'market',
-    subCategory: 'dairy-vegetables',
-    label: '🛒 Market > Dudh, Dahi, Sabzi & Phal (दूध, दही व ताजी सब्जी)',
-    keywords: ['dairy', 'milk', 'doodh', 'dudh', 'paneer', 'curd', 'dahi', 'butter', 'makhan', 'makkhan', 'chhaachh', 'vegetables', 'sabzi', 'tarkari', 'bhaji', 'fruits', 'fal', 'aaloo', 'aalu', 'aloo', 'pyaaj', 'pyaz', 'tamatar', 'kela', 'seb', 'दूध', 'दही', 'सब्जी', 'फल'],
-  },
-  {
-    category: 'market',
-    subCategory: 'stationery-mobile',
-    label: '🛒 Market > Stationery, Xerox & Mobile (स्टेशनरी व फोटोकॉपी)',
-    keywords: ['stationery', 'photocopy', 'xerox', 'printout', 'lamination', 'mobile cover', 'screen guard', 'charger', 'earphones', 'kitab', 'copy', 'notebook', 'स्टेशनरी', 'फोटोकॉपी'],
-  },
-
-  // 8. SHAADI & EVENTS 360° (शादी, बारात व वाटिका)
-  {
-    category: 'shaadi',
-    subCategory: 'venues-gardens',
-    label: '💍 Shaadi > Marriage Gardens & Vatika (मैरिज गार्डन व वाटिका)',
-    keywords: ['marriage garden', 'vatika', 'banquet hall', 'resort', 'wedding venue', 'party hall', 'farmhouse wedding', 'shaadi', 'shadi', 'byah', 'vivah', 'kalyan mandapam', 'barat ghar', 'dharamshala', 'मैरिज गार्डन', 'वाटिका', 'शादी'],
-  },
-  {
-    category: 'shaadi',
-    subCategory: 'tent-sound-dj',
-    label: '💍 Shaadi > Tent, Sound & DJ (टेंट, साउंड व डीजे)',
-    keywords: ['tent', 'tent house', 'sound', 'dj', 'lights', 'decoration', 'stage decor', 'jaimala setup', 'sound system', 'generator', 'dhol', 'jhula', 'roshni', 'pandal', 'kanat', 'kursi bhed', 'टेंट हाउस', 'डीजे'],
-  },
-  {
-    category: 'shaadi',
-    subCategory: 'photography',
-    label: '💍 Shaadi > Wedding Photography (फोटोग्राफर व वीडियो)',
-    keywords: ['wedding photographer', 'pre wedding shoot', 'cinematography', 'candid photo', 'drone shoot', 'album', 'video shoot', 'photo studio', 'shaadi photographer', 'शादी फोटोग्राफर', 'फोटो'],
-  },
-  {
-    category: 'shaadi',
-    subCategory: 'makeup-mehendi',
-    label: '💍 Shaadi > Bridal Makeup & Mehndi (दुल्हन मेकअप व मेहंदी)',
-    keywords: ['bridal makeup', 'beauty parlour', 'mehndi artist', 'mehandi', 'mehendi', 'dulhan makeup', 'hair style', 'saree draping', 'shringar', 'chooda', 'lehenga chunni', 'मेकअप', 'मेहंदी', 'दुल्हन मेकअप'],
-  },
-  {
-    category: 'shaadi',
-    subCategory: 'band-baja-ghodi',
-    label: '💍 Shaadi > Band, Ghodi & Dhol (बैंड बाजा, घोड़ी व बारात)',
-    keywords: ['band', 'brass band', 'baja', 'ghodi', 'baggi', 'dhol', 'shehnai', 'fireworks', 'aatishbaji', 'patakhe', 'band baja', 'rath', 'dholak', 'tashe', 'baraat', 'barat', 'बैंड बाजा', 'घोड़ी', 'बारात'],
-  },
-
-  // 9. EDUCATION & COACHING (शिक्षा, ट्यूशन व कोचिंग)
-  {
-    category: 'education',
-    subCategory: 'coaching',
-    label: '📚 Education > Coaching & Exam Prep (कोचिंग सेंटर)',
-    keywords: ['coaching', 'tuition', 'tution', 'neet coaching', 'jee mains', 'iit', 'foundation', 'class 10', 'class 12', 'cbse', 'rbse', 'ssc', 'bank po', 'police bharti', 'patwar', 'railway exam', 'padhai', 'master ji', 'masterji', 'ganit tuition', 'vigyan', 'angreji', 'कोचिंग', 'ट्यूशन', 'तैयारी'],
-  },
-  {
-    category: 'education',
-    subCategory: 'home-tutors',
-    label: '📚 Education > Home Tutors & Teachers (होम ट्यूटर)',
-    keywords: ['home tutor', 'private teacher', 'maths tutor', 'science teacher', 'english tutor', 'primary tutor', 'female tutor', 'master', 'होम ट्यूटर'],
-  },
-  {
-    category: 'education',
-    subCategory: 'computer-skills',
-    label: '📚 Education > Computer Training (कंप्यूटर कोर्स)',
-    keywords: ['computer coaching', 'rscit', 'tally', 'coding', 'python', 'web design', 'graphic design course', 'typing institute', 'typing', 'steno', 'कंप्यूटर सेंटर'],
-  },
-  {
-    category: 'education',
-    subCategory: 'schools-colleges',
-    label: '📚 Education > Schools & Libraries (स्कूल व लाइब्रेरी)',
-    keywords: ['school', 'convent school', 'college', 'degree college', 'library', 'self study library', 'reading room', 'play school', 'pustak', 'kitab', 'स्कूल', 'लाइब्रेरी'],
-  },
-
-  // 10. FITNESS, GYMS & YOGA (जिम, अखाड़ा व कसरत)
-  {
-    category: 'fitness',
-    subCategory: 'gym',
-    label: '🏋️ Fitness > Gym & Workout (जिम, अखाड़ा व कसरत)',
-    keywords: ['gym', 'fitness', 'workout', 'bodybuilding', 'weight loss', 'muscle gain', 'cardio', 'treadmill', 'crossfit', 'gym membership', 'akhada', 'kasrat', 'dand baithak', 'dambal', 'vajan', 'jim', 'जिम', 'कसरत', 'अखाड़ा'],
-  },
-  {
-    category: 'fitness',
-    subCategory: 'trainers-yoga',
-    label: '🏋️ Fitness > Yoga & Personal Trainers (योग व पर्सनल ट्रेनर)',
-    keywords: ['yoga', 'trainer', 'personal trainer', 'dietician', 'zumba', 'aerobics', 'pranayam', 'morning yoga', 'female trainer', 'diet', 'योग', 'ट्रेनर'],
-  },
-  {
-    category: 'fitness',
-    subCategory: 'supplements-nutrition',
-    label: '🏋️ Fitness > Protein & Supplements (प्रोटीन व सप्लीमेंट्स)',
-    keywords: ['protein', 'whey protein', 'creatine', 'mass gainer', 'supplements', 'multivitamin', 'bcaa', 'nutrition store', 'प्रोटीन'],
-  },
-
-  // 11. CONSTRUCTION & MATERIALS (सीमेंट, सरिया, ईंट व बजरी)
-  {
-    category: 'construction',
-    subCategory: 'building-materials',
-    label: '🏗️ Construction > Cement, Sariya, Bajri & Eent (निर्माण सामग्री)',
-    keywords: ['cement', 'sariya', 'iron rods', 'sand', 'bajri', 'dust', 'rori', 'gravel', 'bricks', 'eent', 'eet', 'red bricks', 'aac blocks', 'ret', 'bhatta', 'dhalai', 'rod', 'loha sariya', 'सीमेंट', 'सरिया', 'बजरी', 'ईंट'],
-  },
-  {
-    category: 'construction',
-    subCategory: 'tiles-marble',
-    label: '🏗️ Construction > Tiles, Marble & Granite (टाइल, मार्बल व पत्थर)',
-    keywords: ['tiles', 'marble', 'granite', 'kota stone', 'floor tiles', 'wall tiles', 'vitrified tiles', 'kitchen slab', 'टाइल', 'मार्बल', 'ग्रेनाइट'],
-  },
-  {
-    category: 'construction',
-    subCategory: 'contractor-architect',
-    label: '🏗️ Construction > Thekedar, Naksha & Maps (ठेकेदार व नक्शा)',
-    keywords: ['contractor', 'thekedar', 'civil contractor', 'architect', 'naksha', 'house map', '3d elevation', 'interior designer', 'theka', 'ठेकेदार', 'नक्शा'],
-  },
-
-  // 12. RE引COMMERCE & SECOND-HAND (पुराना सामान व कबाड़ी)
-  {
-    category: 'recommerce',
-    subCategory: 'all',
-    label: '🛍️ ReCommerce > Purana Saman & Kabadi (पुराना सामान व कबाड़ी)',
-    keywords: ['used', 'second hand', 'purana', 'purani', 'resell', 'thrift', 'bechna', 'bikau', 'raddi', 'kabadi', 'kabadiwala', 'loha raddi', 'batri', 'bhangaar', 'पुराना सामान', 'कबाड़ी', 'रद्दी'],
-  },
-  {
-    category: 'recommerce',
-    subCategory: 'electronics',
-    label: '🛍️ ReCommerce > Used Mobiles & Laptops (पुराने मोबाइल व लैपटॉप)',
-    keywords: ['used mobile', 'second hand phone', 'old iphone', 'purana mobile', 'used laptop', 'second hand tv', 'used tablet', 'पुराना मोबाइल'],
-  },
-  {
-    category: 'recommerce',
-    subCategory: 'furniture-appliances',
-    label: '🛍️ ReCommerce > Used Furniture (पुराना सोफा व कूलर)',
-    keywords: ['used sofa', 'second hand bed', 'old cooler', 'used fridge', 'second hand washing machine', 'used almirah', 'dining table', 'पुराना सोफा'],
-  },
-  {
-    category: 'recommerce',
-    subCategory: 'vehicles',
-    label: '🛍️ ReCommerce > Used Bikes & Scooties (पुरानी बाइक व स्कूटी)',
-    keywords: ['used bike', 'second hand motorcycle', 'purani activa', 'used scooty', 'splendor used', 'bullet second hand', 'purani cycle', 'पुरानी बाइक'],
-  },
-
-  // 13. WHITE COLLAR & PROFESSIONAL (वकील, सीए व टैक्स)
-  {
-    category: 'white-collar',
-    subCategory: 'ca-tax',
-    label: '👔 Professional > CA, GST & Accounting (सीए व टैक्स)',
-    keywords: ['ca', 'chartered accountant', 'gst', 'itr', 'income tax return', 'tax consultant', 'audit', 'company registration', 'accounting', 'hisab', 'bahi khata', 'सीए', 'टैक्स'],
-  },
-  {
-    category: 'white-collar',
-    subCategory: 'legal-lawyers',
-    label: '👔 Professional > Advocates & Vakil (वकील, कचहरी व रजिस्ट्री)',
-    keywords: ['lawyer', 'advocate', 'vakil', 'vakeel', 'court', 'high court', 'district court', 'bail', 'property registry', 'affidavit', 'notary', 'stamp paper', 'kachahri', 'adalat', 'dastavej', 'registry', 'bainama', 'tehsildar', 'patwari', 'वकील', 'नोटरी', 'कचहरी'],
-  },
-  {
-    category: 'white-collar',
-    subCategory: 'loans-insurance',
-    label: '👔 Professional > Loans & Insurance (लोन व बीमा)',
-    keywords: ['loan', 'home loan', 'personal loan', 'business loan', 'loan agent', 'insurance', 'lic', 'car insurance', 'health insurance', 'karza', 'beema', 'लोन', 'बीमा'],
-  },
-
-  // 14. DIGITAL CREATORS & FREELANCERS (वीडियो व ग्राफिक एडिटर)
-  {
-    category: 'creators',
-    subCategory: 'video-editing',
-    label: '🎬 Creators > Video & Reels Editors (वीडियो एडिटर)',
-    keywords: ['video editor', 'reels editor', 'video editing', 'youtube editing', 'color grading', 'premiere pro', 'reels creator', 'reels', 'shorts', 'वीडियो एडिटर'],
-  },
-  {
-    category: 'creators',
-    subCategory: 'graphic-design',
-    label: '🎬 Creators > Graphic & Logo Designers (ग्राफिक डिजाइनर)',
-    keywords: ['graphic designer', 'logo design', 'thumbnail maker', 'banner design', 'photoshop', 'branding', 'visiting card design', 'poster', 'ग्राफिक डिजाइनर'],
-  },
-  {
-    category: 'creators',
-    subCategory: 'web-software',
-    label: '🎬 Creators > Website & App Developers (वेबसाइट व सॉफ्टवेयर)',
-    keywords: ['website developer', 'web design', 'app developer', 'software', 'seo', 'social media marketing', 'digital marketing', 'वेबसाइट'],
-  },
-
-  // 15. MALLS & FLAGSHIP SHOWROOMS (ब्रांड शोरूम व मॉल)
-  {
-    category: 'malls',
-    subCategory: 'fashion-showrooms',
-    label: '💎 Malls > Fashion & Jewellery Showrooms (कपड़े व ज्वैलरी)',
-    keywords: ['mall', 'showroom', 'brand store', 'clothing showroom', 'jewellery', 'gold', 'silver', 'diamond', 'ethnic wear', 'suit saree', 'lehenga', 'gehne', 'sona', 'chandi', 'शोरूम', 'ज्वैलरी'],
-  },
-  {
-    category: 'malls',
-    subCategory: 'electronics-showrooms',
-    label: '💎 Malls > Electronics Outlets (इलेक्ट्रॉनिक्स शोरूम)',
-    keywords: ['electronics showroom', 'smart tv showroom', 'ac showroom', 'fridge showroom', 'laptop showroom', 'mobile store', 'शोरूम इलेक्ट्रॉनिक्स'],
-  },
-
-  // 16. ADVERTISING & PROMOTIONS (होर्डिंग व प्रचार)
-  {
-    category: 'advertising',
-    subCategory: 'hoardings-outdoor',
-    label: '📢 Advertising > Hoardings & Banners (होर्डिंग व फ्लेक्स)',
-    keywords: ['hoarding', 'billboard', 'rooftop ad', 'wall painting', 'flex banner', 'outdoor advertising', 'banner printing', 'prachar', 'होर्डिंग', 'फ्लेक्स'],
-  },
-  {
-    category: 'advertising',
-    subCategory: 'local-campaigns',
-    label: '📢 Advertising > Auto & Pamphlet Ads (ऑटो प्रचार व पर्चे)',
-    keywords: ['auto campaign', 'sound campaign', 'pamphlet distribution', 'newspaper inserts', 'e-rickshaw banner', 'canopy promotion', 'mike prachar', 'loudspeaker', 'प्रचार', 'माइक प्रचार'],
-  },
-
-  // 17. COMMUNITY & SOCIAL SEVA (गौशाला व समाज सेवा)
-  {
-    category: 'community',
-    subCategory: 'blood-health',
-    label: '🤝 Community > Blood Donation & Camps (रक्तदान व सेवा)',
-    keywords: ['blood donation', 'blood requirement', 'rakt daan', 'free medical camp', 'health camp', 'eye camp', 'raktdan', 'रक्तदान', 'स्वास्थ्य शिविर'],
-  },
-  {
-    category: 'community',
-    subCategory: 'seva-drives',
-    label: '🤝 Community > Goshala & Food Seva (गौशाला व अन्नदान)',
-    keywords: ['goshala', 'gaumata', 'langar', 'food distribution', 'cloth donation', 'tree plantation', 'safai abhiyan', 'ngo', 'orphanage', 'bhandara', 'daan', 'गौशाला', 'लंगर'],
-  },
+// 🔥 Quick-Tap Trending Searches for Alwar
+export const TRENDING_SEARCH_CHIPS = [
+  { label: 'Plumber / मिस्त्री', query: 'Plumber', icon: '🛠️', category: 'kaarigar' },
+  { label: '2 BHK Flat', query: '2 BHK Flat', icon: '🏢', category: 'property' },
+  { label: 'Newly Open', query: 'Newly Open', icon: '🎊', category: 'market' },
+  { label: 'Sariska / Fun', query: 'Sariska', icon: '🎡', category: 'travel' },
+  { label: 'Doctors & Clinics', query: 'Doctor', icon: '🏥', category: 'medical' },
+  { label: 'Box Cricket Turf', query: 'Turf', icon: '🏏', category: 'travel' },
+  { label: 'Restaurants & Cafe', query: 'Restaurant', icon: '🍽️', category: 'restaurants' },
+  { label: 'Tempo / Loader', query: 'Tempo', icon: '🚚', category: 'transporters' },
 ];
 
-// 🌟 Boot-Time Precompiled Intent Registry to avoid runtime repetitive string processing
-const PRECOMPILED_INTENT_REGISTRY = COMPREHENSIVE_INTENT_REGISTRY.map((intent) => ({
-  ...intent,
-  normalizedKeywords: intent.keywords.map((kw) => normalizeHindiRomanized(kw)),
-  rawKeywords: intent.keywords.map((kw) => kw.toLowerCase().trim()),
-}));
-
-// ============================================================================
-// 4. DEEP SEARCHABLE DETAILS EXTRACTOR
-// ============================================================================
+// 🧠 Bilingual (English + Hindi + Hinglish) Category & Subcategory Intent Dictionary
+export const CATEGORY_SYNONYMS = {
+  kaarigar: {
+    title: 'Kaarigar & Mistri',
+    hindi: 'कारीगर व मिस्त्री सेवा',
+    icon: '🛠️',
+    keywords: [
+      'kaarigar', 'karigar', 'mistri', 'plumber', 'plumbing', 'nal', 'pipe', 'water tank',
+      'electrician', 'bijli', 'wiring', 'inverter', 'carpenter', 'badhai', 'woodwork',
+      'painter', 'painting', 'putty', 'ac repair', 'air conditioner', 'fridge repair',
+      'washing machine repair', 'ro service', 'water purifier', 'cctv', 'welder', 'welding',
+      'mason', 'rajmistri', 'tile mistri', 'mechanic', 'solar', 'pest control', 'cleaning',
+      'कारीगर', 'मिस्त्री', 'प्लंबर', 'नल', 'इलेक्ट्रीशियन', 'बिजली', 'बढ़ई', 'पेंटर', 'एसी रिपेयर', 'राजमिस्त्री',
+    ],
+  },
+  property: {
+    title: 'Property & Real Estate',
+    hindi: 'प्रॉपर्टी व रियल एस्टेट',
+    icon: '🏢',
+    keywords: [
+      'property', 'real estate', 'flat', 'apartment', '1 bhk', '2 bhk', '3 bhk', '4 bhk',
+      '1bhk', '2bhk', '3bhk', 'rent', 'kiraya', 'kiraye', 'rental', 'house', 'makan', 'ghar',
+      'villa', 'kothi', 'independent house', 'plot', 'land', 'jameen', 'zameen', 'bigha',
+      'patta', 'uit plot', 'commercial', 'shop for rent', 'dukan', 'showroom space', 'office space',
+      'godown', 'warehouse', 'pg', 'hostel', 'boys pg', 'girls pg', 'room for rent',
+      'प्रॉपर्टी', 'मकान', 'घर', 'फ्लैट', 'किराये', 'प्लॉट', 'जमीन', 'कोठी', 'दुकान', 'पीजी', 'हॉस्टल',
+    ],
+  },
+  market: {
+    title: 'Newly Open',
+    hindi: 'नए खुले व्यापार व स्टोर (प्रचार)',
+    icon: '🎊',
+    keywords: [
+      'newly open', 'new open', 'new shop', 'new store', 'new business', 'grand opening',
+      'inauguration', 'launch', 'spotlight', 'new showroom', 'new cafe', 'featured business',
+      'नया स्टोर', 'नई दुकान', 'नया व्यापार', 'उद्घाटन', 'नए खुले',
+    ],
+  },
+  travel: {
+    title: 'Fun & Travel',
+    hindi: 'घूमना-फिरना, मनोरंजन व पर्यटन',
+    icon: '🎡',
+    keywords: [
+      'fun', 'travel', 'tourism', 'tourist', 'activity', 'activities', 'adventure',
+      'sariska', 'safari', 'tiger reserve', 'gypsy', 'siliserh', 'boating', 'speed boat',
+      'jet ski', 'lake', 'bala quila', 'fort', 'bhangarh', 'garbhaji', 'pandupol',
+      'moosi maharani', 'turf', 'box cricket', 'cricket turf', 'pickleball', 'football turf',
+      'gaming', 'arcade', 'bowling', 'water park', 'resort', 'pool', 'swimming pool',
+      'farm stay', 'farmhouse', 'camping', 'bonfire', 'day out', 'weekend', 'tour',
+      'tour operator', 'guide', 'sightseeing', 'picnic',
+      'घूमना', 'मनोरंजन', 'पर्यटन', 'सरिस्का', 'सफारी', 'सिलीसेढ़', 'बोटिंग', 'बाला किला', 'भानगढ़', 'रिसॉर्ट', 'पूल', 'क्रिकेट', 'टूर',
+    ],
+  },
+  transporters: {
+    title: 'Transporters / Loading',
+    hindi: 'ट्रांसपोर्ट व माल ढुलाई',
+    icon: '🚚',
+    keywords: [
+      'transporter', 'transport', 'loading', 'loader', 'tempo', 'chota hathi', 'pickup',
+      'bolero pickup', 'truck', 'mini truck', 'packers', 'movers', 'shifting', 'relocation',
+      'cargo', 'freight', 'logistics', 'bajaj maxima', 'goods carrier', 'maal dhulai',
+      'ट्रांसपोर्ट', 'लोडिंग', 'टेम्पो', 'ट्रक', 'पैकर्स', 'मूवर्स', 'शिफ्टिंग', 'माल ढुलाई', 'छोटा हाथी',
+    ],
+  },
+  malls: {
+    title: 'Malls & Showrooms',
+    hindi: 'मॉल्स व रिटेल शोरूम',
+    icon: '🛍️',
+    keywords: [
+      'mall', 'malls', 'showroom', 'retail', 'supermarket', 'hypermarket', 'brand store',
+      'shopping center', 'complex', 'franchise', 'multibrand', 'outlet',
+      'मॉल', 'शोरूम', 'सुपरमार्केट', 'शॉपिंग',
+    ],
+  },
+  restaurants: {
+    title: 'Restaurants & Food',
+    hindi: 'रेस्टोरेंट व खान-पान',
+    icon: '🍽️',
+    keywords: [
+      'restaurant', 'food', 'cafe', 'coffee', 'dhaba', 'bhojnalaya', 'thali', 'dinner',
+      'lunch', 'breakfast', 'fast food', 'pizza', 'burger', 'momos', 'chaat', 'sweets',
+      'mithai', 'kalakand', 'alwar mawa', 'bakery', 'cake', 'pastry', 'tiffin', 'mess',
+      'home food', 'ice cream', 'juice', 'family restaurant', 'rooftop',
+      'रेस्टोरेंट', 'खाना', 'कैफे', 'ढाबा', 'थाली', 'टिफिन', 'बेकरी', 'केक', 'मिठाई', 'कलाकंद', 'फास्ट फूड',
+    ],
+  },
+  medical: {
+    title: 'Doctors & Healthcare',
+    hindi: 'चिकित्सा व डॉक्टर सेवा',
+    icon: '🏥',
+    keywords: [
+      'doctor', 'hospital', 'clinic', 'medical', 'healthcare', 'dentist', 'dental',
+      'orthopedic', 'pediatrician', 'child specialist', 'gynecologist', 'skin specialist',
+      'dermatologist', 'eye specialist', 'ent', 'physician', 'surgeon', 'physiotherapy',
+      'chemist', 'pharmacy', 'medicine', 'dawai', 'pathology', 'lab', 'blood test',
+      'xray', 'ultrasound', 'mri', 'ct scan', 'ambulance', 'nursing', 'ayurvedic', 'homeopathic',
+      'डॉक्टर', 'अस्पताल', 'क्लिनिक', 'मेडिकल', 'दवाई', 'डेंटिस्ट', 'दांत', 'लैब', 'जांच', 'एम्बुलेंस',
+    ],
+  },
+  fitness: {
+    title: 'Gym & Fitness',
+    hindi: 'जिम व फिटनेस सेंटर',
+    icon: '🏋️',
+    keywords: [
+      'gym', 'fitness', 'workout', 'yoga', 'zumba', 'aerobics', 'crossfit', 'personal trainer',
+      'weight loss', 'bodybuilding', 'mma', 'boxing', 'martial arts', 'karate', 'swimming',
+      'जिम', 'फिटनेस', 'योगा', 'जुम्बा', 'कसरत',
+    ],
+  },
+  education: {
+    title: 'Coaching & Schools',
+    hindi: 'कोचिंग व शिक्षण संस्थान',
+    icon: '📚',
+    keywords: [
+      'education', 'coaching', 'school', 'college', 'tuition', 'home tutor', 'library',
+      'study room', 'reading room', 'neet', 'jee', 'iit', 'ras', 'ias', 'ssc', 'bank exam',
+      'reet', 'computer course', 'tally', 'coding', 'spoken english', 'ielts', 'dance class',
+      'music class', 'guitar', 'drawing', 'abacus', 'play school', ' preschool',
+      'कोचिंग', 'स्कूल', 'ट्यूशन', 'लाइब्रेरी', 'पढ़ाई', 'कंप्यूटर',
+    ],
+  },
+  shaadi: {
+    title: 'Shaadi & Events',
+    hindi: 'शादी व इवेंट्स',
+    icon: '💍',
+    keywords: [
+      'shaadi', 'shadi', 'wedding', 'marriage', 'marriage garden', 'banquet hall', 'resort wedding',
+      'tent house', 'caterer', 'catering', 'halwai', 'photographer', 'pre wedding', 'videographer',
+      'drone', 'dj', 'band', 'ghodi', 'dhol', 'makeup artist', 'bridal makeup', 'beauty parlour',
+      'salon', 'mehendi', 'choreographer', 'event planner', 'decorator', 'flower decoration',
+      'sherwani', 'lehenga', 'invitation card',
+      'शादी', 'विवाह', 'मैरिज गार्डन', 'टेंट', 'हलवाई', 'कैटरिंग', 'फोटोग्राफर', 'डीजे', 'बैंड', 'मेकअप', 'पार्लर',
+    ],
+  },
+  vehicles: {
+    title: 'Cars & Two-Wheelers',
+    hindi: 'गाड़ी व बाइक बाज़ार',
+    icon: '🚗',
+    keywords: [
+      'vehicle', 'vehicles', 'car', 'cars', 'bike', 'motorcycle', 'scooty', 'scooter',
+      'activa', 'splendor', 'bullet', 'royal enfield', 'bolero', 'scorpio', 'thar', 'swift',
+      'dzire', 'alto', 'wagonr', 'creta', 'brezza', 'tractor', 'e-rickshaw', 'auto',
+      'second hand car', 'used car', 'used bike', 'car rental', 'taxi', 'cab', 'self drive',
+      'गाड़ी', 'कार', 'बाइक', 'स्कूटी', 'बोलेरो', 'स्विफ्ट', 'ट्रैक्टर', 'टैक्सी',
+    ],
+  },
+  creators: {
+    title: 'Artists & Creators',
+    hindi: 'स्थानीय कलाकार व रचनाकार',
+    icon: '🎨',
+    keywords: [
+      'creator', 'artist', 'youtuber', 'influencer', 'vlogger', 'video editor', 'reel maker',
+      'graphic designer', 'singer', 'musician', 'anchor', 'emcee', 'poet', 'painter artist',
+      'sketch', 'handicraft', 'pottery', 'studio', 'podcast',
+      'कलाकार', 'क्रिएटर', 'यूट्यूबर', 'सिंगर', 'डिजाइनर',
+    ],
+  },
+  advertising: {
+    title: 'Flex, Hoardings & Ads',
+    hindi: 'प्रचार व विज्ञापन',
+    icon: '📢',
+    keywords: [
+      'advertising', 'ads', 'flex', 'banner', 'hoarding', 'printing', 'digital printing',
+      'visiting card', 'pamphlet', 'brochure', 'led board', 'glow sign', 'acrylic board',
+      'auto branding', 'wall painting', 'social media marketing', 'prachar',
+      'प्रचार', 'विज्ञापन', 'फ्लेक्स', 'बैनर', 'होर्डिंग', 'प्रिंटिंग',
+    ],
+  },
+  construction: {
+    title: 'Building & Construction',
+    hindi: 'भवन निर्माण सामग्री',
+    icon: '🏗️',
+    keywords: [
+      'construction', 'building material', 'cement', 'bajri', 'rodi', 'sand', 'bricks',
+      'eent', 'tmt bar', 'sariya', 'iron', 'steel', 'tiles', 'marble', 'granite', 'kota stone',
+      'sanitary', 'pipes', 'hardware', 'plywood', 'glass', 'aluminium', 'upvc', 'jcb',
+      'contractor', 'thekedar', 'architect', 'civil engineer',
+      'निर्माण', 'सीमेंट', 'बजरी', 'रोड़ी', 'ईंट', 'सरिया', 'टाइल्स', 'मार्बल', 'हार्डवेयर', 'ठेकेदार',
+    ],
+  },
+  recommerce: {
+    title: 'Purana Bazaar / 2nd Hand',
+    hindi: 'पुराना सामान खरीद-बिक्री',
+    icon: '♻️',
+    keywords: [
+      'recommerce', 'purana bazaar', 'second hand', '2nd hand', 'used', 'old item', 'purana',
+      'refurbished', 'olx', 'sell old', 'buy used', 'second hand mobile', 'used furniture',
+      'पुराना सामान', 'सेकंड हैंड', 'पुराना बाज़ार',
+    ],
+  },
+  festival: {
+    title: 'Festival Offers & Melas',
+    hindi: 'त्योहार व मेला ऑफर्स',
+    icon: '🪔',
+    keywords: [
+      'festival', 'offer', 'mela', 'diwali', 'holi', 'rakhi', 'navratri', 'eid', 'christmas',
+      'sale', 'discount', 'combo offer', 'bumper sale', 'exhibition', 'bazaar',
+      'त्योहार', 'मेला', 'ऑफर', 'दिवाली', 'होली', 'सेल', 'छूट',
+    ],
+  },
+  community: {
+    title: 'Community Drives',
+    hindi: 'सामाजिक पहल व जनसेवा',
+    icon: '🤝',
+    keywords: [
+      'community', 'ngo', 'social work', 'blood donation', 'tree plantation', 'cleanliness',
+      'gaushala', 'animal rescue', 'charity', 'langar', 'bhandara', 'free camp', 'volunteer',
+      'सामाजिक', 'जनसेवा', 'रक्तदान', 'गौशाला', 'भंडारा', 'सेवा',
+    ],
+  },
+  'white-collar': {
+    title: 'Jobs & Consultants',
+    hindi: 'रोजगार व पेशेवर सलाहकार',
+    icon: '💼',
+    keywords: [
+      'job', 'jobs', 'vacancy', 'hiring', 'recruitment', 'naukri', 'rozgar', 'part time',
+      'full time', 'work from home', 'ca', 'chartered accountant', 'gst', 'itr', 'tax',
+      'lawyer', 'advocate', 'vakeel', 'notary', 'legal', 'consultant', 'loan', 'home loan',
+      'insurance', 'lic', 'real estate agent', 'vastu', 'astrologer', 'pandit',
+      'नौकरी', 'रोजगार', 'वकील', 'सीए', 'लोन', 'बीमा', 'सलाहकार',
+    ],
+  },
+  electronics: {
+    title: 'Electronics & Mobile',
+    hindi: 'इलेक्ट्रॉनिक्स व मोबाइल',
+    icon: '📱',
+    keywords: [
+      'electronics', 'mobile', 'smartphone', 'iphone', 'samsung', 'vivo', 'oppo', 'xiaomi',
+      'laptop', 'computer', 'pc', 'printer', 'tv', 'smart tv', 'led tv', 'fridge', 'refrigerator',
+      'ac', 'cooler', 'washing machine', 'microwave', 'geyser', 'inverter battery', 'speaker',
+      'headphones', 'accessories', 'mobile repair',
+      'इलेक्ट्रॉनिक्स', 'मोबाइल', 'लैपटॉप', 'कंप्यूटर', 'टीवी', 'फ्रिज', 'कूलर', 'बैटरी',
+    ],
+  },
+  fashion: {
+    title: 'Clothes & Boutique',
+    hindi: 'कपड़े व फैशन बुटीक',
+    icon: '👗',
+    keywords: [
+      'fashion', 'clothes', 'clothing', 'garments', 'boutique', 'saree', 'suit', 'salwar',
+      'kurti', 'lehenga', 'menswear', 'shirt', 'jeans', 'trouser', ' ethnic wear', 'kids wear',
+      'tailor', 'stitching', 'silai', 'shoes', 'footwear', 'sandals', 'jewellery', 'artificial jewellery',
+      'cosmetics', 'bags', 'watches',
+      'कपड़े', 'फैशन', 'बुटीक', 'साड़ी', 'सूट', 'कुर्ती', 'टेलर', 'सिलाई', 'जूते', 'ज्वेलरी',
+    ],
+  },
+  furniture: {
+    title: 'Furniture & Decor',
+    hindi: 'फर्नीचर व सजावट',
+    icon: '🪑',
+    keywords: [
+      'furniture', 'decor', 'home decor', 'sofa', 'sofa set', 'bed', 'double bed', 'palang',
+      'mattress', 'gadda', 'dining table', 'chair', 'office chair', 'almirah', 'wardrobe',
+      'dressing table', 'center table', 'modular kitchen', 'curtains', 'parde', 'carpet',
+      'wallpaper', 'interior designer',
+      'फर्नीचर', 'सोफा', 'पलंग', 'गद्दा', 'अलमारी', 'कुर्सी', 'पर्दे', 'सजावट',
+    ],
+  },
+};
 
 /**
- * Extracts all seller-entered free-text and structured product details into a unified corpus
+ * Normalizes query text for consistent comparisons
  */
-function extractSearchableDetailsCorpus(item) {
-  const parts = [];
-
-  if (item.description) parts.push(item.description);
-  if (item.details) parts.push(typeof item.details === 'object' ? JSON.stringify(item.details) : item.details);
-  if (item.bio) parts.push(item.bio);
-  if (item.about) parts.push(item.about);
-
-  // Structured attributes
-  if (Array.isArray(item.features)) parts.push(item.features.join(' '));
-  else if (typeof item.features === 'string') parts.push(item.features);
-
-  if (Array.isArray(item.amenities)) parts.push(item.amenities.join(' '));
-  else if (typeof item.amenities === 'string') parts.push(item.amenities);
-
-  if (Array.isArray(item.tags)) parts.push(item.tags.join(' '));
-  else if (typeof item.tags === 'string') parts.push(item.tags);
-
-  if (Array.isArray(item.services)) parts.push(item.services.join(' '));
-  else if (typeof item.services === 'string') parts.push(item.services);
-
-  if (item.brand) parts.push(item.brand);
-  if (item.model) parts.push(item.model);
-  if (item.condition) parts.push(item.condition);
-  if (item.fuelType) parts.push(item.fuelType);
-  if (item.transmission) parts.push(item.transmission);
-  if (item.furnished) parts.push(item.furnished);
-  if (item.experience) parts.push(item.experience);
-  if (item.rates || item.price) parts.push(String(item.rates || item.price));
-
-  return parts.join(' ').toLowerCase();
-}
-
-function tokenize(text = '') {
-  if (!text) return [];
-  return String(text)
+export function normalizeSearchText(str = '') {
+  if (!str) return '';
+  return String(str)
     .toLowerCase()
-    .replace(/[^\w\s\u0900-\u097F]/gi, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter((t) => t.length > 1);
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-// ============================================================================
-// 5. INTENT RECOGNITION (<0.1ms using Precompiled Index)
-// ============================================================================
+/**
+ *Bounded Levenshtein distance for typo tolerance on tokens >= 4 chars
+ */
+function editDistance(a = '', b = '') {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  if (Math.abs(a.length - b.length) > 2) return 99;
 
-export function detectSearchIntent(query = '') {
-  const cleanQuery = query.toLowerCase().trim();
-  if (!cleanQuery) return null;
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j;
 
-  const normalizedQuery = normalizeHindiRomanized(cleanQuery);
-  const queryTokens = tokenize(cleanQuery);
-  const normalizedTokens = queryTokens.map((t) => normalizeHindiRomanized(t));
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+}
 
-  // Pass 1: Direct match on raw or normalized keyword
-  for (const intent of PRECOMPILED_INTENT_REGISTRY) {
-    for (let i = 0; i < intent.rawKeywords.length; i++) {
-      const rawKeyword = intent.rawKeywords[i];
-      const normKeyword = intent.normalizedKeywords[i];
+function isFuzzyTokenMatch(queryToken, targetText) {
+  if (!queryToken || !targetText) return false;
+  if (targetText.includes(queryToken)) return true;
+  if (queryToken.length < 4) return false;
 
-      if (
-        cleanQuery === rawKeyword ||
-        normalizedQuery === normKeyword ||
-        cleanQuery.includes(rawKeyword) ||
-        normalizedQuery.includes(normKeyword) ||
-        (normKeyword.length > 3 && normKeyword.includes(normalizedQuery))
-      ) {
-        return {
-          category: intent.category,
-          subCategory: intent.subCategory,
-          label: intent.label,
-          matchedKeyword: rawKeyword,
-        };
+  const targetWords = targetText.split(/\s+/);
+  const maxAllowedDist = queryToken.length >= 6 ? 2 : 1;
+
+  for (const word of targetWords) {
+    if (word.length < 3) continue;
+    if (word.startsWith(queryToken.slice(0, 3))) {
+      if (editDistance(queryToken, word) <= maxAllowedDist) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extracts locality (colony) and max price constraints from natural queries
+ * e.g., "2 bhk flat in budh vihar under 10000"
+ */
+export function parseQueryConstraints(rawQuery = '') {
+  const clean = normalizeSearchText(rawQuery);
+  let detectedZone = null;
+  let maxBudget = null;
+
+  // 1. Check Alwar colonies
+  const zones = Object.keys(CITY_ZONES || {});
+  for (const zone of zones) {
+    const cleanZone = normalizeSearchText(zone);
+    if (cleanZone && clean.includes(cleanZone)) {
+      detectedZone = zone;
+      break;
+    }
+  }
+
+  // 2. Check budget ("under 10000", "below 5000")
+  const budgetMatch = clean.match(/(?:under|below|upto|less than|तक)\s*₹?\s*(\d[\d,]*)/i);
+  if (budgetMatch && budgetMatch[1]) {
+    const val = parseInt(budgetMatch[1].replace(/,/g, ''), 10);
+    if (!isNaN(val) && val > 0) maxBudget = val;
+  }
+
+  return { detectedZone, maxBudget };
+}
+
+/**
+ * 🎯 Detects matching Categories & Subcategories for 1-Tap Smart Intent Routing
+ */
+export function detectSearchIntents(rawQuery = '') {
+  const clean = normalizeSearchText(rawQuery);
+  if (!clean) return [];
+
+  const tokens = clean.split(' ').filter((t) => t.length >= 2);
+  const intentMatches = [];
+
+  Object.entries(CATEGORY_SYNONYMS).forEach(([catId, meta]) => {
+    let score = 0;
+
+    const catNameClean = normalizeSearchText(`${meta.title} ${meta.hindi}`);
+    if (catNameClean.includes(clean)) score += 90;
+
+    // Check synonym keywords
+    for (const kw of meta.keywords) {
+      const cleanKw = normalizeSearchText(kw);
+      if (!cleanKw) continue;
+      if (cleanKw === clean) {
+        score += 100;
+      } else if (clean.includes(cleanKw) || cleanKw.includes(clean)) {
+        score += 65;
+      } else {
+        for (const tok of tokens) {
+          if (tok.length >= 3 && (cleanKw.includes(tok) || isFuzzyTokenMatch(tok, cleanKw))) {
+            score += 35;
+          }
+        }
       }
     }
+
+    // Check subcategories in TAXONOMY_REGISTRY
+    let matchedSubCategory = null;
+    const taxCat = TAXONOMY_REGISTRY?.[catId];
+    const subs = taxCat?.subCategories || taxCat?.subcategories || [];
+
+    for (const sub of subs) {
+      const subId = sub.id || sub.key || sub;
+      const subName = typeof sub === 'string' ? sub : `${sub.name || ''} ${sub.hindiName || ''} ${sub.id || ''}`;
+      const cleanSub = normalizeSearchText(subName);
+      if (cleanSub && (cleanSub.includes(clean) || tokens.some((t) => t.length >= 3 && cleanSub.includes(t)))) {
+        score += 75;
+        if (!matchedSubCategory) {
+          matchedSubCategory = {
+            id: subId,
+            name: (typeof sub === 'string' ? sub : sub.name || subId).split('(')[0].trim(),
+          };
+        }
+      }
+    }
+
+    if (score > 0) {
+      intentMatches.push({
+        categoryId: catId,
+        title: meta.title,
+        hindi: meta.hindi,
+        icon: meta.icon,
+        subCategory: matchedSubCategory,
+        score,
+      });
+    }
+  });
+
+  return intentMatches.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+/**
+ * 🔍 Scores a single listing against the search query + intent categories
+ */
+export function scoreListingMatch(item, rawQuery = '', matchedCategoryIds = new Set(), constraints = {}) {
+  if (!item || item.is_active === false || item.has_pending_approval) return 0;
+
+  const cleanQuery = normalizeSearchText(rawQuery);
+  if (!cleanQuery) return 1;
+
+  const stopWords = new Set(['in', 'at', 'near', 'for', 'on', 'the', 'and', 'alwar', 'under', 'below', 'में', 'के', 'पास']);
+  const tokens = cleanQuery.split(' ').filter((t) => t.length >= 2 && !stopWords.has(t));
+  if (tokens.length === 0) tokens.push(cleanQuery);
+
+  const title = normalizeSearchText(item.title || item.name || '');
+  const seller = normalizeSearchText(
+    `${item.sellerName || ''} ${item.seller_name || ''} ${item.business_name || ''} ${item.providerName || ''} ${item.doctorName || ''}`
+  );
+  const category = normalizeSearchText(item.category || '');
+  const subCategory = normalizeSearchText(
+    `${item.subCategory || ''} ${item.sub_category || ''} ${item.trade || ''} ${item.profession || ''} ${item.cuisine || ''}`
+  );
+  const location = normalizeSearchText(`${item.location || ''} ${item.location_name || ''} ${item.landmark || ''}`);
+  const description = normalizeSearchText(`${item.description || ''} ${item.deal_badge || ''} ${item.deal_details || ''} ${item.qualifications || ''}`);
+  const priceStr = normalizeSearchText(String(item.price || item.rates || item.fee || ''));
+  const phoneStr = String(item.phone || item.whatsapp || '');
+
+  const fullHaystack = `${title} ${seller} ${category} ${subCategory} ${location} ${description} ${priceStr}`;
+
+  let score = 0;
+
+  // 1. Exact full phrase match
+  if (title === cleanQuery) {
+    score += 200;
+  } else if (title.startsWith(cleanQuery)) {
+    score += 150;
+  } else if (title.includes(cleanQuery)) {
+    score += 120;
+  } else if (seller.includes(cleanQuery)) {
+    score += 105;
+  } else if (subCategory.includes(cleanQuery)) {
+    score += 95;
+  } else if (fullHaystack.includes(cleanQuery)) {
+    score += 75;
   }
 
-  // Pass 2: Multi-token phonetic overlap
-  for (const intent of PRECOMPILED_INTENT_REGISTRY) {
-    const hasMatch = intent.normalizedKeywords.some((normKw) =>
-      normalizedTokens.some((token) => normKw === token || (token.length > 3 && normKw.includes(token)))
-    );
+  // 2. Phone number search match
+  const digitsOnly = cleanQuery.replace(/\D/g, '');
+  if (digitsOnly.length >= 4 && phoneStr.includes(digitsOnly)) {
+    score += 140;
+  }
 
-    if (hasMatch) {
-      return {
-        category: intent.category,
-        subCategory: intent.subCategory,
-        label: intent.label,
-        matchedKeyword: queryTokens[0],
-      };
+  // 3. Token-by-token scoring with fuzzy tolerance
+  let matchedTokenCount = 0;
+  for (const tok of tokens) {
+    let tokenMatched = false;
+
+    if (title.includes(tok)) {
+      score += 55;
+      tokenMatched = true;
+    } else if (isFuzzyTokenMatch(tok, title)) {
+      score += 40;
+      tokenMatched = true;
+    }
+
+    if (seller.includes(tok)) {
+      score += 45;
+      tokenMatched = true;
+    }
+
+    if (subCategory.includes(tok) || category.includes(tok)) {
+      score += 40;
+      tokenMatched = true;
+    }
+
+    if (location.includes(tok)) {
+      score += 35;
+      tokenMatched = true;
+    }
+
+    if (description.includes(tok) || isFuzzyTokenMatch(tok, description)) {
+      score += 25;
+      tokenMatched = true;
+    }
+
+    if (tokenMatched) matchedTokenCount++;
+  }
+
+  // 4. Synonym / Intent Category Match (e.g., searching "मिस्त्री" or "नल" matches Kaarigar items)
+  if (matchedCategoryIds.has(category)) {
+    score += 45;
+  }
+
+  // If multiple tokens were typed and none matched directly or via category synonym, reject
+  if (score === 0) return 0;
+  if (tokens.length > 1 && matchedTokenCount === 0 && !matchedCategoryIds.has(category)) {
+    return 0;
+  }
+
+  // 5. Locality Constraint Boost
+  if (constraints.detectedZone) {
+    const cleanZone = normalizeSearchText(constraints.detectedZone);
+    if (location.includes(cleanZone)) {
+      score += 50;
     }
   }
 
-  return null;
-}
-
-// ============================================================================
-// 6. MULTI-TOKEN WEIGHTED RANKING & SEARCH ALGORITHM
-// ============================================================================
-
-function scoreListing(item, tokens, normalizedTokens, expandedTerms, intentCategory, rawQuery, normQuery) {
-  let score = 0;
-
-  const rawTitle = (item.title || item.name || '').toLowerCase();
-  const rawSubCat = (item.subCategory || item.sub_category || item.trade || item.profession || item.vehicleType || '').toLowerCase();
-  const rawCat = (item.category || '').toLowerCase();
-  const rawLoc = (item.location || item.location_name || item.landmark || '').toLowerCase();
-  const rawSeller = (item.sellerName || item.driverName || item.trainerName || '').toLowerCase();
-
-  // 🌟 Deep Details Corpus (Description, Specs, Features, Amenities)
-  const rawDetailsCorpus = extractSearchableDetailsCorpus(item);
-
-  const normTitle = normalizeHindiRomanized(rawTitle);
-  const normSubCat = normalizeHindiRomanized(rawSubCat);
-  const normLoc = normalizeHindiRomanized(rawLoc);
-  const normDetailsCorpus = normalizeHindiRomanized(rawDetailsCorpus);
-
-  // A. Category Intent Boost
-  if (intentCategory && (rawCat === intentCategory || (intentCategory === 'vehicles' && (rawCat === 'vehicles' || rawCat === 'transporters')))) {
-    score += 50;
+  // 6. Max Budget Constraint Filter
+  if (constraints.maxBudget) {
+    const numPrice = parseNumericPrice(String(item.price || item.rates || ''));
+    if (numPrice > 0 && numPrice > constraints.maxBudget) {
+      return 0;
+    }
   }
 
-  // B. Full-Query Boosts
-  if (rawTitle === rawQuery || normTitle === normQuery) score += 100;
-  else if (rawTitle.includes(rawQuery) || normTitle.includes(normQuery)) score += 50;
-  else if (rawDetailsCorpus.includes(rawQuery) || normDetailsCorpus.includes(normQuery)) score += 35;
-
-  // C. Token Matching (Raw + Phonetic)
-  tokens.forEach((token, idx) => {
-    const normToken = normalizedTokens[idx] || token;
-
-    if (rawTitle.includes(token) || normTitle.includes(normToken)) score += 16;
-    if (rawSubCat.includes(token) || normSubCat.includes(normToken)) score += 12;
-    if (rawCat.includes(token)) score += 8;
-    if (rawLoc.includes(token) || normLoc.includes(normToken)) score += 7;
-
-    // 🌟 Lister's Description & Specification Match (Weight: 6)
-    if (rawDetailsCorpus.includes(token) || normDetailsCorpus.includes(normToken)) score += 6;
-
-    if (rawSeller.includes(token)) score += 4;
-  });
-
-  // D. Concept Expansion Match (e.g. "gaadi" -> [car, bike, activa, bolero, swift])
-  if (expandedTerms && expandedTerms.length > 0) {
-    expandedTerms.forEach((term) => {
-      if (rawTitle.includes(term) || normTitle.includes(term)) score += 30;
-      if (rawSubCat.includes(term)) score += 20;
-      if (rawCat.includes(term)) score += 15;
-
-      // 🌟 Concept matched inside seller's description/specs
-      if (rawDetailsCorpus.includes(term) || normDetailsCorpus.includes(term)) score += 10;
-    });
+  // 7. Quality & Promotion Tie-Breakers
+  if (item.is_promoted || item.deal_type === 'PAID_PROMO') {
+    score += 12;
+  }
+  if (Number(item.interestCount || 0) > 0) {
+    score += Math.min(10, Number(item.interestCount || 0) * 0.2);
   }
 
   return score;
 }
 
-export function searchHyperlocalListings(query = '', allListings = [], options = {}) {
-  const cleanQuery = (query || '').trim();
-  if (!cleanQuery) {
-    return { intent: null, results: [], totalMatches: 0 };
+/**
+ * 🚀 Master Unified Search Pipeline
+ * Returns { intents, listings, totalCount, constraints }
+ */
+export function performUnifiedSearch(allListings = [], rawQuery = '', options = {}) {
+  const {
+    categoryFilter = 'all',
+    localityFilter = 'all',
+    sortBy = 'relevance',
+    limit = 60,
+  } = options;
+
+  const cleanQuery = normalizeSearchText(rawQuery);
+  const constraints = parseQueryConstraints(rawQuery);
+  const intents = cleanQuery ? detectSearchIntents(rawQuery) : [];
+
+  // Top intent category IDs (score >= 60) for semantic expansion
+  const strongIntentCategoryIds = new Set(
+    intents.filter((i) => i.score >= 60).map((i) => i.categoryId)
+  );
+
+  const scoredResults = [];
+
+  for (const item of allListings) {
+    if (!item || item.is_active === false || item.has_pending_approval) continue;
+
+    // Optional explicit category filter
+    if (categoryFilter && categoryFilter !== 'all') {
+      if (String(item.category || '').toLowerCase() !== String(categoryFilter).toLowerCase()) {
+        continue;
+      }
+    }
+
+    // Optional explicit locality filter
+    if (localityFilter && localityFilter !== 'all') {
+      const locStr = `${item.location || ''} ${item.location_name || ''} ${item.landmark || ''}`.toLowerCase();
+      if (!locStr.includes(localityFilter.toLowerCase())) {
+        continue;
+      }
+    }
+
+    if (!cleanQuery) {
+      scoredResults.push({ item, score: 1 });
+      continue;
+    }
+
+    const score = scoreListingMatch(item, rawQuery, strongIntentCategoryIds, constraints);
+    if (score > 0) {
+      scoredResults.push({ item, score });
+    }
   }
 
-  const selectedCity = (options.selectedCity || 'Alwar').toLowerCase().trim();
-  const limit = options.limit || 40;
-
-  const rawQuery = cleanQuery.toLowerCase();
-  const normQuery = normalizeHindiRomanized(rawQuery);
-  const tokens = tokenize(cleanQuery);
-  const normalizedTokens = tokens.map((t) => normalizeHindiRomanized(t));
-
-  // 1. Detect Category Intent
-  const intent = detectSearchIntent(cleanQuery);
-  const intentCategory = intent ? intent.category : null;
-
-  // 2. Expand Concept Terms
-  let expandedTerms = [];
-  tokens.forEach((token) => {
-    const normT = normalizeHindiRomanized(token);
-    if (CONCEPT_EXPANSIONS[token]) expandedTerms.push(...CONCEPT_EXPANSIONS[token]);
-    if (CONCEPT_EXPANSIONS[normT]) expandedTerms.push(...CONCEPT_EXPANSIONS[normT]);
-  });
-  if (CONCEPT_EXPANSIONS[rawQuery]) expandedTerms.push(...CONCEPT_EXPANSIONS[rawQuery]);
-  if (CONCEPT_EXPANSIONS[normQuery]) expandedTerms.push(...CONCEPT_EXPANSIONS[normQuery]);
-  expandedTerms = [...new Set(expandedTerms)];
-
-  // 3. Filter & Score In-Memory Listings
-  const scored = [];
-  (allListings || []).forEach((item) => {
-    if (!item || !item.id) return;
-
-    const itemCity = (item.city || '').toLowerCase().trim();
-    const itemLoc = (item.location || item.location_name || '').toLowerCase().trim();
-    const matchesCity =
-      !selectedCity ||
-      itemCity === selectedCity ||
-      itemLoc.includes(selectedCity) ||
-      selectedCity.includes(itemCity);
-
-    if (!matchesCity) return;
-
-    const score = scoreListing(
-      item,
-      tokens,
-      normalizedTokens,
-      expandedTerms,
-      intentCategory,
-      rawQuery,
-      normQuery
-    );
-
-    if (score > 0) {
-      scored.push({ item, score });
+  // Sort results
+  scoredResults.sort((a, b) => {
+    if (sortBy === 'price_asc') {
+      const pA = parseNumericPrice(String(a.item.price || '')) || Infinity;
+      const pB = parseNumericPrice(String(b.item.price || '')) || Infinity;
+      return pA - pB;
     }
+    if (sortBy === 'price_desc') {
+      const pA = parseNumericPrice(String(a.item.price || '')) || 0;
+      const pB = parseNumericPrice(String(b.item.price || '')) || 0;
+      return pB - pA;
+    }
+    if (sortBy === 'popular') {
+      return Number(b.item.interestCount || 0) - Number(a.item.interestCount || 0);
+    }
+    if (sortBy === 'rating') {
+      return Number(b.item.rating || 5) - Number(a.item.rating || 5);
+    }
+    // Default: Relevance score descending
+    if (b.score !== a.score) return b.score - a.score;
+    return Number(b.item.interestCount || 0) - Number(a.item.interestCount || 0);
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  const finalListings = scoredResults.slice(0, limit).map((entry) => entry.item);
 
   return {
-    intent,
-    results: scored.slice(0, limit).map((s) => s.item),
-    totalMatches: scored.length,
+    intents,
+    listings: finalListings,
+    totalCount: scoredResults.length,
+    constraints,
   };
 }
+
+// Backwards-compatible named exports
+export function searchListings(allListings = [], query = '', options = {}) {
+  return performUnifiedSearch(allListings, query, options).listings;
+}
+
+export function filterListingsByQuery(listings = [], query = '') {
+  if (!query || !String(query).trim()) return listings;
+  return performUnifiedSearch(listings, query, { limit: 200 }).listings;
+}
+
+export default {
+  TRENDING_SEARCH_CHIPS,
+  CATEGORY_SYNONYMS,
+  normalizeSearchText,
+  detectSearchIntents,
+  scoreListingMatch,
+  performUnifiedSearch,
+  searchListings,
+  filterListingsByQuery,
+};

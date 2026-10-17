@@ -1,145 +1,318 @@
-import React, { useMemo } from 'react';
-import { searchHyperlocalListings } from '../../utils/searchEngine';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useAllListingsSlice } from '../../store/hyperlocalStore';
+import {
+  performUnifiedSearch,
+  TRENDING_SEARCH_CHIPS,
+  CATEGORY_SYNONYMS,
+} from '../../utils/searchEngine';
+import { CITY_ZONES } from '../../data/cityZones';
+
+const RECENT_SEARCHES_KEY = 'aapkekareeb_recent_searches';
+const cleanPhoneNum = (p) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
 
 export default function SearchOverlay({
-  query = '',
-  allListings = [],
+  isOpen = false,
+  initialQuery = '',
   selectedCity = 'Alwar',
   onClose,
+  onSelectCategory,
   onSelectIntent,
-  onSelectItem,
+  onSelectListing,
 }) {
-  // Sub-millisecond in-memory search execution
-  const { intent, results, totalMatches } = useMemo(() => {
-    return searchHyperlocalListings(query, allListings, { selectedCity, limit: 40 });
-  }, [query, allListings, selectedCity]);
+  const allListings = useAllListingsSlice();
+  const inputRef = useRef(null);
 
-  if (!query.trim()) return null;
+  const [query, setQuery] = useState(initialQuery || '');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedZone, setSelectedZone] = useState('all');
+  const [isListening, setIsListening] = useState(false);
+  const [recentSearches, setRecentSearches] = useState(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 80);
+    }
+  }, [isOpen]);
+
+  const saveRecentSearch = (term) => {
+    const clean = String(term || '').trim();
+    if (!clean || clean.length < 2) return;
+    try {
+      const updated = [clean, ...recentSearches.filter((s) => s.toLowerCase() !== clean.toLowerCase())].slice(0, 6);
+      setRecentSearches(updated);
+      localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice search is not supported in this browser.');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'hi-IN';
+      setIsListening(true);
+      recognition.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        if (transcript) {
+          setQuery(transcript.trim());
+          saveRecentSearch(transcript.trim());
+        }
+        setIsListening(false);
+      };
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
+
+  const results = useMemo(() => {
+    if (!query.trim()) return { intents: [], listings: [], totalCount: 0 };
+    return performUnifiedSearch(allListings, query, {
+      categoryFilter: selectedCategory,
+      localityFilter: selectedZone,
+      limit: 40,
+    });
+  }, [allListings, query, selectedCategory, selectedZone]);
+
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-x-0 top-[175px] bottom-16 z-30 max-w-md mx-auto bg-slate-950/98 backdrop-blur-2xl border-t border-slate-800 shadow-2xl flex flex-col overflow-hidden text-slate-100 animate-fade-in">
-      
-      {/* 🌟 Fixed Sub-Header with Query & Match Counter */}
-      <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800/80 flex items-center justify-between shrink-0">
-        <div className="flex items-center space-x-1.5 min-w-0">
-          <span className="text-amber-400 text-xs">⚡</span>
-          <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider truncate">
-            Results for "{query}"
-          </span>
-        </div>
+    <div
+      data-modal-open="true"
+      className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col font-sans select-none animate-fade-in text-slate-100"
+    >
+      {/* Top Search Bar Header */}
+      <div className="w-full max-w-xl mx-auto p-3.5 border-b border-slate-800 space-y-2.5">
+        <div className="flex items-center space-x-2">
+          <div className="flex-1 flex items-center bg-slate-900 border-2 border-amber-400/70 rounded-2xl px-3.5 py-2">
+            <span className="text-amber-400 text-sm mr-2">🔍</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search anything in ${selectedCity}...`}
+              className="w-full bg-transparent text-xs sm:text-sm font-bold text-white placeholder-slate-400 focus:outline-none"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                className="w-5 h-5 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] mr-1.5 cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleVoiceSearch}
+              className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs cursor-pointer ${
+                isListening ? 'bg-rose-600 text-white animate-pulse' : 'bg-slate-800 text-amber-300'
+              }`}
+            >
+              🎤
+            </button>
+          </div>
 
-        <div className="flex items-center space-x-2 shrink-0">
-          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/10 border border-amber-400/30 px-2 py-0.5 rounded-lg">
-            {totalMatches} Found
-          </span>
           <button
             type="button"
             onClick={onClose}
-            className="text-[11px] font-black text-slate-400 hover:text-white px-2 py-0.5 rounded-md hover:bg-slate-800 transition cursor-pointer"
+            className="px-3 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-black text-slate-300 cursor-pointer"
           >
-            ✕
+            Close
           </button>
+        </div>
+
+        {/* Locality Filter */}
+        <div className="flex items-center space-x-2">
+          <select
+            value={selectedZone}
+            onChange={(e) => setSelectedZone(e.target.value)}
+            className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-[11px] font-bold text-slate-200 outline-none"
+          >
+            <option value="all">📍 All {selectedCity} Localities</option>
+            {Object.keys(CITY_ZONES || {}).map((z) => (
+              <option key={z} value={z}>
+                {z}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-[11px] font-bold text-amber-300 outline-none"
+          >
+            <option value="all">🏛️ All 22 Categories</option>
+            {Object.entries(CATEGORY_SYNONYMS).map(([id, meta]) => (
+              <option key={id} value={id}>
+                {meta.icon} {meta.title}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* 🌟 Fully Scrollable Results Panel */}
-      <div className="p-3.5 overflow-y-auto space-y-2.5 flex-1 overscroll-contain pb-10">
-        
-        {/* Category Intent Quick-Jump Pill */}
-        {intent && (
-          <div
-            onClick={() => onSelectIntent && onSelectIntent(intent.category, intent.subCategory)}
-            className="p-3 bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-slate-900/50 border border-amber-400/40 rounded-2xl cursor-pointer active:scale-[0.98] transition shadow-md flex items-center justify-between group"
-          >
-            <div className="min-w-0 pr-2">
-              <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider block">
-                ⚡ Category Quick Match
+      {/* Body Results */}
+      <div className="flex-1 overflow-y-auto w-full max-w-xl mx-auto p-4 space-y-4">
+        {!query.trim() ? (
+          <div className="space-y-4">
+            {recentSearches.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-slate-400">
+                    🕒 Recent Searches
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecentSearches([]);
+                      localStorage.removeItem(RECENT_SEARCHES_KEY);
+                    }}
+                    className="text-[10px] text-rose-400 font-bold cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {recentSearches.map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => setQuery(term)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-200 cursor-pointer"
+                    >
+                      🕒 {term}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <span className="text-[10px] font-black uppercase text-amber-400 block">
+                🔥 Trending in {selectedCity}
               </span>
-              <h4 className="text-xs font-black text-white truncate mt-0.5 group-hover:text-amber-300 transition">
-                {intent.label}
-              </h4>
-              <p className="text-[10px] text-slate-300 truncate">
-                Tap to explore all verified listings in {selectedCity}
-              </p>
+              <div className="flex flex-wrap gap-2">
+                {TRENDING_SEARCH_CHIPS.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => {
+                      setQuery(chip.query);
+                      saveRecentSearch(chip.query);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-200 flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <span>{chip.icon}</span>
+                    <span>{chip.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-
-            <div className="px-2.5 py-1.5 bg-amber-400 text-slate-950 rounded-xl text-[10px] font-black shrink-0 flex items-center space-x-1 shadow-md group-hover:translate-x-0.5 transition">
-              <span>Explore</span>
-              <span>➔</span>
-            </div>
-          </div>
-        )}
-
-        {/* Listings List */}
-        {results.length === 0 ? (
-          <div className="text-center py-16 bg-slate-900/40 rounded-2xl border border-slate-800/60 p-6 space-y-2">
-            <span className="text-3xl block">🔍</span>
-            <p className="text-xs font-bold text-slate-300">
-              No listings matched "{query}" in {selectedCity}
-            </p>
-            <p className="text-[10px] text-slate-500 max-w-[240px] mx-auto">
-              Try searching with terms like "Plumber", "2 BHK", "Chota Hathi", "Gym", or "AC Repair".
-            </p>
           </div>
         ) : (
-          results.map((item) => {
-            const coverImage =
-              (item.images && item.images[0]) ||
-              item.image ||
-              'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300';
+          <div className="space-y-4">
+            {/* Intent Matches */}
+            {results.intents.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase text-amber-400 block">
+                  🏛️ Matching Categories
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {results.intents.map((intent) => (
+                    <div
+                      key={`${intent.categoryId}_${intent.subCategory?.id || 'root'}`}
+                      onClick={() => {
+                        saveRecentSearch(query);
+                        onClose && onClose();
+                        if (intent.subCategory?.id && onSelectIntent) {
+                          onSelectIntent(intent.categoryId, intent.subCategory.id);
+                        } else if (onSelectCategory) {
+                          onSelectCategory(intent.categoryId, 'all');
+                        }
+                      }}
+                      className="p-3 rounded-2xl bg-slate-900 border border-amber-400/40 flex items-center justify-between cursor-pointer"
+                    >
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <span className="text-xl">{intent.icon}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-white truncate">
+                            {intent.subCategory ? intent.subCategory.name : intent.title}
+                          </p>
+                          <p className="text-[10px] text-amber-400 font-bold truncate">
+                            {intent.hindi}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-amber-400">➔</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            const priceDisplay = item.price || item.rates || item.rent || item.budget;
+            {/* Listing Results */}
+            <div className="space-y-2.5">
+              <span className="text-[10px] font-black uppercase text-slate-400 block">
+                📦 Matching Listings ({results.totalCount})
+              </span>
 
-            return (
-              <article
-                key={item.id}
-                onClick={() => onSelectItem && onSelectItem(item)}
-                className="p-2.5 bg-slate-900/80 hover:bg-slate-900 border border-slate-800/90 hover:border-amber-400/40 rounded-2xl transition cursor-pointer flex items-center space-x-3 active:scale-[0.99] shadow-xs"
-              >
-                {/* Thumbnail */}
-                <div className="w-16 h-16 rounded-xl bg-slate-800 overflow-hidden shrink-0 border border-slate-700/50">
-                  <img
-                    src={coverImage}
-                    alt={item.title || item.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      e.target.src = 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=300';
+              {results.listings.map((item) => {
+                const phone = cleanPhoneNum(item.phone || item.whatsapp);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      saveRecentSearch(query);
+                      onClose && onClose();
+                      onSelectListing && onSelectListing(item);
                     }}
-                  />
-                </div>
+                    className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-400/50 flex items-center justify-between gap-3 cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <img
+                        src={item.image || item.image_url}
+                        alt={item.title}
+                        className="w-14 h-14 rounded-xl object-cover shrink-0 bg-slate-950"
+                      />
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-black text-white truncate">
+                          {item.title || item.name}
+                        </h4>
+                        <p className="text-xs font-mono font-black text-emerald-400">
+                          {item.price}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          🏬 {item.sellerName} • 📍 {item.location}
+                        </p>
+                      </div>
+                    </div>
 
-                {/* Listing Details */}
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded-md bg-slate-800 text-amber-300 border border-slate-700 truncate max-w-[120px]">
-                      {item.subCategory || item.category || 'LISTING'}
-                    </span>
-                    {priceDisplay && (
-                      <span className="text-[10px] font-black text-emerald-400 font-mono">
-                        {priceDisplay}
-                      </span>
-                    )}
+                    <a
+                      href={`tel:+91${phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-black text-[10px] shrink-0"
+                    >
+                      📞 Call
+                    </a>
                   </div>
-
-                  <h3 className="text-xs font-black text-white truncate leading-snug">
-                    {item.title || item.name}
-                  </h3>
-
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-                    <span className="truncate max-w-[150px]">
-                      📍 {item.location || selectedCity}
-                    </span>
-                    {(item.sellerName || item.driverName) && (
-                      <span className="text-[9px] text-slate-500 truncate max-w-[90px]">
-                        👤 {item.sellerName || item.driverName}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>
