@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
 import { compressMultipleImages } from '../utils/imageCompressor';
 import { hyperlocalStore, getUniqueSubcategoryFallback } from '../store/hyperlocalStore';
+import { SAFE_USER_PROFILE_COLUMNS } from './authService';
 /**
  * Validates UUID or numeric ID format
  */
@@ -733,6 +734,28 @@ export async function approveListingChanges(listingId, approvedData) {
   try {
     const rawStock = String(approvedData.stock_count || approvedData.stockCount || approvedData.capacity || '').replace(/\D/g, '');
 
+    const rawImages =
+      Array.isArray(approvedData.images) && approvedData.images.length > 0
+        ? approvedData.images
+        : Array.isArray(approvedData.image_urls) && approvedData.image_urls.length > 0
+        ? approvedData.image_urls
+        : [];
+    const cleanImages = rawImages.filter((img) => typeof img === 'string' && img.startsWith('http'));
+    const coverImage =
+      cleanImages[0] ||
+      (typeof approvedData.image === 'string' && approvedData.image.startsWith('http')
+        ? approvedData.image
+        : typeof approvedData.image_url === 'string' && approvedData.image_url.startsWith('http')
+        ? approvedData.image_url
+        : getCategoryFallback(approvedData.category));
+    const normalizedImages = cleanImages.length > 0 ? cleanImages : [coverImage];
+
+    const cleanVideos = Array.isArray(approvedData.videos) ? approvedData.videos : [];
+    const cleanVideoUrls =
+      Array.isArray(approvedData.video_urls) && approvedData.video_urls.length > 0
+        ? approvedData.video_urls.filter(Boolean)
+        : cleanVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean);
+
     const dbPayload = {
       title: approvedData.title || approvedData.name,
       category: approvedData.category,
@@ -752,10 +775,10 @@ export async function approveListingChanges(listingId, approvedData) {
       capacity: approvedData.capacity || (rawStock ? `${rawStock} Units Available` : 'Ready Stock'),
       stock_count: rawStock ? parseInt(rawStock, 10) : null,
       condition: approvedData.condition || 'Brand New',
-      image_url: approvedData.image || approvedData.images?.[0] || getCategoryFallback(approvedData.category),
-      image_urls: approvedData.images || approvedData.image_urls || [],
-      video_urls: approvedData.video_urls || (approvedData.videos || []).map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean),
-      videos: approvedData.videos || [],
+      image_url: coverImage,
+      image_urls: normalizedImages,
+      video_urls: cleanVideoUrls,
+      videos: cleanVideos,
       is_active: true,
       has_pending_approval: false,
       pending_changes: null,
@@ -1131,11 +1154,30 @@ export function formatListingRow(row, selectedCity = 'Alwar') {
     !rawFirstUrl || rawFirstUrl.includes('photo-1560518883-ce09059eeffa');
 
   const rowImages =
-    !isLegacyDefault && row.image_urls && row.image_urls.length > 0
-      ? row.image_urls
+    !isLegacyDefault && Array.isArray(row.image_urls) && row.image_urls.length > 0
+      ? row.image_urls.filter(Boolean)
       : !isLegacyDefault && row.image_url
       ? [row.image_url]
       : [uniqueFallback];
+
+  const rowVideos = Array.isArray(row.videos)
+    ? row.videos.filter((v) => v && (typeof v === 'string' || v.url))
+    : [];
+  const rowVideoUrls = Array.isArray(row.video_urls) && row.video_urls.length > 0
+    ? row.video_urls.filter(Boolean)
+    : rowVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean);
+
+  const now = Date.now();
+  const promoExpiry = row.promoted_until || row.deal_expires_at || null;
+  const isExpiryPast = Boolean(promoExpiry && new Date(promoExpiry).getTime() <= now);
+
+  const isPromotionActive = Boolean(
+    (row.is_promoted || row.deal_type === 'PAID_PROMO') && !isExpiryPast
+  );
+
+  const activeDealType = isExpiryPast ? null : (row.deal_type || null);
+  const activeDealBadge = isExpiryPast ? null : (row.deal_badge || (isPromotionActive ? '👑 Sponsored' : null));
+  const activeDealDetails = isExpiryPast ? null : (row.deal_details || null);
 
   return {
     id: row.id,
@@ -1150,14 +1192,17 @@ export function formatListingRow(row, selectedCity = 'Alwar') {
     name: row.title,
     description: row.description || '',
     price: row.price || 'Contact for Price',
-    originalPrice: row.original_price || null,
-    original_price: row.original_price || null,
-    dealType: row.deal_type || null,
-    deal_type: row.deal_type || null,
-    dealBadge: row.deal_badge || null,
-    deal_badge: row.deal_badge || null,
-    dealDetails: row.deal_details || null,
-    deal_details: row.deal_details || null,
+    originalPrice: isExpiryPast ? null : (row.original_price || null),
+    original_price: isExpiryPast ? null : (row.original_price || null),
+    is_promoted: isPromotionActive,
+    promoted_until: isPromotionActive ? promoExpiry : null,
+    deal_expires_at: isExpiryPast ? null : promoExpiry,
+    dealType: activeDealType,
+    deal_type: activeDealType,
+    dealBadge: activeDealBadge,
+    deal_badge: activeDealBadge,
+    dealDetails: activeDealDetails,
+    deal_details: activeDealDetails,
     tokenAmount: row.token_amount || null,
     token_amount: row.token_amount || null,
     doorstepTrial: Boolean(row.doorstep_trial),
@@ -1184,14 +1229,14 @@ export function formatListingRow(row, selectedCity = 'Alwar') {
     images: rowImages,
     image_urls: rowImages,
     videos: rowVideos,
-    video_urls: rowVideoUrls.length > 0 ? rowVideoUrls : rowVideos.map((v) => (typeof v === 'string' ? v : v?.url)).filter(Boolean),
+    video_urls: rowVideoUrls,
     interestCount: row.interest_count || 0,
     interest_count: row.interest_count || 0,
     rating: Number(row.rating || 5.0),
     reviewsCount: Number(row.reviews_count || 0),
     reviews_count: Number(row.reviews_count || 0),
-    verificationBadge: row.verification_badge || 'Verified Listing',
-    verification_badge: row.verification_badge || 'Verified Listing',
+    verificationBadge: isPromotionActive ? '🚀 Featured Sponsor' : (row.verification_badge || 'Verified Listing'),
+    verification_badge: isPromotionActive ? '🚀 Featured Sponsor' : (row.verification_badge || 'Verified Listing'),
     has_pending_approval: Boolean(row.has_pending_approval),
     pending_changes: row.pending_changes || null,
     admin_feedback: row.admin_feedback || null,
@@ -1458,7 +1503,7 @@ export async function fetchSellerProfileFromDB(sellerIdentifier) {
 
   if (supabase) {
     try {
-      let profileQuery = supabase.from('user_profiles').select('*');
+      let profileQuery = supabase.from('user_profiles').select(SAFE_USER_PROFILE_COLUMNS);
       if (userId && isValidDatabaseId(userId)) {
         profileQuery = profileQuery.eq('id', userId);
       } else if (cleanPhone && !isDummy) {
@@ -1672,8 +1717,11 @@ export async function adminTogglePaidPromotion(
     return { success: true, isLocalMock: true, expiresAt };
   }
 
-  // Schema-safe payload using columns guaranteed in public.listings
+  // Schema-safe payload syncing both promotion & deal columns in public.listings
   const basePayload = {
+    is_promoted: Boolean(shouldPromote),
+    promoted_until: expiresAt,
+    promotion_label: shouldPromote ? customLabel : null,
     deal_type: shouldPromote ? 'PAID_PROMO' : null,
     deal_expires_at: expiresAt,
     verification_badge: shouldPromote ? customLabel : 'Verified Listing',

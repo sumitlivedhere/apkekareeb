@@ -30,15 +30,15 @@ import CartDrawer from './components/common/CartDrawer';
 
 // 1. Lazy Loaded User Auth & Profile Station
 const UserAuthDashboard = lazy(() => import('./components/common/UserAuthDashboard'));
-
+const PostListingModal = React.lazy(() => import('./components/common/PostListingModal'));
 // Lazy Loaded Modals & Admin Dashboard
 const ContextualListingModal = lazy(() => import('./components/ContextualListingModal'));
 const ListingDetailModal = lazy(() => import('./components/common/ListingDetailModal'));
 const SellerProfileModal = lazy(() => import('./components/common/SellerProfileModal'));
-const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard'));
+const AdminDashboard = React.lazy(() => import('./components/admin/AdminDashboard'));
 
 // Code-Split Lazy Loaded Category Hubs
-const ProviderDashboard = lazy(() => import('./ProviderDashboard'));
+const ProviderDashboard = React.lazy(() => import('./ProviderDashboard'));
 const MedicalHub = lazy(() => import('./categories/MedicalHub'));
 const PropertyHub = lazy(() => import('./categories/PropertyHub'));
 const VehicleHub = lazy(() => import('./categories/VehicleHub'));
