@@ -12,7 +12,11 @@ import {
   initRealtimeSubscriptions,
 } from './store/hyperlocalStore';
 import { useUserLocation } from './hooks/useUserLocation';
-import { getCurrentUserProfile } from './services/authService';
+import {
+  getCurrentUserProfile,
+  validateAdminSession,
+  clearAdminSession,
+} from './services/authService';
 import { useTheme } from './context/ThemeContext';
 
 // Instant Critical Screens & Modals
@@ -174,11 +178,9 @@ export default function App() {
   const { location: userLocation, isLocating, detectLocation } = useUserLocation();
   const selectedCity = userLocation?.city || 'Alwar';
 
-  // 🛡️ Authentication & Master Admin Key State
+ // 🛡️ Authentication & Server-Verified Master Admin State
   const [currentUser, setCurrentUser] = useState(() => getCurrentUserProfile());
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(
-    () => localStorage.getItem('townhub_admin_unlocked') === 'true'
-  );
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [isAdminKeyModalOpen, setIsAdminKeyModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authActionTitle, setAuthActionTitle] = useState('Verify Phone to Continue');
@@ -251,7 +253,7 @@ export default function App() {
       hyperlocalStore.resetCartOnLogout();
       hyperlocalStore.resetNotificationsOnLogout();
       setIsAdminUnlocked(false);
-      localStorage.removeItem('townhub_admin_unlocked');
+      clearAdminSession();
     }
     hydrateFromDB();
   }, [currentUser?.id, currentUser?.phone, currentUser?.role]);
@@ -301,8 +303,12 @@ export default function App() {
     if (!window.history.state || typeof window.history.state.idx !== 'number') {
       window.history.replaceState({ idx: 0 }, '');
     }
-    hydrateFromDB();
     initRealtimeSubscriptions();
+
+    // Verify any existing admin token with Supabase RPC
+    validateAdminSession().then((isValid) => {
+      setIsAdminUnlocked(isValid);
+    });
   }, []);
 
   // 🔗 1-Tap Deep Link URL Resolver
@@ -832,7 +838,7 @@ export default function App() {
             />
           )}
 
-          {currentScreen === 'admin-dashboard' && (
+          {currentScreen === 'admin-dashboard' && isAdminUnlocked && (
             <AdminDashboard
               selectedCity={selectedCity}
               onBack={goToHome}

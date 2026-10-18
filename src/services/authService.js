@@ -4,6 +4,140 @@ import { hyperlocalStore } from '../store/hyperlocalStore';
 const LOCAL_USER_KEY = 'townhub_user_profile';
 const BUSINESS_SESSION_KEY = 'townhub_business_auth';
 const ADMIN_SESSION_KEY = 'townhub_admin_authenticated';
+const ADMIN_TOKEN_STORAGE_KEY = 'townhub_admin_session_token';
+
+// 🛡️ 2A FIX: Safe public columns (excludes admin_activation_pin, *_pin_hash, admin_notes)
+export const SAFE_USER_PROFILE_COLUMNS = [
+  'id',
+  'phone',
+  'full_name',
+  'city',
+  'area_name',
+  'trust_score',
+  'verification_tier',
+  'is_banned',
+  'is_shadowbanned',
+  'listings_count',
+  'flag_count',
+  'created_at',
+  'is_merchant',
+  'upi_id',
+  'upi_name',
+  'merchant_verified_at',
+  'is_verified',
+  'last_login_at',
+  'business_name',
+  'status',
+  'custom_badge',
+  'updated_at',
+].join(', ');
+
+// Columns needed only during login check
+const AUTH_LOGIN_COLUMNS = `${SAFE_USER_PROFILE_COLUMNS}, secret_pin_hash, resident_pin_hash, business_pin_hash, failed_pin_attempts, lockout_until`;
+
+// Columns needed for Admin CRM (includes pending activation PIN & notes, but NEVER password/PIN hashes)
+const ADMIN_CRM_USER_COLUMNS = `${SAFE_USER_PROFILE_COLUMNS}, admin_activation_pin, admin_notes`;
+
+/**
+ * Strip sensitive hashes/PINs before saving profile to localStorage or React state
+ */
+export function sanitizeUserProfile(profile) {
+  if (!profile || typeof profile !== 'object') return null;
+  const {
+    admin_activation_pin,
+    resident_pin_hash,
+    business_pin_hash,
+    secret_pin_hash,
+    admin_notes,
+    failed_pin_attempts,
+    lockout_until,
+    ...safeProfile
+  } = profile;
+  return safeProfile;
+}
+
+/**
+ * 🛡️ 2B FIX: Verify Master Admin Key via Supabase RPC (Never compare in browser JS)
+ */
+export async function verifyAdminMasterKey(inputKey) {
+  // Remove legacy spoofable boolean keys
+  localStorage.removeItem('townhub_admin_unlocked');
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+
+  const trimmed = String(inputKey || '').trim();
+  if (!trimmed) return { success: false, error: 'Please enter the Admin Key' };
+
+  try {
+    const { data: sessionToken, error } = await supabase.rpc('verify_admin_master_key', {
+      input_key: trimmed,
+    });
+
+    if (error || !sessionToken) {
+      return { success: false, error: 'Invalid Master Admin Key' };
+    }
+
+    sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, sessionToken);
+    sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
+    return { success: true, token: sessionToken };
+  } catch (err) {
+    console.error('Admin verification failed:', err);
+    return { success: false, error: 'Verification failed. Try again.' };
+  }
+}
+
+/**
+ * 🛡️ 2B FIX: Validate Admin Session Token with Supabase on App Startup
+ */
+export async function validateAdminSession() {
+  // Always purge legacy spoofable localStorage keys
+  localStorage.removeItem('townhub_admin_unlocked');
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+
+  const token = sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
+  if (!token) {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    return false;
+  }
+
+  try {
+    const { data: isValid, error } = await supabase.rpc('validate_admin_session', {
+      p_token: token,
+    });
+
+    if (error || !isValid) {
+      sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+      sessionStorage.removeItem(ADMIN_SESSION_KEY);
+      return false;
+    }
+
+    sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
+    return true;
+  } catch {
+    sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    return false;
+  }
+}
+
+/**
+ * 🛡️ 2B FIX: Revoke Admin Session on Logout
+ */
+export async function clearAdminSession() {
+  localStorage.removeItem('townhub_admin_unlocked');
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+  sessionStorage.removeItem(ADMIN_SESSION_KEY);
+
+  const token = sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+
+  if (token && supabase) {
+    try {
+      await supabase.rpc('revoke_admin_session', { p_token: token });
+    } catch {
+      // Ignore network errors during logout cleanup
+    }
+  }
+}
 
 /**
  * Clean 10-digit mobile number helper
@@ -55,12 +189,13 @@ export async function hashPin(pin) {
 }
 
 /**
- * Get active user session profile from localStorage
+ * Get active user session profile from localStorage (always sanitized)
  */
 export function getCurrentUserProfile() {
   try {
     const saved = localStorage.getItem(LOCAL_USER_KEY);
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    return sanitizeUserProfile(JSON.parse(saved));
   } catch {
     return null;
   }
@@ -84,22 +219,26 @@ export function isBusinessAuthorized() {
  * Check if the active session is authorized as Master Admin
  */
 export function isAdminAuthorized() {
-  return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true';
+  return Boolean(
+    sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) &&
+      sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true'
+  );
 }
 
 /**
- * Persist user profile to local session
+ * Persist user profile to local session (always strips sensitive fields first)
  */
 export function setLocalUserProfile(profile) {
   if (!profile) {
     localStorage.removeItem(LOCAL_USER_KEY);
     sessionStorage.removeItem(BUSINESS_SESSION_KEY);
   } else {
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(profile));
+    const safeProfile = sanitizeUserProfile(profile);
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(safeProfile));
     if (
-      profile.is_merchant ||
-      profile.verification_tier === 'merchant' ||
-      profile.verification_tier === 'verified_merchant'
+      safeProfile.is_merchant ||
+      safeProfile.verification_tier === 'merchant' ||
+      safeProfile.verification_tier === 'verified_merchant'
     ) {
       sessionStorage.setItem(BUSINESS_SESSION_KEY, 'authorized');
     }
@@ -125,7 +264,7 @@ export async function checkUserExistence(phone) {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select(`${SAFE_USER_PROFILE_COLUMNS}, secret_pin_hash, resident_pin_hash, business_pin_hash`)
         .eq('phone', cleanPhone)
         .maybeSingle();
 
@@ -134,8 +273,9 @@ export async function checkUserExistence(phone) {
       }
 
       if (data) {
+        const safeProfile = sanitizeUserProfile(data);
         if (data.is_banned) {
-          return { exists: true, hasPin: false, isBanned: true, profile: data };
+          return { exists: true, hasPin: false, isBanned: true, profile: safeProfile };
         }
         const hasSetPin = Boolean(
           data.secret_pin_hash || data.resident_pin_hash || data.business_pin_hash
@@ -146,7 +286,7 @@ export async function checkUserExistence(phone) {
           hasPin: hasSetPin,
           isVerified: isFullyVerified,
           isBanned: false,
-          profile: data,
+          profile: safeProfile,
         };
       }
     } catch (err) {
@@ -158,7 +298,7 @@ export async function checkUserExistence(phone) {
   if (cached && sanitizePhone(cached.phone) === cleanPhone) {
     return {
       exists: true,
-      hasPin: Boolean(cached.secret_pin_hash || cached.resident_pin_hash),
+      hasPin: true,
       isVerified: Boolean(cached.is_verified && cached.status === 'active'),
       isBanned: Boolean(cached.is_banned),
       profile: cached,
@@ -188,7 +328,7 @@ export async function loginWith4DigitPin(phone, pin) {
     try {
       const { data: user, error } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select(AUTH_LOGIN_COLUMNS)
         .eq('phone', cleanPhone)
         .maybeSingle();
 
@@ -200,12 +340,31 @@ export async function loginWith4DigitPin(phone, pin) {
         return { success: false, error: '⛔ This mobile number is suspended by Admin.' };
       }
 
+      // Brute-force lockout check
+      if (user.lockout_until && new Date(user.lockout_until) > new Date()) {
+        const waitMins = Math.ceil((new Date(user.lockout_until) - new Date()) / 60000);
+        return {
+          success: false,
+          error: `Too many failed attempts. Please try again in ${waitMins} min(s).`,
+        };
+      }
+
       const isPinValid =
         user.secret_pin_hash === pinHash ||
         user.resident_pin_hash === pinHash ||
         user.business_pin_hash === pinHash;
 
       if (!isPinValid) {
+        const nextAttempts = (Number(user.failed_pin_attempts) || 0) + 1;
+        const lockoutPayload =
+          nextAttempts >= 5
+            ? {
+                failed_pin_attempts: nextAttempts,
+                lockout_until: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+              }
+            : { failed_pin_attempts: nextAttempts };
+
+        await supabase.from('user_profiles').update(lockoutPayload).eq('phone', cleanPhone);
         return { success: false, error: 'Incorrect Security PIN.' };
       }
 
@@ -221,7 +380,7 @@ export async function loginWith4DigitPin(phone, pin) {
         };
       }
 
-      const sessionProfile = {
+      const sessionProfile = sanitizeUserProfile({
         id: user.id,
         user_id: user.id,
         phone: user.phone,
@@ -235,13 +394,17 @@ export async function loginWith4DigitPin(phone, pin) {
         business_name: user.business_name || null,
         verification_tier:
           user.verification_tier || (user.is_merchant ? 'merchant' : 'resident'),
-      };
+      });
 
       setLocalUserProfile(sessionProfile);
 
       supabase
         .from('user_profiles')
-        .update({ last_login_at: new Date().toISOString() })
+        .update({
+          last_login_at: new Date().toISOString(),
+          failed_pin_attempts: 0,
+          lockout_until: null,
+        })
         .eq('phone', cleanPhone)
         .then(() => {});
 
@@ -262,7 +425,7 @@ export async function loginWith4DigitPin(phone, pin) {
 }
 
 /* ========================================================================= */
-/* 📲 STEP 1: REQUEST ADMIN WHATSAPP ACTIVATION                             */
+/* 📲 STEP 1: REQUEST ADMIN WHATSAPP ACTIVATION                              */
 /* ========================================================================= */
 
 /**
@@ -335,7 +498,7 @@ export async function requestWhatsAppActivation({
 }
 
 /* ========================================================================= */
-/* 🔑 STEP 2: VERIFY ADMIN PIN & SET OWN 4-DIGIT PERMANENT PIN              */
+/* 🔑 STEP 2: VERIFY ADMIN PIN & SET OWN 4-DIGIT PERMANENT PIN               */
 /* ========================================================================= */
 
 /**
@@ -364,7 +527,7 @@ export async function verifyActivationPinAndSetPermanentPin({
     try {
       const { data: user, error } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select(`${SAFE_USER_PROFILE_COLUMNS}, admin_activation_pin`)
         .eq('phone', cleanPhone)
         .maybeSingle();
 
@@ -388,11 +551,13 @@ export async function verifyActivationPinAndSetPermanentPin({
       const updates = {
         is_verified: true,
         status: 'active',
-        admin_activation_pin: null, // Consume PIN
+        admin_activation_pin: null, // Consume plaintext PIN immediately
         secret_pin_hash: hashedPin,
         resident_pin_hash: hashedPin,
         business_pin_hash: user.is_merchant ? hashedPin : null,
         merchant_verified_at: user.is_merchant ? new Date().toISOString() : null,
+        failed_pin_attempts: 0,
+        lockout_until: null,
         last_login_at: new Date().toISOString(),
       };
 
@@ -403,7 +568,7 @@ export async function verifyActivationPinAndSetPermanentPin({
 
       if (updateError) throw updateError;
 
-      const sessionProfile = {
+      const sessionProfile = sanitizeUserProfile({
         id: user.id,
         user_id: user.id,
         phone: user.phone,
@@ -416,10 +581,14 @@ export async function verifyActivationPinAndSetPermanentPin({
         status: 'active',
         business_name: user.business_name || null,
         verification_tier: user.is_merchant ? 'merchant' : 'resident',
-      };
+      });
 
       setLocalUserProfile(sessionProfile);
-      return { success: true, profile: sessionProfile, roleType: user.is_merchant ? 'seller' : 'user' };
+      return {
+        success: true,
+        profile: sessionProfile,
+        roleType: user.is_merchant ? 'seller' : 'user',
+      };
     } catch (err) {
       console.error('Activation verification error:', err);
       return { success: false, error: err.message || 'Verification failed.' };
@@ -430,7 +599,7 @@ export async function verifyActivationPinAndSetPermanentPin({
 }
 
 /* ========================================================================= */
-/* 👑 MASTER ADMIN CRM CONTROLS & SAFE CASCADE DELETION ENGINE              */
+/* 👑 MASTER ADMIN CRM CONTROLS & SAFE CASCADE DELETION ENGINE               */
 /* ========================================================================= */
 
 /**
@@ -452,7 +621,6 @@ export async function adminToggleBanUser(phone, shouldBan = true) {
 
       if (userError) throw userError;
 
-      // Update listings active status according to ban state
       await supabase
         .from('listings')
         .update({ is_active: !shouldBan })
@@ -613,6 +781,7 @@ export async function adminDemoteMerchant(phone) {
 export async function logoutUser() {
   setLocalUserProfile(null);
   sessionStorage.removeItem(BUSINESS_SESSION_KEY);
+  await clearAdminSession();
   try {
     hyperlocalStore.resetCartOnLogout();
   } catch (err) {
@@ -626,12 +795,11 @@ export async function logoutUser() {
 }
 
 export function logoutAdmin() {
-  sessionStorage.removeItem(ADMIN_SESSION_KEY);
-  localStorage.removeItem(ADMIN_SESSION_KEY);
+  clearAdminSession();
 }
 
 /**
- * Fetch categorized user lists for Master Admin CRM
+ * Fetch categorized user lists for Master Admin CRM (excludes PIN hashes)
  */
 export async function getAllUsersForAdmin() {
   let dbUsers = [];
@@ -640,7 +808,7 @@ export async function getAllUsersForAdmin() {
     try {
       const { data, error } = await supabase
         .from('user_profiles')
-        .select('*')
+        .select(ADMIN_CRM_USER_COLUMNS)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -661,7 +829,11 @@ export async function getAllUsersForAdmin() {
       (u) => !u.is_banned && u.is_verified && !u.is_merchant
     ),
     tier3Merchants: allUsers.filter(
-      (u) => !u.is_banned && (u.is_merchant || u.verification_tier === 'merchant' || u.verification_tier === 'verified_merchant')
+      (u) =>
+        !u.is_banned &&
+        (u.is_merchant ||
+          u.verification_tier === 'merchant' ||
+          u.verification_tier === 'verified_merchant')
     ),
     bannedUsers: allUsers.filter((u) => Boolean(u.is_banned)),
     totalCount: allUsers.length,
@@ -746,9 +918,15 @@ export const setCustomPermanentPin = async ({ phone, newPin, roleType, businessN
   });
 };
 
-
-// 👑 Admin Direct User Registration
-export const adminAddNewUser = async ({ phone, fullName, areaName, role, businessName, city = 'Alwar' }) => {
+// 👑 Admin Direct User Registration (Fixed table name from 'profiles' -> 'user_profiles')
+export const adminAddNewUser = async ({
+  phone,
+  fullName,
+  areaName,
+  role,
+  businessName,
+  city = 'Alwar',
+}) => {
   const cleanPhone = sanitizePhone(phone);
   if (cleanPhone.length !== 10) throw new Error('Invalid 10-digit mobile number');
 
@@ -771,9 +949,9 @@ export const adminAddNewUser = async ({ phone, fullName, areaName, role, busines
   };
 
   const { data, error } = await supabase
-    .from('profiles')
+    .from('user_profiles')
     .upsert([userPayload], { onConflict: 'phone' })
-    .select()
+    .select(ADMIN_CRM_USER_COLUMNS)
     .single();
 
   if (error) throw error;
