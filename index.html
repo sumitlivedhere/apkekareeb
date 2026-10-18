@@ -1,33 +1,142 @@
-<!doctype html>
-<html lang="hi">
+<!DOCTYPE html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <!-- Strict Anti-Cache Directives for Mobile Chrome, Safari & WebViews -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#020617" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Aapke Kareeb | आपके करीब — Alwar Hyperlocal</title>
 
-    <!-- 🌟 SEO & Town Identity -->
-    <title>Aapke Kareeb • आपके करीब | आपका लोकल बाज़ार</title>
-    <meta name="description" content="अलवर के सभी लोकल ऑफर्स, प्रॉपर्टी, कारीगर, दुकानें व सेकंड हैंड सामान सीधे अपने फोन पर। 0% कमिशन, सीधे दुकानदार से संपर्क करें।" />
-    <meta name="keywords" content="Alwar local market, Alwar bazaar, property in Alwar, mistri alwar, kaarigar alwar, deals alwar" />
+    <!-- 🚀 Zero-Dependency Live Deployment Sync & Lazy-Chunk Auto-Healer -->
+    <script>
+      (function () {
+        var BUNDLE_STORAGE_KEY = 'aapkekareeb_active_bundle_hash';
+        var isReloading = false;
 
-    <!-- 🌐 OpenGraph / WhatsApp Link Preview -->
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Aapke Kareeb (आपके करीब)" />
-    <meta property="og:title" content="Aapke Kareeb • आपका लोकल बाज़ार" />
-    <meta property="og:description" content="अलवर के सभी लोकल ऑफर्स, प्रॉपर्टी, कारीगर व दुकानें एक जगह। सीधे बात करें बिना किसी बिचौलिए के।" />
-    <meta property="og:image" content="/icons.svg" />
-    <meta property="og:locale" content="hi_IN" />
+        // Extract Vite's hashed entry script (e.g., /assets/index-xxxxx.js)
+        function getRunningBundleSrc() {
+          var scripts = document.querySelectorAll('script[src]');
+          for (var i = 0; i < scripts.length; i++) {
+            var src = scripts[i].getAttribute('src') || '';
+            if (src.indexOf('/assets/index-') !== -1) {
+              return src.split('?')[0];
+            }
+          }
+          return null;
+        }
 
-    <!-- 🐦 Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Aapke Kareeb • आपके करीब" />
-    <meta name="twitter:description" content="अलवर का अपना डिजिटल लोकल बाज़ार।" />
-    <meta name="twitter:image" content="/icons.svg" />
+        // Purge all browser CacheStorage & stale Service Workers
+        function purgeBrowserCaches() {
+          var promises = [];
+          if ('caches' in window) {
+            promises.push(
+              window.caches
+                .keys()
+                .then(function (keys) {
+                  return Promise.all(
+                    keys.map(function (k) {
+                      return window.caches.delete(k);
+                    })
+                  );
+                })
+                .catch(function () {})
+            );
+          }
+          if ('serviceWorker' in navigator) {
+            promises.push(
+              navigator.serviceWorker
+                .getRegistrations()
+                .then(function (regs) {
+                  return Promise.all(
+                    regs.map(function (reg) {
+                      return reg.unregister();
+                    })
+                  );
+                })
+                .catch(function () {})
+            );
+          }
+          return Promise.all(promises);
+        }
+
+        // Fetch live /index.html from Vercel with no-store and compare bundle hash
+        function checkVercelLiveUpdate(onUpdateCallback) {
+          if (isReloading) return;
+
+          var currentBundle = getRunningBundleSrc();
+          // Skip in local 'npm run dev' where Vite serves /src/main.jsx
+          if (!currentBundle) return;
+
+          fetch('/index.html?_cb=' + Date.now(), {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              Pragma: 'no-cache',
+            },
+          })
+            .then(function (res) {
+              if (!res.ok) return null;
+              return res.text();
+            })
+            .then(function (html) {
+              if (!html) return;
+              var match = html.match(/\/assets\/index-[a-zA-Z0-9_-]+\.js/);
+              var latestServerBundle = match ? match[0] : null;
+
+              if (latestServerBundle && latestServerBundle !== currentBundle) {
+                isReloading = true;
+                try {
+                  localStorage.setItem(BUNDLE_STORAGE_KEY, latestServerBundle);
+                } catch (e) {}
+
+                if (typeof onUpdateCallback === 'function') {
+                  onUpdateCallback(latestServerBundle);
+                }
+
+                purgeBrowserCaches().finally(function () {
+                  setTimeout(function () {
+                    window.location.reload();
+                  }, 800);
+                });
+              } else {
+                try {
+                  localStorage.setItem(BUNDLE_STORAGE_KEY, currentBundle);
+                } catch (e) {}
+              }
+            })
+            .catch(function () {});
+        }
+
+        // Expose globally for App.jsx
+        window.__akCheckLiveUpdate = checkVercelLiveUpdate;
+        window.__akPurgeCaches = purgeBrowserCaches;
+
+        // Re-verify immediately if mobile browser restores from back-forward cache
+        window.addEventListener('pageshow', function (event) {
+          if (event.persisted) {
+            checkVercelLiveUpdate();
+          }
+        });
+
+        // Auto-heal if a React.lazy() chunk hash changed after a new Vercel deployment
+        window.addEventListener('vite:preloadError', function (event) {
+          event.preventDefault();
+          purgeBrowserCaches().finally(function () {
+            window.location.reload();
+          });
+        });
+      })();
+    </script>
   </head>
-  <body class="bg-slate-950 text-slate-100 overflow-x-hidden">
+  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

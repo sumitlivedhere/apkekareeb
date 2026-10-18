@@ -115,7 +115,7 @@ const CATEGORY_HUB_MAP = {
   construction: 'construction-hub',
   advertising: 'advertising-hub',
   community: 'community-hub',
-  market: 'market-feed', // 🚀 Opens Newly Open feed directly (Zero subcategories)
+  market: 'market-feed', // 🚀 Opens Newly Open feed directly
   recommerce: 'buysell-hub',
   fitness: 'fitness-hub',
   creators: 'creators-hub',
@@ -169,6 +169,9 @@ export default function App() {
   const { isDark, toggleTheme } = useTheme();
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
   const [historyIndex, setHistoryIndex] = useState(0);
+
+  // 🚀 Live Vercel Deployment Auto-Update Banner State
+  const [isSyncingNewVersion, setIsSyncingNewVersion] = useState(false);
 
   // 📍 GPS Locality & Town Hook
   const { location: userLocation, isLocating, detectLocation } = useUserLocation();
@@ -225,6 +228,45 @@ export default function App() {
       }, 1500);
     }
   };
+
+  // 🚀 Live Deployment & Realtime Database Sync Across All Mobile & Desktop Clients
+  useEffect(() => {
+    const checkDeploymentAndSync = () => {
+      if (typeof window.__akCheckLiveUpdate === 'function') {
+        window.__akCheckLiveUpdate(() => {
+          setIsSyncingNewVersion(true);
+        });
+      }
+    };
+
+    const initialTimer = setTimeout(checkDeploymentAndSync, 1200);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkDeploymentAndSync();
+        hydrateFromDB();
+      }
+    };
+
+    const handleOnline = () => {
+      checkDeploymentAndSync();
+      hydrateFromDB();
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', checkDeploymentAndSync);
+    window.addEventListener('online', handleOnline);
+
+    const intervalId = setInterval(checkDeploymentAndSync, 45000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', checkDeploymentAndSync);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
 
   // 🛒 Synchronize User-Specific Cart & Role Context on Auth Changes
   useEffect(() => {
@@ -353,9 +395,7 @@ export default function App() {
     [roleFilteredAlerts]
   );
 
-  // 🚀 AUTOMATIC CATEGORY RESOLVER FOR PAID PROMOTIONS:
-  // Returns null on Home, Admin, Provider, and Auth screens.
-  // Returns the exact category ID (e.g. 'property', 'kaarigar') on any Category Hub or Feed screen.
+  // 🚀 AUTOMATIC CATEGORY RESOLVER FOR PAID PROMOTIONS
   const activePromotionCategory = useMemo(() => {
     if (
       !currentScreen ||
@@ -640,6 +680,14 @@ export default function App() {
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
+      {/* 🚀 Live Deployment Update Sync Banner */}
+      {isSyncingNewVersion && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black text-xs shadow-2xl flex items-center space-x-2 border border-white/40 animate-bounce">
+          <span>🚀</span>
+          <span>New update live! Syncing now...</span>
+        </div>
+      )}
+
       {/* 🌟 1. Sticky Header (Hidden on Admin Dashboard) */}
       {!isAdminScreen && (
         <header
@@ -778,12 +826,12 @@ export default function App() {
             onSelectItem={(item) => setSelectedDetailItem(item)}
             searchQuery={searchQuery}
             onSearchChange={(q) => navigateTo({ searchQuery: q })}
+            selectedCity={selectedCity}
+            onNewNotification={handleNewNotification}
           />
         )}
 
-        {/* 🚀 AUTOMATIC CATEGORY PROMOTIONS INJECTOR:
-            Renders dynamically on any Category Hub or Category Feed screen.
-            Returns 0px (null) if no active sponsor exists for that category. */}
+        {/* 🚀 AUTOMATIC CATEGORY PROMOTIONS INJECTOR */}
         {activePromotionCategory && (
           <CategoryPromotionsBar
             category={activePromotionCategory}
@@ -839,6 +887,7 @@ export default function App() {
               onSelectSubCategory={(sub) => handleOpenFeed('travel', sub)}
               onPostClick={handleOpenPostModal}
               onBack={goToHome}
+              onNewNotification={handleNewNotification}
             />
           )}
 
@@ -967,6 +1016,9 @@ export default function App() {
               selectedSubCategory={selectedSubCategory}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
+              onSelectSubCategory={(sub) => handleOpenFeed('festival', sub)}
+              onPostClick={handleOpenPostModal}
+              onNewNotification={handleNewNotification}
               onBack={goToHome}
             />
           )}
@@ -1003,6 +1055,7 @@ export default function App() {
               selectedCity={selectedCity}
               onSelectSubCategory={(sub) => handleOpenFeed('market', sub)}
               onPostClick={handleOpenPostModal}
+              onNewNotification={handleNewNotification}
               onBack={goToHome}
             />
           )}
@@ -1133,6 +1186,7 @@ export default function App() {
               selectedCity={selectedCity}
               searchQuery={searchQuery}
               onBack={() => handleBackToCategoryHub('festival')}
+              onPostClick={handleOpenPostModal}
               onNewNotification={handleNewNotification}
             />
           )}
@@ -1165,7 +1219,7 @@ export default function App() {
           )}
           {currentScreen === 'market-feed' && (
             <MarketFeed
-              selectedSubCategory="all"
+              selectedSubCategory={selectedSubCategory || 'all'}
               selectedCity={selectedCity}
               searchQuery={searchQuery}
               onBack={goToHome}
