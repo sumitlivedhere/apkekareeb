@@ -7,6 +7,8 @@ import { initialAdvertisingProviders } from '../data/advertisingData';
 import { initialEducationListings } from '../data/educationData';
 import { initialConstructionListings } from '../data/constructionData';
 import { initialMallsStores } from '../data/mallsData';
+import * as marketDataModule from '../data/marketData';
+
 import { initialRestaurantsList } from '../data/restaurantsData';
 import { initialWhiteCollarListings } from '../data/whiteCollarData';
 import { initialListings } from '../data/mockData';
@@ -870,6 +872,13 @@ class HyperlocalEngineStore {
       constructionListings: (initialConstructionListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'construction' })
       ),
+     marketProducts: (
+        marketDataModule.initialMarketListings ||
+        marketDataModule.initialMarketProducts ||
+        marketDataModule.marketListings ||
+        marketDataModule.default ||
+        []
+      ).map((i) => normalizeDBListing({ ...i, category: 'market' })),
       mallsStores: (initialMallsStores || []).map((i) =>
         normalizeDBListing({ ...i, category: 'malls' })
       ),
@@ -1438,28 +1447,18 @@ class HyperlocalEngineStore {
     this.notify(`thread:${strId}`);
     this.notify('threads');
 
-    this.addNotification({
-      user_id: targetSellerUserId,
-      tag: hasAudio ? 'VOICE INQUIRY' : 'NEW COMMENT',
-      title: `Inquiry on "${listingTitle || targetListing?.title || 'Listing'}"`,
-      message: `${newEntry.userName} sent a ${hasAudio ? 'voice note' : 'message'}.`,
-      time: 'Just now',
-      type: 'comment',
-      targetId: listingId,
-      recipient_role: 'seller',
-      recipient_phone: targetSellerPhone,
-      metadata: {
-        listingId: strId,
-        sellerPhone: targetSellerPhone,
-        sellerUserId: targetSellerUserId,
-        commenterName: newEntry.userName,
-        commenterUserId: currentUser?.id || null,
-        commenterPhone: sanitizePhone(currentUser?.phone),
-        hasAudio,
+    // saveCommentToDB automatically dispatches notifySellerComment() -> saveNotificationToDB()
+    saveCommentToDB(
+      strId,
+      {
+        ...newEntry,
+        userId: currentUser?.id || null,
+        userPhone: sanitizePhone(currentUser?.phone),
       },
-    });
-
-    saveCommentToDB(strId, newEntry, listingTitle, targetSellerPhone, targetSellerUserId).then((dbRow) => {
+      listingTitle || targetListing?.title || 'Listing',
+      targetSellerPhone,
+      targetSellerUserId
+    ).then((dbRow) => {
       if (dbRow && dbRow.id) {
         const list = this.state.threads[strId] || [];
         const idx = list.findIndex((c) => c.id === newEntry.id);
@@ -1585,15 +1584,16 @@ class HyperlocalEngineStore {
       },
     });
 
-    if (supabase && userPhone !== 'guest_device') {
-      try {
-        supabase.rpc('toggle_listing_interest', {
-          p_listing_id: strId,
-          p_phone: userPhone,
+    if (supabase && isValidUuid(strId) && userPhone !== 'guest_device') {
+      supabase
+        .from('listing_interests')
+        .upsert(
+          { listing_id: strId, phone: userPhone },
+          { onConflict: 'listing_id,phone', ignoreDuplicates: true }
+        )
+        .then(() => {
+          updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone, targetSellerUserId);
         });
-      } catch {
-        updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone, targetSellerUserId);
-      }
     } else {
       updateInterestCountInDB(strId, count, listingTitle, targetSellerPhone, targetSellerUserId);
     }
@@ -1646,7 +1646,7 @@ class HyperlocalEngineStore {
     this.notify('reviews');
     this.notify('all');
 
-    if (supabase) {
+    if (supabase && isValidUuid(strId)) {
       try {
         await supabase.from('listing_reviews').insert([
           {
@@ -1866,7 +1866,7 @@ class HyperlocalEngineStore {
     this.notify('cart');
     this.notify('all');
 
-    if (supabase) {
+   if (supabase && isValidUuid(targetId)) {
       supabase
         .from('user_carts')
         .upsert(
@@ -1952,7 +1952,7 @@ class HyperlocalEngineStore {
     this.notify('cart');
     this.notify('all');
 
-    if (supabase) {
+    if (supabase && isValidUuid(targetId)) {
       if (numQty <= 0) {
         supabase
           .from('user_carts')
@@ -2109,11 +2109,18 @@ export async function hydrateFromDB(force = false) {
         .order('created_at', { ascending: false })
         .limit(100);
 
-      // Run all 3 queries concurrently instead of sequentially
-      const [listingsRes, notifsRes, reviewsRes] = await Promise.allSettled([
+      const threadsFetch = supabase
+        .from('listing_threads')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(150);
+
+      // Run all 4 queries concurrently
+      const [listingsRes, notifsRes, reviewsRes, threadsRes] = await Promise.allSettled([
         withTimeout(listingsFetch),
         withTimeout(notifsQuery),
         withTimeout(reviewsFetch),
+        withTimeout(threadsFetch),
       ]);
 
       const listingsData = listingsRes.status === 'fulfilled' ? listingsRes.value?.data : null;
@@ -2148,6 +2155,11 @@ export async function hydrateFromDB(force = false) {
       const reviewsData = reviewsRes.status === 'fulfilled' ? reviewsRes.value?.data : null;
       if (reviewsData && reviewsData.length > 0) {
         hyperlocalStore.hydrateReviews(reviewsData);
+      }
+
+      const threadsData = threadsRes.status === 'fulfilled' ? threadsRes.value?.data : null;
+      if (threadsData && threadsData.length > 0) {
+        hyperlocalStore.hydrateThreads(threadsData);
       }
 
       if (activeUserPhone) {
