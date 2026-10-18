@@ -1,358 +1,286 @@
-import React, { useState } from 'react';
-import { getCategoryById } from '../data/taxonomyRegistry';
-import CategoryListFreeBanner from '../components/common/CategoryListFreeBanner';
-const FESTIVAL_SKINS = [
+import React, { useState, useMemo } from 'react';
+import { useStoreSlice } from '../store/hyperlocalStore';
+import ListingInteractiveCard from '../components/common/ListingInteractiveCard';
+import ListingDetailModal from '../components/common/ListingDetailModal';
+
+export const FESTIVAL_SUBCATEGORIES = [
   {
-    id: 'diwali',
-    name: '🪔 Diwali & Dhanteras (दीपावली व धनतेरस)',
-    tagline: 'Deepawali Shopping, Gold, Auto, Kalakand & Clay Diyas',
-    themeGradient: 'from-[#800d1e] via-[#4d0712] to-[#230208]',
-    pillText: '🪔 Deepawali Mahotsav Live in Alwar',
+    id: 'mela-exhibitions',
+    name: 'City Melas, Fairs & Exhibitions',
+    hindiName: 'शहर के मेले, प्रदर्शनी, झूले व स्टॉल्स',
+    icon: '🎡',
+    desc: 'Dussehra Mela, Matsya Utsav, Handloom Exhibitions, Amusement Rides & Stall Bookings',
+    aliases: ['mela-exhibitions', 'melas-fairs', 'mela', 'fairs', 'exhibition', 'events'],
   },
   {
-    id: 'navratri',
-    name: '💃 Navratri & Dussehra (नवरात्रि व दशहरा)',
-    tagline: 'Dandiya Nights, Ramlila Passes & Puja Vehicle Delivery',
-    themeGradient: 'from-[#7c2d12] via-[#451a03] to-[#1c0a00]',
-    pillText: '💃 Dandiya & Dussehra Mela Active',
+    id: 'sweets-gifting',
+    name: 'Festive Sweets, Dry Fruits & Gift Hampers',
+    hindiName: 'त्योहारी मिठाई, कलाकंद, ड्राई फ्रूट्स व गिफ्ट हैंपर्स',
+    icon: '🎁',
+    desc: 'Alwar Kalakand Boxes, Kaju Katli, Corporate Gift Hampers & Festive Bakery Packs',
+    aliases: ['sweets-gifting', 'festive-sweets', 'gift-hampers', 'sweets', 'gifts', 'mithai'],
   },
   {
-    id: 'teej',
-    name: '🌸 Haryali Teej & Rakhi (तीज व रक्षाबंधन)',
-    tagline: 'Malakhera Gate Ghewar, Bajaja Bazaar Lehariya & Mehendi',
-    themeGradient: 'from-[#831843] via-[#500724] to-[#1f020d]',
-    pillText: '🌸 Shahi Ghewar & Lehariya Specials',
+    id: 'decor-lights',
+    name: 'Lights, Home Decor & Puja Samagri',
+    hindiName: 'सजावट, एलईडी लाइटिंग, दीये व पूजा सामग्री',
+    icon: '🪔',
+    desc: 'LED String Lights, Clay Diyas, Torans,Rangoli, Flowers & Complete Puja Kits',
+    aliases: ['decor-lights', 'decor-lighting', 'puja-samagri', 'lights', 'decor', 'diwali-decor'],
   },
   {
-    id: 'matsya',
-    name: '🎪 Matsya Utsav & City Melas (मत्स्य उत्सव व मेले)',
-    tagline: 'Heritage Tourism, Local Handcrafts & Jagannath Mela',
-    themeGradient: 'from-[#1e1b4b] via-[#0f0e26] to-[#08071a]',
-    pillText: '🎪 Alwar Matsya Festival Specials',
-  },
-  {
-    id: 'all',
-    name: '🏷️ All Town Deals & Offers (शहर के सभी ऑफर्स)',
-    tagline: 'Year-Round Verified Local Town Discounts & Store Sales',
-    themeGradient: 'from-[#1e293b] via-[#0f172a] to-[#020617]',
-    pillText: '🏷️ 100% Verified Alwar Local Store Deals',
+    id: 'fashion-bazaar',
+    name: 'Festive Fashion, Electronics & Bumper Sales',
+    hindiName: 'त्योहारी कपड़े, इलेक्ट्रॉनिक्स व महा-बचत ऑफर्स',
+    icon: '🛍️',
+    desc: 'Ethnic Wear Clearance, Jewellery Offers, Appliance Exchange Melas & Combo Deals',
+    aliases: ['fashion-bazaar', 'sale-offers', 'diwali-offers', 'holi-special', 'bumper-sale', 'offers'],
   },
 ];
 
-const SUBCATEGORY_DETAILS = {
-  'all': {
-    tagline: 'All Verified Alwar Festival Offers & Local Store Discounts',
-    highlights: ['Direct Shopkeeper Contacts', 'Zero Middleman Charges', 'Dhanteras Pre-Bookings', 'Late Night Market Hours'],
-    festiveBadge: 'MAHABACHAT',
-    bannerGradient: 'from-[#3a060f] via-[#22040a] to-[#140206]',
-  },
-  'dhanteras-electronics-auto': {
-    tagline: 'Vehicle Pre-Bookings, Exchange Bonus & 0% Downpayment EMI',
-    highlights: ['Dhanteras Day Assured Delivery', 'TV & Fridge Old Exchange Bonus', 'Free 5-Yr Insurance Combo', 'Instant Bajaj EMI on Spot'],
-    festiveBadge: 'DHANTERAS AUTO',
-    bannerGradient: 'from-[#3d0813] via-[#24040b] to-[#160207]',
-  },
-  'gold-jewellery-bartan': {
-    tagline: '916 Hallmark Gold, Silver Coins & Brass Utensil Sets',
-    highlights: ['Zero Making Charge on Silver Coins', 'BIS 916 Hallmark Gold Jewellery', 'Brass & Copper Puja Utensils', 'Hope Circus Sarafa Bazaar'],
-    festiveBadge: 'HALLMARK SARAFA',
-    bannerGradient: 'from-[#380918] via-[#22040d] to-[#140208]',
-  },
-  'sweets-dryfruits-hampers': {
-    tagline: 'Fresh Alwar Kalakand, Desi Ghee Sweets & Dry Fruit Trays',
-    highlights: ['Original Alwar Milk Cake / Kalakand', 'Bulk Corporate Sweet Boxes', 'Teej/Rakhi Malai Ghewar', 'Mandi Wholesale Dry Fruit Hampers'],
-    festiveBadge: 'DESI GHEE SWEETS',
-    bannerGradient: 'from-[#3a1306] via-[#220a03] to-[#160502]',
-  },
-  'fashion-ethnic-beauty': {
-    tagline: 'Jaipur Lehariya Sarees, Mens Kurtas & Pre-Puja Salon Deals',
-    highlights: ['Bajaja Bazaar Bandhani & Lehariya', 'Mens Festive Silk Kurta-Pajamas', 'Gold Facial & De-tan Salon Packages', 'Hope Circus Pop-up Mehendi'],
-    festiveBadge: 'FESTIVE ETHNIC',
-    bannerGradient: 'from-[#3a081a] via-[#22040f] to-[#16020a]',
-  },
-  'lights-decor-diyas': {
-    tagline: 'Handmade Clay Diyas in Bulk, LED Pixels & Door Torans',
-    highlights: ['Direct Potters (₹80 / 100 Diyas)', '50m Copper Waterproof LED Pixels', 'Terracotta Lakshmi-Ganesh Murtis', 'Balcony Curtain String Falls'],
-    festiveBadge: 'CLAY DIYAS & LED',
-    bannerGradient: 'from-[#2e1205] via-[#1c0a03] to-[#120501]',
-  },
-  'express-home-prep': {
-    tagline: '3-Day Express Whitewash, Sofa Wash & Chandelier Cleaning',
-    highlights: ['3-Day Guaranteed Painting Finish', 'Machine Sofa & Floor Scrubbing', 'Festive Bulb Hanging Service', 'Silent Generator Standby'],
-    festiveBadge: 'EXPRESS HOME PREP',
-    bannerGradient: 'from-[#2b1008] via-[#1a0805] to-[#120303]',
-  },
-  'city-melas-programs': {
-    tagline: 'Ramlila Passes, Dussehra Mela, Temple Darshan & Parking Maps',
-    highlights: ['Dussehra Ground Event Timings', 'Jagannath Temple Aarti Schedule', 'One-Way Traffic & Diversion Maps', 'Designated 2-Wheeler Parking'],
-    festiveBadge: 'CITY MELAS & PUJA',
-    bannerGradient: 'from-[#101e28] via-[#091118] to-[#04080d]',
-  },
-  'flash-deals-clearance': {
-    tagline: 'Midnight Market Hours, Clearance Sales & Shop Scratch Cards',
-    highlights: ['Open till 1:00 AM Midnight', 'Up to 50% Festive Clearance', 'Hope Circus Night Lighting', 'Verified Shopkeeper Vouchers'],
-    festiveBadge: 'HOPE CIRCUS NIGHT',
-    bannerGradient: 'from-[#3a1d06] via-[#211003] to-[#140901]',
-  },
-};
+// Helper to match a listing to a canonical Festival subcategory ID
+export function matchesFestivalSubCategory(item, targetSubId) {
+  if (!item || !targetSubId || targetSubId === 'all') return true;
+  const rawSub = String(
+    item.subCategory || item.sub_category || item.festivalType || item.type || ''
+  )
+    .toLowerCase()
+    .trim();
+
+  const targetLower = String(targetSubId).toLowerCase().trim();
+  if (rawSub === targetLower) return true;
+
+  const subDef = FESTIVAL_SUBCATEGORIES.find((s) => s.id === targetLower);
+  if (subDef && subDef.aliases.includes(rawSub)) return true;
+
+  // Keyword fallback for legacy or untagged festival items
+  const haystack = `${item.title || ''} ${item.description || ''} ${rawSub}`.toLowerCase();
+  if (targetLower === 'mela-exhibitions') {
+    return /mela|fair|exhibition|utsav|stall|ride|प्रदर्शनी|मेला/.test(haystack);
+  }
+  if (targetLower === 'sweets-gifting') {
+    return /sweet|mithai|kalakand|dry fruit|hamper|gift|chocolate|मिठाई|गिफ्ट/.test(haystack);
+  }
+  if (targetLower === 'decor-lights') {
+    return /light|decor|diya|toran|puja|pooja|flower|candle|लाइट|सजावट|पूजा/.test(haystack);
+  }
+  if (targetLower === 'fashion-bazaar') {
+    return /sale|discount|saree|ethnic|kurta|electronic|exchange|appliance|bazaar|सेल|ऑफर/.test(haystack);
+  }
+
+  return false;
+}
 
 export default function FestivalHub({
   selectedCity = 'Alwar',
   onSelectSubCategory,
-  onSelectFestivalCategory,
+  onSelectSub,
+  onOpenFeed,
   onPostClick,
   onBack,
+  onNewNotification,
 }) {
-  const [activeSkin, setActiveSkin] = useState('diwali');
-  const categoryConfig = getCategoryById('festival');
+  const festivalListings = useStoreSlice('festivalListings');
+  const [selectedDetailItem, setSelectedDetailItem] = useState(null);
+  const [inlineSubFilter, setInlineSubFilter] = useState('all');
 
-  const selectedSkinData =
-    FESTIVAL_SKINS.find((s) => s.id === activeSkin) || FESTIVAL_SKINS[0];
+  const activeListings = useMemo(
+    () =>
+      (festivalListings || []).filter(
+        (i) => i && i.is_active !== false && !i.has_pending_approval
+      ),
+    [festivalListings]
+  );
 
-  const handleSelect = (subId, catName) => {
-    if (typeof onSelectSubCategory === 'function') {
-      onSelectSubCategory(subId);
-    } else if (typeof onSelectFestivalCategory === 'function') {
-      onSelectFestivalCategory(subId, catName);
+  const getSubCount = (subId) =>
+    activeListings.filter((item) => matchesFestivalSubCategory(item, subId)).length;
+
+  // Unified handler that calls parent router AND updates local preview filter
+  const handleSubCategoryClick = (subId) => {
+    setInlineSubFilter(subId);
+    const navFn = onSelectSubCategory || onSelectSub || onOpenFeed;
+    if (typeof navFn === 'function') {
+      navFn(subId);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-[#180307] via-[#0d0103] to-[#160206] text-slate-100 font-sans pb-24 select-none relative">
-      
-      {/* Festive Fairy Lights Top Border */}
-      <div className="h-1.5 w-full bg-gradient-to-r from-amber-400 via-rose-500 to-yellow-300 shadow-[0_0_15px_rgba(251,191,36,0.8)]"></div>
+  const displayedListings = useMemo(() => {
+    if (inlineSubFilter === 'all') return activeListings;
+    return activeListings.filter((item) =>
+      matchesFestivalSubCategory(item, inlineSubFilter)
+    );
+  }, [activeListings, inlineSubFilter]);
 
-      {/* Sticky Festive Navigation Bar */}
-      <div className="sticky top-0 z-40 bg-[#1e040a]/95 backdrop-blur-md border-b border-[#5e121e]/70 px-4 py-3 flex items-center justify-between shadow-[0_4px_25px_rgba(0,0,0,0.6)]">
-        <div className="flex items-center space-x-2.5">
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 px-3.5 pt-3 pb-24 space-y-5 font-sans select-none">
+      
+      {/* 🪔 Top Hero Banner */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#2a1810] via-[#0e1720] to-[#241326] border border-amber-400/40 shadow-2xl space-y-3">
+        <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={onBack}
-            className="w-8 h-8 rounded-full bg-[#350a12] hover:bg-[#4d0f1b] border border-amber-500/40 flex items-center justify-center text-amber-300 text-xs font-black cursor-pointer transition active:scale-95 shadow-inner"
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold flex items-center space-x-1.5 cursor-pointer active:scale-95 transition"
           >
-            ←
+            <span>←</span>
+            <span>All Categories</span>
           </button>
-          <div>
-            <div className="flex items-center space-x-1.5 text-[9.5px] font-black tracking-wider text-amber-400">
-              <span>🎪 UTSAV & CITY DEALS</span>
-              <span>•</span>
-              <span className="text-rose-200/80">{selectedCity.toUpperCase()} TEHSIL</span>
-            </div>
-            <h2 className="text-xs font-black text-amber-100 flex items-center space-x-1">
-              <span>🎪 Festival Offers & Melas (त्योहारी ऑफर्स)</span>
-            </h2>
-          </div>
+
+          <span className="px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+            🪔 {selectedCity} Utsav & Mela Hub
+          </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onBack}
-          className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-[#3d0912] to-[#250308] hover:from-[#520d1a] hover:to-[#35050c] text-amber-300 text-[10px] font-bold border border-amber-500/40 transition shadow-sm cursor-pointer"
-        >
-          ← Back
-        </button>
-      </div>
-
-      <div className="max-w-md mx-auto p-3.5 space-y-3.5">
-        
-        {/* Dynamic Festival Season Switcher Tabs */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[9.5px] text-amber-300/80 font-bold px-1">
-            <span>CHOOSE OCCASION / FESTIVAL</span>
-            <span className="text-amber-400">Alwar Calendar</span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {FESTIVAL_SKINS.map((skin) => (
-              <button
-                key={skin.id}
-                type="button"
-                onClick={() => setActiveSkin(skin.id)}
-                className={`px-3 py-1.5 rounded-xl text-[10px] font-black whitespace-nowrap transition cursor-pointer ${
-                  activeSkin === skin.id
-                    ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-[0_0_12px_rgba(251,191,36,0.5)] scale-102'
-                    : 'bg-[#25050d] border border-[#5a111f] text-amber-200/80 hover:bg-[#380813]'
-                }`}
-              >
-                {skin.name}
-              </button>
-            ))}
-          </div>
+        <div className="space-y-1 pt-1">
+          <h1 className="text-lg sm:text-xl font-black text-white flex items-center space-x-2">
+            <span>🪔</span>
+            <span>Festival Offers & Melas in {selectedCity}</span>
+          </h1>
+          <p className="text-xs font-bold text-amber-400">
+            त्योहार ऑफर्स, शहर के मेले, मिठाई हैंपर्स व सजावट बाज़ार
+          </p>
+          <p className="text-[11px] text-slate-300 leading-relaxed">
+            Explore live city melas, exhibitions, festive sweet hampers, lighting decorators, and bumper festival sales across {selectedCity}.
+          </p>
         </div>
 
-        {/* Dynamic Celebration Hero Banner */}
-        <div className={`p-4 rounded-3xl bg-gradient-to-br ${selectedSkinData.themeGradient} border border-amber-400/50 space-y-3 shadow-[0_12px_35px_rgba(128,13,30,0.45)] relative overflow-hidden transition-all duration-300`}>
-          <div className="absolute -top-6 -right-6 w-36 h-36 bg-amber-400/15 rounded-full blur-2xl pointer-events-none"></div>
-          <div className="absolute -bottom-6 -left-6 w-32 h-32 bg-rose-500/20 rounded-full blur-2xl pointer-events-none"></div>
-
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="px-2.5 py-0.5 rounded-full bg-[#1b0307]/80 border border-amber-400/50 text-amber-300 font-black shadow-xs flex items-center space-x-1.5">
-              <span>✨</span>
-              <span>{selectedSkinData.pillText}</span>
-            </span>
-            <span className="text-amber-200 font-bold bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30">
-              0% Commission
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-3 pt-0.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 via-yellow-300 to-yellow-600 p-0.5 shadow-lg flex-shrink-0 animate-pulse">
-              <div className="w-full h-full bg-[#2a040a] rounded-[14px] flex items-center justify-center text-2xl">
-                🎪
-              </div>
-            </div>
-            <div>
-              <h1 className="text-base font-black text-amber-50 tracking-tight leading-snug drop-shadow-sm">
-                {selectedSkinData.name.split('(')[0]}
-              </h1>
-              <p className="text-[11px] text-amber-200/85 font-medium mt-0.5 leading-tight">
-                {selectedSkinData.tagline} in {selectedCity}
-              </p>
-            </div>
-          </div>
-
-          {/* 4 Feature Badges */}
-          <div className="grid grid-cols-4 gap-1.5 pt-1 border-t border-amber-400/20 text-center">
-            <div className="bg-[#1e0307]/80 border border-amber-400/25 p-1.5 rounded-xl">
-              <span className="block text-[10px] font-black text-amber-300">🚗 Auto & TV</span>
-              <span className="text-[7.5px] text-rose-200/70">Dhanteras EMI</span>
-            </div>
-            <div className="bg-[#1e0307]/80 border border-amber-400/25 p-1.5 rounded-xl">
-              <span className="block text-[10px] font-black text-amber-300">🪙 Sarafa</span>
-              <span className="text-[7.5px] text-rose-200/70">916 Gold & Silver</span>
-            </div>
-            <div className="bg-[#1e0307]/80 border border-amber-400/25 p-1.5 rounded-xl">
-              <span className="block text-[10px] font-black text-amber-300">🍬 Kalakand</span>
-              <span className="text-[7.5px] text-rose-200/70">Pure Desi Ghee</span>
-            </div>
-            <div className="bg-[#1e0307]/80 border border-amber-400/25 p-1.5 rounded-xl">
-              <span className="block text-[10px] font-black text-amber-300">⚡ Midnight</span>
-              <span className="text-[7.5px] text-rose-200/70">Hope Circus Sale</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Section Heading */}
-        <div className="flex items-center justify-between text-[10.5px] font-black px-1 text-amber-400 tracking-wider">
-          <span>👑 SELECT FESTIVE CATEGORY (श्रेणी चुनें)</span>
-          <span className="text-rose-300/70">{categoryConfig?.subCategories?.length + 1 || 9} SPECIALTIES</span>
-        </div>
-
-        {/* Single-Column Stacked Cards Layout ("One Below Other") */}
-        <div className="flex flex-col space-y-3">
-          
-          {/* Master "All Offers" Card */}
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2.5 pt-1">
           <button
             type="button"
-            onClick={() => handleSelect('all', 'All Festival Offers')}
-            className="w-full p-3.5 bg-gradient-to-br from-[#400812] via-[#24040b] to-[#170207] hover:from-[#520d1a] hover:to-[#2e050e] text-left rounded-2xl border border-amber-500/50 shadow-[0_6px_20px_rgba(64,8,18,0.4)] transition-all active:scale-[0.99] cursor-pointer group relative overflow-hidden"
+            onClick={() => handleSubCategoryClick('all')}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/40 font-black text-xs cursor-pointer active:scale-95 transition flex items-center justify-center space-x-1.5"
           >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="w-11 h-11 rounded-2xl bg-amber-400/15 border border-amber-400/40 flex items-center justify-center text-2xl shadow-inner group-hover:scale-105 transition-transform">
-                  🌟
+            <span>🎪</span>
+            <span>Explore All ({activeListings.length})</span>
+          </button>
+
+          {onPostClick && (
+            <button
+              type="button"
+              onClick={onPostClick}
+              className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs shadow-lg cursor-pointer active:scale-95 transition"
+            >
+              + Post Festive Offer / Stall
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 🏛️ Subcategory Cards */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+            Browse Festival & Mela Categories (श्रेणी चुनें)
+          </span>
+          {inlineSubFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setInlineSubFilter('all')}
+              className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
+            >
+              Show All ({activeListings.length})
+            </button>
+          )}
+        </div>
+
+        {FESTIVAL_SUBCATEGORIES.map((sub) => {
+          const count = getSubCount(sub.id);
+          const isSelected = inlineSubFilter === sub.id;
+
+          return (
+            <div
+              key={sub.id}
+              onClick={() => handleSubCategoryClick(sub.id)}
+              className={`p-4 rounded-3xl bg-[#0e1720] border shadow-lg transition-all cursor-pointer flex items-center justify-between group active:scale-[0.99] ${
+                isSelected
+                  ? 'border-amber-400 ring-1 ring-amber-400/30'
+                  : 'border-[#1d2b38] hover:border-amber-400/60'
+              }`}
+            >
+              <div className="flex items-center space-x-3.5 min-w-0 pr-2">
+                <div className="w-12 h-12 rounded-2xl bg-[#14232e] border border-[#223340] group-hover:border-amber-400/40 flex items-center justify-center text-2xl shrink-0 shadow-inner">
+                  {sub.icon}
                 </div>
-                <div>
-                  <h3 className="text-sm font-black text-amber-100 group-hover:text-amber-300 transition-colors">
-                    All Festival Offers & Melas (सभी त्योहारी ऑफर्स)
-                  </h3>
-                  <p className="text-[10.5px] text-amber-200/80 font-medium">
-                    {SUBCATEGORY_DETAILS.all.tagline}
+
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-black text-white group-hover:text-amber-200 transition truncate">
+                      {sub.name}
+                    </h3>
+                    <span className="px-2 py-0.2 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-black">
+                      {count}
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-amber-400 truncate">
+                    {sub.hindiName}
+                  </p>
+                  <p className="text-[10.5px] text-slate-400 line-clamp-1">
+                    {sub.desc}
                   </p>
                 </div>
               </div>
-              <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-amber-300 tracking-wider">
-                {SUBCATEGORY_DETAILS.all.festiveBadge}
-              </span>
+
+              <div className="w-9 h-9 rounded-2xl bg-[#14232e] group-hover:bg-amber-400 group-hover:text-slate-950 text-slate-400 border border-[#223340] flex items-center justify-center text-sm font-bold shrink-0 transition">
+                ➔
+              </div>
             </div>
-
-            <div className="mt-3 pt-2.5 border-t border-amber-400/20 flex flex-wrap gap-1.5 items-center">
-              <span className="text-[9px] font-bold text-amber-400 mr-1">Includes:</span>
-              {SUBCATEGORY_DETAILS.all.highlights.map((h, i) => (
-                <span
-                  key={i}
-                  className="text-[8.5px] font-semibold px-2 py-0.5 rounded-full bg-[#1b0307]/80 border border-amber-400/25 text-amber-200/90"
-                >
-                  ✓ {h}
-                </span>
-              ))}
-            </div>
-          </button>
-
-          {/* Subcategories Stacked Vertically with What's Inside Badges */}
-          {categoryConfig?.subCategories?.map((sub) => {
-            const meta = SUBCATEGORY_DETAILS[sub.id] || {
-              tagline: sub.name,
-              highlights: ['Direct Shop Rates', 'Verified Local Dealer', 'Special Festival Discount'],
-              festiveBadge: sub.tag || 'VERIFIED',
-              bannerGradient: 'from-[#2b050d] via-[#1a0308] to-[#120205]',
-            };
-
-            const titleMain = sub.name.split('(')[0].trim();
-            const hindiSub = sub.name.match(/\((.*?)\)/)?.[1] || '';
-
-            return (
-              <button
-                key={sub.id}
-                type="button"
-                onClick={() => handleSelect(sub.id, sub.name)}
-                className={`w-full p-3.5 bg-gradient-to-br ${meta.bannerGradient} hover:border-amber-400/70 text-left rounded-2xl border border-[#5a111f]/70 shadow-[0_5px_18px_rgba(0,0,0,0.3)] transition-all active:scale-[0.99] cursor-pointer group relative overflow-hidden`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-11 h-11 rounded-2xl bg-[#380911] border border-amber-400/30 flex items-center justify-center text-2xl shadow-md group-hover:scale-105 transition-transform flex-shrink-0">
-                      {sub.icon || '🎪'}
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-amber-50 group-hover:text-amber-200 transition-colors leading-snug">
-                        {titleMain}
-                      </h3>
-                      {hindiSub && (
-                        <p className="text-[10px] text-amber-400/90 font-bold leading-tight mt-0.5">
-                          {hindiSub}
-                        </p>
-                      )}
-                      <p className="text-[9.5px] text-rose-200/70 font-medium leading-tight mt-0.5">
-                        {meta.tagline}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-end space-y-1">
-                    <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded-md bg-[#380811] border border-amber-400/30 text-amber-300 tracking-wider">
-                      {sub.tag || meta.festiveBadge}
-                    </span>
-                    <span className="text-amber-400 text-sm font-black group-hover:translate-x-1 transition-transform">
-                      ➔
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-2.5 pt-2 border-t border-[#4a0e19]/80 flex flex-wrap gap-1.5 items-center">
-                  <span className="text-[8.5px] font-bold text-amber-400/90 mr-0.5">क्या मिलेगा:</span>
-                  {meta.highlights.map((item, idx) => (
-                    <span
-                      key={idx}
-                      className="text-[8.5px] font-semibold px-2 py-0.5 rounded-md bg-[#22040a] border border-[#5c1322] text-amber-100/85"
-                    >
-                      • {item}
-                    </span>
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 🌟 5. INTERACTIVE LIST FREE WIDGET */}
-      <CategoryListFreeBanner
-        category="property"
-        selectedCity={selectedCity}
-        onPostClick={onPostClick}
-      />
-
+          );
+        })}
       </div>
+
+      {/* 🌟 Live Festival & Mela Listings Stream on Hub (Clickable -> Opens Full Detail Modal) */}
+      {displayedListings.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+              🪔 Live Melas & Festive Deals ({displayedListings.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => handleSubCategoryClick('all')}
+              className="text-xs font-bold text-cyan-400 hover:underline cursor-pointer"
+            >
+              Open Full Feed ➔
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {displayedListings.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => setSelectedDetailItem(item)}
+                className="cursor-pointer"
+              >
+                <ListingInteractiveCard
+                  item={item}
+                  listing={item}
+                  category="festival"
+                  selectedCity={selectedCity}
+                  onSelect={() => setSelectedDetailItem(item)}
+                  onClick={() => setSelectedDetailItem(item)}
+                  onCardClick={() => setSelectedDetailItem(item)}
+                  onSelectListing={() => setSelectedDetailItem(item)}
+                  onNewNotification={onNewNotification}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Full Listing Detail Modal */}
+      {selectedDetailItem && (
+        <ListingDetailModal
+          item={selectedDetailItem}
+          listing={selectedDetailItem}
+          isOpen={Boolean(selectedDetailItem)}
+          selectedCity={selectedCity}
+          onClose={() => setSelectedDetailItem(null)}
+          onNewNotification={onNewNotification}
+          onSelectListing={(nextItem) => setSelectedDetailItem(nextItem)}
+        />
+      )}
     </div>
   );
 }

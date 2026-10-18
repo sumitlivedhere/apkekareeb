@@ -281,21 +281,17 @@ export const TAXONOMY_REGISTRY = [
     ],
   },
   
-  {
+ {
     id: 'festival',
-    name: 'Festival Offers & Melas (त्योहारी ऑफर्स व मेले)',
-    icon: '🎪',
-    bucketKey: 'festivalOffers',
-    themeColor: 'from-amber-500/20 via-[#1a0508] to-rose-500/20',
+    name: 'Festival Offers & Melas (त्योहार व मेला ऑफर्स)',
+    hindiName: 'त्योहार व मेला ऑफर्स',
+    icon: '🪔',
+    bucketKey: 'festivalListings',
     subCategories: [
-      { id: 'dhanteras-electronics-auto', name: 'Dhanteras Auto & Appliances (गाड़ी, टीवी व इलेक्ट्रॉनिक्स)', icon: '🚗', tag: 'DHANTERAS DEALS' },
-      { id: 'gold-jewellery-bartan', name: 'Sarafa, Gold & Bartan Bazaar (सोना-चांदी व बर्तन बाजार)', icon: '🪙', tag: 'HALLMARK 916' },
-      { id: 'sweets-dryfruits-hampers', name: 'Alwar Kalakand, Sweets & Hampers (अलवर कलाकंद व मिठाई)', icon: '🍬', tag: 'DESI GHEE' },
-      { id: 'fashion-ethnic-beauty', name: 'Festive Lehariya, Ethnic & Beauty (लहरिया, कपड़े व पार्लर)', icon: '👘', tag: 'FESTIVE STYLE' },
-      { id: 'lights-decor-diyas', name: 'Clay Diyas, LED Lights & Torans (दीये, लाइटिंग व सजावट)', icon: '🪔', tag: 'KUMHAR & LIGHTS' },
-      { id: 'express-home-prep', name: 'Express Home Clean & Paint (घर की रंगाई व सफाई)', icon: '🧹', tag: 'EXPRESS PREP' },
-      { id: 'city-melas-programs', name: 'Alwar Melas, Ramlila & Events (मेले, रामलीला व दर्शन गाइड)', icon: '🎡', tag: 'CITY EVENTS' },
-      { id: 'flash-deals-clearance', name: 'Hope Circus Late-Night Deals (होप सर्कस नाइट बाजार)', icon: '⚡', tag: 'MIDNIGHT BAZAAR' },
+      { id: 'mela-exhibitions', name: 'City Melas, Fairs & Exhibitions (शहर के मेले व प्रदर्शनी)' },
+      { id: 'sweets-gifting', name: 'Festive Sweets, Dry Fruits & Gift Hampers (मिठाई व गिफ्ट हैंपर्स)' },
+      { id: 'decor-lights', name: 'Lights, Home Decor & Puja Samagri (सजावट, लाइटिंग व पूजा सामग्री)' },
+      { id: 'fashion-bazaar', name: 'Festive Fashion, Electronics & Bumper Sales (त्योहारी महा-सेल)' },
     ],
   },
 

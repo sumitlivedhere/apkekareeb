@@ -1,277 +1,255 @@
-import React, { useMemo, useState } from 'react';
-import { useStoreSlice, useInterestSlice, hyperlocalStore } from '../store/hyperlocalStore';
-import { getCategoryById } from '../data/taxonomyRegistry';
-import ActionButtons from './common/ActionButtons';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useStoreSlice, parseNumericPrice } from '../store/hyperlocalStore';
+import ListingInteractiveCard from './common/ListingInteractiveCard';
 import ListingDetailModal from './common/ListingDetailModal';
+import CategoryPromotionsBar from './common/CategoryPromotionsBar';
+import { matchesFestivalSubCategory } from '../categories/FestivalHub';
+import { CITY_ZONES } from '../data/cityZones';
 
-function FestivalCardItem({ item, selectedCity, onSelect, getMessageTemplate }) {
-  const interestCount = useInterestSlice(
-    item.id,
-    Number(item.interestCount || item.interest_count || 0)
-  );
-
-  const handleStarClick = (e) => {
-    e.stopPropagation();
-    hyperlocalStore.incrementInterest(
-      item.id,
-      interestCount,
-      item.name || item.title,
-      item.sellerName || item.name || 'Festival Merchant'
-    );
-  };
-
-  const gallery =
-    item.images && item.images.length > 0
-      ? item.images
-      : item.image
-      ? [item.image]
-      : ['https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700'];
-
-  const coverImg = gallery[0];
-
-  const mapUrl =
-    item.mapUrl ||
-    (item.lat && item.lng
-      ? `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`
-      : null);
-
-  return (
-    <article
-      onClick={onSelect}
-      className={`bg-gradient-to-b from-[#24060d] via-[#1a0409] to-[#130206] rounded-3xl overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.4)] border transition p-3.5 space-y-3 relative cursor-pointer hover:border-amber-400/70 hover:shadow-[0_10px_30px_rgba(128,13,30,0.35)] active:scale-[0.99] group ${
-        item.isNew
-          ? 'border-amber-400 ring-2 ring-amber-400/30'
-          : 'border-[#5a111f]/80'
-      }`}
-    >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/0 group-hover:bg-amber-500/10 rounded-full blur-2xl transition-all pointer-events-none"></div>
-
-      {/* Photo Banner */}
-      <div className="relative h-48 w-full bg-[#1b0307] rounded-2xl overflow-hidden shadow-inner select-none border border-[#4d0c18]">
-        <img
-          src={coverImg}
-          alt={item.name || item.title}
-          loading="lazy"
-          className="w-full h-full object-cover group-hover:scale-103 transition duration-500"
-          onError={(e) => {
-            e.target.src = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=700';
-          }}
-        />
-
-        {/* Package / Offer Tag */}
-        <span className="absolute bottom-2.5 left-2.5 text-xs font-black px-3 py-1 rounded-xl text-amber-200 bg-[#160206]/90 backdrop-blur-md border border-amber-400/40 shadow-md">
-          🏷️ {item.startingPackage || item.price || item.rates || 'Special Festive Deal'}
-        </span>
-
-        {/* Multi-Photo Indicator */}
-        {gallery.length > 1 && (
-          <span className="absolute top-2.5 left-2.5 text-[9.5px] font-black px-2 py-0.5 rounded-lg text-amber-100 bg-[#160206]/85 backdrop-blur-xs border border-amber-400/30">
-            📷 {gallery.length} Photos
-          </span>
-        )}
-
-        {/* Star Interest Counter */}
-        <button
-          type="button"
-          onClick={handleStarClick}
-          className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-[#22040a]/90 hover:bg-[#380811] text-amber-300 border border-amber-400/40 text-[10px] font-black flex items-center space-x-1 backdrop-blur-xs transition active:scale-90 cursor-pointer shadow-md"
-        >
-          <span>⭐</span>
-          <span>{interestCount}</span>
-        </button>
-      </div>
-
-      {/* Card Details */}
-      <div className="pt-0.5 space-y-2">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0 pr-2">
-            <h3 className="font-black text-amber-50 text-sm leading-snug group-hover:text-amber-200 transition-colors truncate">
-              {item.name || item.title}
-            </h3>
-            {(item.sellerName || item.name) && (
-              <p className="text-[10.5px] text-amber-400 font-bold mt-0.5 truncate flex items-center space-x-1">
-                <span>🏪</span>
-                <span>{item.sellerName || item.name}</span>
-              </p>
-            )}
-          </div>
-          <span className="text-[9px] font-black text-amber-300 bg-[#380911] border border-amber-400/30 px-2 py-0.5 rounded-md shrink-0 tracking-wider shadow-xs">
-            {item.badge || 'FESTIVE OFFER'}
-          </span>
-        </div>
-
-        {item.description && (
-          <p className="text-[11px] text-amber-100/75 line-clamp-2 leading-relaxed font-medium">
-            {item.description}
-          </p>
-        )}
-
-        <div className="flex items-center justify-between text-[11px] pt-2 border-t border-[#470d17]/80">
-          <div className="flex items-center space-x-1 text-rose-200/80 font-semibold truncate max-w-[220px]">
-            <span>📍</span>
-            <span className="truncate">{item.location || selectedCity}</span>
-          </div>
-
-          {mapUrl && (
-            <a
-              href={mapUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="px-2.5 py-1 bg-[#33070f] hover:bg-[#4a0b17] text-amber-300 border border-amber-400/30 rounded-lg text-[10px] font-black flex items-center space-x-1 shrink-0 transition shadow-xs"
-            >
-              <span>🗺️</span>
-              <span>View Map</span>
-            </a>
-          )}
-        </div>
-      </div>
-
-      {/* 1-Click Action Buttons */}
-      <div onClick={(e) => e.stopPropagation()} className="pt-1">
-        <ActionButtons
-          phone={item.phone || '9876543291'}
-          whatsapp={item.whatsapp || item.phone || '919876543291'}
-          message={getMessageTemplate(item)}
-        />
-      </div>
-    </article>
-  );
-}
+const FESTIVAL_TABS = [
+  { id: 'all', label: 'All Festival & Melas', icon: '🪔' },
+  { id: 'mela-exhibitions', label: 'Melas & Fairs', icon: '🎡' },
+  { id: 'sweets-gifting', label: 'Sweets & Gift Hampers', icon: '🎁' },
+  { id: 'decor-lights', label: 'Lights & Decor', icon: '✨' },
+  { id: 'fashion-bazaar', label: 'Festive Sales & Bazaar', icon: '🛍️' },
+];
 
 export default function FestivalFeed({
-  vendors: propVendors,
-  selectedSubCategory,
-  selectedCategory,
+  selectedSubCategory = 'all',
+  subCategory,
+  initialSubCategory,
   selectedCity = 'Alwar',
   searchQuery = '',
   onBack,
+  onPostClick,
   onNewNotification,
 }) {
-  const storeVendors = useStoreSlice('festivalOffers') || [];
-  const allVendors = propVendors && propVendors.length > 0 ? propVendors : storeVendors;
+  const festivalListings = useStoreSlice('festivalListings');
 
-  const targetSub = (selectedSubCategory || selectedCategory || 'all').toLowerCase().trim();
-  const categoryConfig = getCategoryById('festival') || { subCategories: [] };
-  const subCategories = categoryConfig.subCategories || [];
+  const resolvedInitialSub =
+    selectedSubCategory || subCategory || initialSubCategory || 'all';
 
+  const [activeSub, setActiveSub] = useState(resolvedInitialSub);
+  const [localSearch, setLocalSearch] = useState(searchQuery || '');
+  const [selectedLocality, setSelectedLocality] = useState('all');
+  const [sortBy, setSortBy] = useState('popular');
   const [selectedDetailItem, setSelectedDetailItem] = useState(null);
 
-  const filteredVendors = useMemo(() => {
-    const q = (searchQuery || '').toLowerCase().trim();
-    const city = (selectedCity || '').toLowerCase().trim();
+  // Sync tab whenever parent changes selectedSubCategory
+  useEffect(() => {
+    const nextSub = selectedSubCategory || subCategory || initialSubCategory;
+    if (nextSub) {
+      setActiveSub(nextSub);
+    }
+  }, [selectedSubCategory, subCategory, initialSubCategory]);
 
-    const uniqueMap = new Map();
+  const filteredListings = useMemo(() => {
+    let list = (festivalListings || []).filter(
+      (item) => item && item.is_active !== false && !item.has_pending_approval
+    );
 
-    (allVendors || []).forEach((item) => {
-      if (!item || !item.id) return;
+    // 1. Subcategory filter (with alias & keyword support)
+    if (activeSub !== 'all') {
+      list = list.filter((item) => matchesFestivalSubCategory(item, activeSub));
+    }
 
-      // 1. City Match
-      const itemCity = (item.city || '').toLowerCase().trim();
-      const itemLoc = (item.location || '').toLowerCase().trim();
-      const matchesCity =
-        !city ||
-        itemCity === city ||
-        itemLoc.includes(city) ||
-        city.includes(itemCity);
+    // 2. Locality filter
+    if (selectedLocality !== 'all') {
+      list = list.filter((item) =>
+        String(item.location || item.location_name || '')
+          .toLowerCase()
+          .includes(selectedLocality.toLowerCase())
+      );
+    }
 
-      if (!matchesCity) return;
+    // 3. Search query filter
+    const q = (localSearch || searchQuery || '').toLowerCase().trim();
+    if (q) {
+      list = list.filter(
+        (item) =>
+          String(item.title || item.name || '').toLowerCase().includes(q) ||
+          String(item.sellerName || item.seller_name || '').toLowerCase().includes(q) ||
+          String(item.description || '').toLowerCase().includes(q) ||
+          String(item.deal_badge || '').toLowerCase().includes(q) ||
+          String(item.location || item.location_name || '').toLowerCase().includes(q)
+      );
+    }
 
-      // 2. Strict Subcategory Match
-      const itemSub = (item.subCategory || item.vendorType || item.sub_category || '').toLowerCase().trim();
-      const matchesSub = targetSub === 'all' || itemSub === targetSub;
-      if (!matchesSub) return;
+    // 4. Sort
+    return [...list].sort((a, b) => {
+      const aPromo = a.is_promoted || a.deal_type === 'PAID_PROMO' ? 1 : 0;
+      const bPromo = b.is_promoted || b.deal_type === 'PAID_PROMO' ? 1 : 0;
+      if (bPromo !== aPromo) return bPromo - aPromo;
 
-      // 3. Search Query Filter
-      if (q) {
-        const matchesQuery =
-          item.name?.toLowerCase().includes(q) ||
-          item.title?.toLowerCase().includes(q) ||
-          item.sellerName?.toLowerCase().includes(q) ||
-          item.description?.toLowerCase().includes(q) ||
-          item.location?.toLowerCase().includes(q);
-        if (!matchesQuery) return;
+      if (sortBy === 'rating') {
+        return Number(b.rating || 4.8) - Number(a.rating || 4.8);
       }
-
-      uniqueMap.set(String(item.id), item);
+      if (sortBy === 'price_asc') {
+        const pA = parseNumericPrice(String(a.price || '')) || 0;
+        const pB = parseNumericPrice(String(b.price || '')) || 0;
+        return pA - pB;
+      }
+      if (sortBy === 'price_desc') {
+        const pA = parseNumericPrice(String(a.price || '')) || 0;
+        const pB = parseNumericPrice(String(b.price || '')) || 0;
+        return pB - pA;
+      }
+      return Number(b.interestCount || 0) - Number(a.interestCount || 0);
     });
-
-    return Array.from(uniqueMap.values());
-  }, [allVendors, targetSub, selectedCity, searchQuery]);
-
-  const getSubCategoryTitle = () => {
-    if (targetSub === 'all') return 'All Festive Offers & Melas';
-    const matched = subCategories.find((s) => s.id === targetSub);
-    return matched ? matched.name : targetSub.replace('-', ' ').toUpperCase();
-  };
-
-  const getMessageTemplate = (item) => {
-    return `Namaste ${item.sellerName || item.name || ''}, I saw your festive offer "${item.name || item.title}" on TownHub Alwar. Can you confirm the deal details and availability?`;
-  };
+  }, [festivalListings, activeSub, selectedLocality, localSearch, searchQuery, sortBy]);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#180307] via-[#0d0103] to-[#140206] p-3.5 space-y-3.5 relative z-10 animate-fade-in text-slate-100 pb-24 select-none">
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 px-3.5 pt-3 space-y-4 font-sans select-none">
       
-      {/* Decorative Top Strip */}
-      <div className="h-1 w-full bg-gradient-to-r from-amber-400 via-rose-500 to-yellow-400 shadow-[0_0_12px_rgba(251,191,36,0.7)] rounded-full"></div>
+      {/* Top Header & Filter Controls */}
+      <div className="p-4 rounded-3xl bg-[#0e1720] border border-[#1d2b38] shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold flex items-center space-x-1.5 cursor-pointer active:scale-95 transition"
+          >
+            <span>←</span>
+            <span>Back to Hub</span>
+          </button>
 
-      {/* Royal Festive Category Header */}
-      <div className="bg-gradient-to-r from-[#3b0811] via-[#24040a] to-[#3b0811] p-3.5 rounded-2xl border border-amber-400/40 shadow-[0_6px_20px_rgba(59,8,17,0.45)] flex items-center justify-between">
+          {onPostClick && (
+            <button
+              type="button"
+              onClick={onPostClick}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black text-xs shadow cursor-pointer active:scale-95 transition"
+            >
+              + Post Festive Offer / Mela
+            </button>
+          )}
+        </div>
+
         <div>
-          <div className="flex items-center space-x-1.5 text-[9px] font-black text-amber-400 tracking-wider">
-            <span>🎪 ALWAR FESTIVE DEALS</span>
-            <span>•</span>
-            <span className="text-rose-200/80">{selectedCity.toUpperCase()}</span>
-          </div>
-          <h2 className="text-xs font-black text-amber-50 capitalize leading-snug mt-0.5">
-            {getSubCategoryTitle()}
-          </h2>
-          <p className="text-[10px] text-amber-200/75 font-medium mt-0.5">
-            {filteredVendors.length} active festive offers available in {selectedCity}
+          <h1 className="text-base font-black text-white flex items-center space-x-2">
+            <span>🪔</span>
+            <span>Festival Offers & Melas • {selectedCity}</span>
+          </h1>
+          <p className="text-[11px] text-amber-400 font-bold">
+            त्योहार व मेला ऑफर्स — Tap any card for full details, reviews, cart & map ({filteredListings.length})
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-[10.5px] bg-[#2a040a] hover:bg-[#420813] text-amber-300 border border-amber-400/30 px-3 py-1.5 rounded-xl font-bold active:scale-95 transition cursor-pointer shadow-sm"
-        >
-          ← Categories
-        </button>
+        {/* Subcategory Pills */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {FESTIVAL_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveSub(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center space-x-1.5 shrink-0 ${
+                activeSub === tab.id
+                  ? 'bg-amber-400 text-slate-950 font-black shadow'
+                  : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Search, Locality & Sort Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input
+            type="text"
+            value={localSearch}
+            onChange={(e) => setLocalSearch(e.target.value)}
+            placeholder="Search Mela, Kalakand, Lights, Sale..."
+            className="bg-slate-950 border border-slate-800 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 font-bold outline-none"
+          />
+
+          <select
+            value={selectedLocality}
+            onChange={(e) => setSelectedLocality(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-slate-200 font-bold outline-none"
+          >
+            <option value="all">📍 All {selectedCity} Locations</option>
+            {Object.keys(CITY_ZONES || {}).map((zone) => (
+              <option key={zone} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-amber-300 font-bold outline-none"
+          >
+            <option value="popular">🔥 Most Popular First</option>
+            <option value="rating">⭐ Highest Rated</option>
+            <option value="price_asc">💰 Price: Low to High</option>
+            <option value="price_desc">💎 Price: High to Low</option>
+          </select>
+        </div>
       </div>
 
-      {/* Cards List */}
-      {filteredVendors.length === 0 ? (
-        <div className="bg-gradient-to-br from-[#24050c] via-[#170307] to-[#120205] rounded-3xl p-8 text-center border border-[#520f1c] shadow-lg space-y-2">
-          <span className="text-3xl block animate-bounce">🎪</span>
-          <h4 className="text-xs font-black text-amber-200">No Festive Listings Found</h4>
-          <p className="text-rose-200/70 font-medium text-[10.5px]">
-            No offers currently posted under {targetSub !== 'all' ? targetSub : 'this category'} in {selectedCity}.
+      {/* Paid Promotions Spotlight */}
+      <CategoryPromotionsBar
+        category="festival"
+        selectedCity={selectedCity}
+        onSelectListing={(item) => setSelectedDetailItem(item)}
+      />
+
+      {/* Interactive Clickable Listings Stream */}
+      {filteredListings.length === 0 ? (
+        <div className="p-12 text-center bg-[#0e1720] border border-slate-800 rounded-3xl space-y-3">
+          <span className="text-4xl block">🪔</span>
+          <h3 className="text-sm font-black text-white">No Listings in This Subcategory Yet</h3>
+          <p className="text-xs text-slate-400 max-w-xs mx-auto">
+            Have a festive sale, sweet shop, lighting service, or mela stall in {selectedCity}? Post it here!
           </p>
+          {activeSub !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setActiveSub('all')}
+              className="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-xs cursor-pointer"
+            >
+              Show All Festival Listings
+            </button>
+          )}
         </div>
       ) : (
-        <div className="space-y-3.5">
-          {filteredVendors.map((v) => (
-            <FestivalCardItem
-              key={v.id}
-              item={v}
-              selectedCity={selectedCity}
-              onSelect={() => setSelectedDetailItem(v)}
-              getMessageTemplate={getMessageTemplate}
-            />
+        <div className="space-y-4">
+          {filteredListings.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setSelectedDetailItem(item)}
+              className="cursor-pointer"
+            >
+              <ListingInteractiveCard
+                item={item}
+                listing={item}
+                category="festival"
+                selectedCity={selectedCity}
+                onSelect={() => setSelectedDetailItem(item)}
+                onClick={() => setSelectedDetailItem(item)}
+                onCardClick={() => setSelectedDetailItem(item)}
+                onSelectListing={() => setSelectedDetailItem(item)}
+                onNewNotification={onNewNotification}
+              />
+            </div>
           ))}
         </div>
       )}
 
-      {/* Detail Modal */}
+      {/* Full Listing Detail Modal */}
       {selectedDetailItem && (
         <ListingDetailModal
           item={selectedDetailItem}
+          listing={selectedDetailItem}
+          isOpen={Boolean(selectedDetailItem)}
           selectedCity={selectedCity}
           onClose={() => setSelectedDetailItem(null)}
           onNewNotification={onNewNotification}
+          onSelectListing={(nextItem) => setSelectedDetailItem(nextItem)}
         />
       )}
-    </main>
+    </div>
   );
 }
