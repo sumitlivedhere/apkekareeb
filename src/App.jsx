@@ -170,9 +170,6 @@ export default function App() {
   const [history, setHistory] = useState([INITIAL_NAV_STATE]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
-  // 🚀 Live Vercel Deployment Auto-Update Banner State
-  const [isSyncingNewVersion, setIsSyncingNewVersion] = useState(false);
-
   // 📍 GPS Locality & Town Hook
   const { location: userLocation, isLocating, detectLocation } = useUserLocation();
   const selectedCity = userLocation?.city || 'Alwar';
@@ -229,42 +226,20 @@ export default function App() {
     }
   };
 
-  // 🚀 Live Deployment & Realtime Database Sync Across All Mobile & Desktop Clients
+  // 🔄 Silent Background Database Hydration when User Unlocks Phone or Reconnects
   useEffect(() => {
-    const checkDeploymentAndSync = () => {
-      if (typeof window.__akCheckLiveUpdate === 'function') {
-        window.__akCheckLiveUpdate(() => {
-          setIsSyncingNewVersion(true);
-        });
-      }
-    };
-
-    const initialTimer = setTimeout(checkDeploymentAndSync, 1200);
-
-    const handleVisibilityChange = () => {
+    const handleVisibilityOrOnline = () => {
       if (document.visibilityState === 'visible') {
-        checkDeploymentAndSync();
         hydrateFromDB();
       }
     };
 
-    const handleOnline = () => {
-      checkDeploymentAndSync();
-      hydrateFromDB();
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', checkDeploymentAndSync);
-    window.addEventListener('online', handleOnline);
-
-    const intervalId = setInterval(checkDeploymentAndSync, 45000);
+    window.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
 
     return () => {
-      clearTimeout(initialTimer);
-      clearInterval(intervalId);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', checkDeploymentAndSync);
-      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
     };
   }, []);
 
@@ -680,14 +655,6 @@ export default function App() {
         isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 🚀 Live Deployment Update Sync Banner */}
-      {isSyncingNewVersion && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black text-xs shadow-2xl flex items-center space-x-2 border border-white/40 animate-bounce">
-          <span>🚀</span>
-          <span>New update live! Syncing now...</span>
-        </div>
-      )}
-
       {/* 🌟 1. Sticky Header (Hidden on Admin Dashboard) */}
       {!isAdminScreen && (
         <header

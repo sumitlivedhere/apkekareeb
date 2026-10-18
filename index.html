@@ -15,29 +15,16 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Aapke Kareeb | आपके करीब — Alwar Hyperlocal</title>
 
-    <!-- 🚀 Zero-Dependency Live Deployment Sync & Lazy-Chunk Auto-Healer -->
+    <!-- 🛡️ Safe One-Time Cache Cleaner & Lazy-Chunk Auto-Healer (Zero Loops) -->
     <script>
       (function () {
-        var BUNDLE_STORAGE_KEY = 'aapkekareeb_active_bundle_hash';
-        var isReloading = false;
+        var RELOAD_LOCK_KEY = 'ak_chunk_reload_lock';
 
-        // Extract Vite's hashed entry script (e.g., /assets/index-xxxxx.js)
-        function getRunningBundleSrc() {
-          var scripts = document.querySelectorAll('script[src]');
-          for (var i = 0; i < scripts.length; i++) {
-            var src = scripts[i].getAttribute('src') || '';
-            if (src.indexOf('/assets/index-') !== -1) {
-              return src.split('?')[0];
-            }
-          }
-          return null;
-        }
-
-        // Purge all browser CacheStorage & stale Service Workers
-        function purgeBrowserCaches() {
-          var promises = [];
+        // Purge stale Service Workers & CacheStorage silently
+        function purgeStaleCaches() {
+          var tasks = [];
           if ('caches' in window) {
-            promises.push(
+            tasks.push(
               window.caches
                 .keys()
                 .then(function (keys) {
@@ -51,7 +38,7 @@
             );
           }
           if ('serviceWorker' in navigator) {
-            promises.push(
+            tasks.push(
               navigator.serviceWorker
                 .getRegistrations()
                 .then(function (regs) {
@@ -64,72 +51,18 @@
                 .catch(function () {})
             );
           }
-          return Promise.all(promises);
+          return Promise.all(tasks);
         }
 
-        // Fetch live /index.html from Vercel with no-store and compare bundle hash
-        function checkVercelLiveUpdate(onUpdateCallback) {
-          if (isReloading) return;
-
-          var currentBundle = getRunningBundleSrc();
-          // Skip in local 'npm run dev' where Vite serves /src/main.jsx
-          if (!currentBundle) return;
-
-          fetch('/index.html?_cb=' + Date.now(), {
-            cache: 'no-store',
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              Pragma: 'no-cache',
-            },
-          })
-            .then(function (res) {
-              if (!res.ok) return null;
-              return res.text();
-            })
-            .then(function (html) {
-              if (!html) return;
-              var match = html.match(/\/assets\/index-[a-zA-Z0-9_-]+\.js/);
-              var latestServerBundle = match ? match[0] : null;
-
-              if (latestServerBundle && latestServerBundle !== currentBundle) {
-                isReloading = true;
-                try {
-                  localStorage.setItem(BUNDLE_STORAGE_KEY, latestServerBundle);
-                } catch (e) {}
-
-                if (typeof onUpdateCallback === 'function') {
-                  onUpdateCallback(latestServerBundle);
-                }
-
-                purgeBrowserCaches().finally(function () {
-                  setTimeout(function () {
-                    window.location.reload();
-                  }, 800);
-                });
-              } else {
-                try {
-                  localStorage.setItem(BUNDLE_STORAGE_KEY, currentBundle);
-                } catch (e) {}
-              }
-            })
-            .catch(function () {});
-        }
-
-        // Expose globally for App.jsx
-        window.__akCheckLiveUpdate = checkVercelLiveUpdate;
-        window.__akPurgeCaches = purgeBrowserCaches;
-
-        // Re-verify immediately if mobile browser restores from back-forward cache
-        window.addEventListener('pageshow', function (event) {
-          if (event.persisted) {
-            checkVercelLiveUpdate();
-          }
-        });
-
-        // Auto-heal if a React.lazy() chunk hash changed after a new Vercel deployment
+        // Only if a lazy-loaded chunk fails after a new Vercel deploy, heal once per session
         window.addEventListener('vite:preloadError', function (event) {
           event.preventDefault();
-          purgeBrowserCaches().finally(function () {
+          var lastReload = Number(sessionStorage.getItem(RELOAD_LOCK_KEY) || 0);
+          // Prevent any reload loop (only allow once every 60 seconds max)
+          if (Date.now() - lastReload < 60000) return;
+
+          sessionStorage.setItem(RELOAD_LOCK_KEY, String(Date.now()));
+          purgeStaleCaches().finally(function () {
             window.location.reload();
           });
         });
