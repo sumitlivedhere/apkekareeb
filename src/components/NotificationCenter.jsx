@@ -175,11 +175,18 @@ export default function NotificationCenter({
       case 'REJECTED':
       case 'ADMIN_FEEDBACK':
         return { label: '⚠️ Action Needed', bg: 'bg-rose-400/20 text-rose-300 border-rose-400/30' };
-      case 'INTEREST_ALERT':
+     case 'INTEREST_ALERT':
       case 'INTEREST_REGISTERED':
         return { label: '⭐ Buyer Saved Item', bg: 'bg-amber-400/20 text-amber-300 border-amber-400/30' };
       case 'CART_ADDITION':
         return { label: '🛒 Added to Cart', bg: 'bg-emerald-400/20 text-emerald-300 border-emerald-400/30' };
+      case 'WHATSAPP_LEAD':
+        return { label: '💬 WhatsApp Lead', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' };
+      case 'CALL_INQUIRY':
+        return { label: '📞 Phone Call Lead', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40' };
+      case 'TRUST_&_SAFETY_ALERT':
+      case 'TRUST_SAFETY_ALERT':
+        return { label: '🛡️ Trust & Safety', bg: 'bg-rose-500/20 text-rose-300 border-rose-500/40' };
       case 'NEW_REVIEW':
         return { label: '⭐ New Rating', bg: 'bg-amber-400/20 text-amber-300 border-amber-400/30' };
       case 'DEAL_UPDATE':

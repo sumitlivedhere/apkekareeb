@@ -128,10 +128,26 @@ export default function SellerProfileModal({
     });
   }, [listings, activeCategoryTab, searchQuery]);
 
-  // 6. Direct User Actions
+  // 6. Plan Lookup & Direct User Actions
+  const activeSellerPlan = useMemo(() => {
+    return hyperlocalStore.getSellerPlan(cleanPhone || profile || targetSeller);
+  }, [cleanPhone, profile, targetSeller]);
+
   const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
-    `Namaste ${businessName}, I am browsing your business storefront on Aapke Kareeb (${locationDisplay}). I would like to inquire about your offerings.`
+    `Namaste ${businessName}! 🙏 Maine Aapke Kareeb par aapka store (${locationDisplay}) dekha. Mujhe aapke products/services ke baare mein jankari chahiye.`
   )}`;
+
+  const handleWhatsAppClick = () => {
+    if (targetSeller || profile) {
+      hyperlocalStore.recordLeadAction(profile || targetSeller, 'whatsapp');
+    }
+  };
+
+  const handleCallClick = () => {
+    if (targetSeller || profile) {
+      hyperlocalStore.recordLeadAction(profile || targetSeller, 'call');
+    }
+  };
 
   const handleShare = async () => {
     const shareData = {
@@ -220,7 +236,7 @@ export default function SellerProfileModal({
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                   <h1
                     id="seller-storefront-title"
                     className="font-black text-white text-base leading-tight truncate"
@@ -230,6 +246,11 @@ export default function SellerProfileModal({
                   <span className="text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold shrink-0">
                     ✓ Verified
                   </span>
+                  {activeSellerPlan?.badge && (
+                    <span className="text-[8.5px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                      👑 {activeSellerPlan.badge}
+                    </span>
+                  )}
                 </div>
 
                 <p className="text-[11px] text-slate-400 mt-1 truncate">
@@ -256,6 +277,7 @@ export default function SellerProfileModal({
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleWhatsAppClick}
                 className="py-2.5 px-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl flex items-center justify-center space-x-1.5 text-xs font-black transition active:scale-95 shadow-xs"
               >
                 <span>💬</span>
@@ -264,6 +286,7 @@ export default function SellerProfileModal({
 
               <a
                 href={`tel:${cleanPhone}`}
+                onClick={handleCallClick}
                 className="py-2.5 px-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl flex items-center justify-center space-x-1.5 text-xs font-black transition active:scale-95 shadow-xs"
               >
                 <span>📞</span>

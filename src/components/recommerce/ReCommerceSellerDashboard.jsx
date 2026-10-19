@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { RE_COMMERCE_SUB_CATEGORIES, RE_COMMERCE_CONDITIONS } from '../../data/reCommerceData';
 import { uploadListingImagesToStorage } from '../../services/listingService';
+import { hyperlocalStore, CATEGORY_TTL_HOURS } from '../../store/hyperlocalStore';
 import ListingDetailModal from '../common/ListingDetailModal';
 
 export default function ReCommerceSellerDashboard({
@@ -74,11 +75,14 @@ export default function ReCommerceSellerDashboard({
       uploadedUrls.length > 0 ? uploadedUrls : [fallbackImg];
 
     const cleanPrice = Number(price);
+    const ttlHours = CATEGORY_TTL_HOURS.recommerce || (21 * 24);
+    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
 
     const newListing = {
       id: `rc_${Date.now()}`,
       title: title.trim(),
       name: title.trim(),
+      category: 'recommerce',
       subCategory,
       rawPrice: cleanPrice,
       price: `₹ ${cleanPrice.toLocaleString('en-IN')}`,
@@ -107,8 +111,9 @@ export default function ReCommerceSellerDashboard({
       interestCount: 0,
       interest_count: 0,
       status: 'ACTIVE',
+      expires_at: expiresAt,
       badge: '🟢 Verified Citizen Listing',
-      createdAt: 'Just now',
+      createdAt: new Date().toISOString(),
     };
 
     if (onAddNewListing) {
@@ -469,20 +474,48 @@ export default function ReCommerceSellerDashboard({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onToggleStatus) onToggleStatus(item.id);
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition active:scale-95 shrink-0 cursor-pointer ${
-                      item.status === 'ACTIVE'
-                        ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                    }`}
-                  >
-                    {item.status === 'ACTIVE' ? 'Mark Sold' : 'Relist'}
-                  </button>
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        hyperlocalStore.recordLeadAction(item, 'share');
+                        const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://apkekareeb.com';
+                        const deepLink = `${baseUrl}/?listing=${encodeURIComponent(String(item.id))}`;
+                        const shareText = `📦 *${item.title}* (${item.price})\n📍 ${item.location || selectedCity}\nAbhi ApkeKareeb par photo dekhein aur chat karein:\n${deepLink}`;
+                        window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, '_blank');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition active:scale-95 cursor-pointer flex items-center space-x-1"
+                      title="Share to WhatsApp Status"
+                    >
+                      <span>📲</span>
+                      <span className="hidden xs:inline">Share</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (String(item.status || '').toUpperCase() === 'ACTIVE') {
+                          hyperlocalStore.markListingAsSold(item.id);
+                        } else {
+                          hyperlocalStore.insertListing('recommerce', {
+                            ...item,
+                            status: 'ACTIVE',
+                            sold_at: null,
+                          });
+                        }
+                        if (onToggleStatus) onToggleStatus(item.id);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition active:scale-95 cursor-pointer ${
+                        String(item.status || '').toUpperCase() === 'ACTIVE'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {String(item.status || '').toUpperCase() === 'ACTIVE' ? 'Mark Sold' : 'Relist'}
+                    </button>
+                  </div>
                 </div>
               );
             })

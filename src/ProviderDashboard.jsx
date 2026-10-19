@@ -86,12 +86,17 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   });
   const [isSavingOffer, setIsSavingOffer] = useState(false);
 
-  // 📩 Seller-to-Admin Direct Response State
+  // 📩 Seller-to-Admin & Seller-to-Buyer Direct Response State
   const [replyInputs, setReplyInputs] = useState({});
   const [sellerAdminReplies, setSellerAdminReplies] = useState({});
   const [recordingAdminReplyId, setRecordingAdminReplyId] = useState(null);
   const [adminRecordingSecs, setAdminRecordingSecs] = useState(0);
   const [isSendingAdminReply, setIsSendingAdminReply] = useState(false);
+
+  // 🎙️ Seller-to-Buyer Voice Reply State
+  const [recordingBuyerInqId, setRecordingBuyerInqId] = useState(null);
+  const [buyerRecordingSecs, setBuyerRecordingSecs] = useState(0);
+  const [isSendingBuyerVoice, setIsSendingBuyerVoice] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -107,12 +112,19 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
         changedKey.startsWith('thread:') ||
         changedKey === 'threads' ||
         changedKey === 'all' ||
+        changedKey === 'leadStats' ||
+        changedKey === 'sellerPlans' ||
+        changedKey === 'listings' ||
         changedKey.startsWith('interest:')
       ) {
         setThreadUpdateTick((prev) => prev + 1);
       }
     });
   }, []);
+
+  const activeSellerPlan = useMemo(() => {
+    return hyperlocalStore.getSellerPlan(sellerPhone || currentUser);
+  }, [sellerPhone, currentUser, threadUpdateTick]);
 
   const showNotice = (msg) => {
     setActionNotice(msg);
@@ -350,6 +362,120 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
   const handleOpenEditModal = (item) => {
     setEditingListing(item);
     setIsPostModalOpen(true);
+  };
+
+  // 🔄 1-Tap Toggle Sold / Active Status (Preserves Reviews & Deep Links)
+  const handleToggleSoldStatus = async (item) => {
+    const isCurrentlySold = String(item.status || '').toLowerCase() === 'sold';
+    if (!isCurrentlySold) {
+      await hyperlocalStore.markListingAsSold(item.id);
+      showNotice(`"${item.title || item.name}" marked as Sold / Out of Stock.`);
+    } else {
+      hyperlocalStore.insertListing(item.category, {
+        ...item,
+        status: 'active',
+        sold_at: null,
+      });
+      showNotice(`"${item.title || item.name}" is now Active & In Stock again!`);
+    }
+    setThreadUpdateTick((prev) => prev + 1);
+  };
+
+  // 📲 1-Tap Share Listing on WhatsApp Status / Customer Groups
+  const handleShareListingOnWhatsApp = (item) => {
+    hyperlocalStore.recordLeadAction(item, 'share');
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://apkekareeb.com';
+    const deepLink = `${baseUrl}/?listing=${encodeURIComponent(String(item.id))}`;
+    const priceStr = item.price || item.rates || 'Best Local Rate';
+    const badgeStr = item.deal_badge ? ` (${item.deal_badge})` : '';
+
+    const shareLines = [
+      `🌟 *${currentUser?.business_name || item.sellerName || 'Our Store'}* par naya update!`,
+      `📦 *${item.title || item.name}*${badgeStr}`,
+      `💰 Rate: *${priceStr}*`,
+      `📍 Location: ${item.location || selectedCity}`,
+      `\n👇 Abhi ApkeKareeb par photo/details dekhein aur order karein:`,
+      deepLink,
+    ];
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareLines.join('\n'))}`, '_blank');
+    showNotice('Opening WhatsApp to share your listing!');
+  };
+
+  // 🎙️ Start Voice Recording to Buyer Inquiry
+  const handleStartVoiceToBuyer = async (inqId) => {
+    try {
+      const stream = await getOptimizedVoiceStream();
+      audioChunksRef.current = [];
+      const mediaRecorder = createOptimizedMediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(100);
+      setRecordingBuyerInqId(inqId);
+      setBuyerRecordingSecs(0);
+
+      timerRef.current = setInterval(() => {
+        setBuyerRecordingSecs((prev) => prev + 1);
+      }, 1000);
+    } catch {
+      alert('Microphone access denied. Please allow microphone permissions in settings.');
+    }
+  };
+
+  // 🎙️ Stop and Send Voice Reply to Buyer Inquiry
+  const handleStopAndSendVoiceToBuyer = (inq) => {
+    const mediaRecorder = mediaRecorderRef.current;
+    if (!mediaRecorder) return;
+
+    mediaRecorder.onstop = async () => {
+      clearInterval(timerRef.current);
+      setIsSendingBuyerVoice(true);
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: mediaRecorder.mimeType || 'audio/webm',
+        });
+        const publicAudioUrl = await uploadVoiceNoteToStorage(audioBlob);
+        const durationStr = `0:${buyerRecordingSecs < 10 ? '0' : ''}${buyerRecordingSecs}`;
+
+        const audioReplyPayload = {
+          type: 'audio',
+          text: '🎤 Voice Note Reply from Seller',
+          audioUrl: publicAudioUrl,
+          duration: durationStr,
+          timestamp: 'Just now',
+          sellerName: currentUser?.business_name || currentUser?.full_name || 'You (Owner)',
+        };
+
+        await saveReplyToDB(inq.id, audioReplyPayload.text, publicAudioUrl, durationStr);
+        handleSendReplyToBuyer(inq, audioReplyPayload.text, audioReplyPayload);
+      } catch (err) {
+        console.error('Buyer voice reply failed:', err);
+        alert('Could not upload voice note. Please try again.');
+      } finally {
+        if (mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+        setRecordingBuyerInqId(null);
+        setBuyerRecordingSecs(0);
+        setIsSendingBuyerVoice(false);
+      }
+    };
+
+    mediaRecorder.stop();
+  };
+
+  const handleCancelVoiceToBuyer = () => {
+    if (mediaRecorderRef.current) {
+      clearInterval(timerRef.current);
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      }
+      mediaRecorderRef.current = null;
+      setRecordingBuyerInqId(null);
+      setBuyerRecordingSecs(0);
+    }
   };
 
   // 🗑️ Cascading Delete Listing Handler
@@ -912,9 +1038,14 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl font-black shadow-md">
             🏪
           </div>
-          <div>
-            <h1 className="text-sm font-black text-white leading-tight">Business Hub (व्यापार केंद्र)</h1>
-            <p className="text-[10px] text-amber-300 font-bold">
+         <div>
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+              <h1 className="text-sm font-black text-white leading-tight">Business Hub (व्यापार केंद्र)</h1>
+              <span className="text-[8.5px] font-black px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                👑 {activeSellerPlan?.name || 'Free Citizen Plan'}
+              </span>
+            </div>
+            <p className="text-[10px] text-amber-300 font-bold mt-0.5">
               👤 {currentUser?.business_name || currentUser?.full_name || 'Verified Merchant'} (+91 {sellerPhone})
             </p>
           </div>
@@ -1131,9 +1262,32 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                 </div>
 
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-extrabold text-amber-300">👤 {inq.userName}</span>
-                    <span className="text-slate-400 text-[9px]">Buyer Question</span>
+                  <div className="flex items-center justify-between text-[10px] flex-wrap gap-1">
+                    <span className="font-extrabold text-amber-300">👤 {inq.userName} ({inq.userArea || 'Local'})</span>
+                    {inq.userPhone ? (
+                      <div className="flex items-center space-x-1.5">
+                        <a
+                          href={`tel:+91${inq.userPhone}`}
+                          className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-black text-[9px] flex items-center space-x-1"
+                        >
+                          <span>📞</span>
+                          <span>Call Buyer</span>
+                        </a>
+                        <a
+                          href={`https://wa.me/91${inq.userPhone}?text=${encodeURIComponent(
+                            `Namaste ${inq.userName}! Main ${currentUser?.business_name || 'ApkeKareeb Seller'} bol raha hoon. Aapne "${inq.listingTitle}" ke baare mein pucha tha.`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black text-[9px] flex items-center space-x-1"
+                        >
+                          <span>💬</span>
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 text-[9px]">Buyer Question</span>
+                    )}
                   </div>
                   {inq.audioUrl ? (
                     <VoiceNotePlayer audioUrl={inq.audioUrl} duration={inq.audioDuration} senderName={inq.userName ? inq.userName.split(' ')[0] : 'Resident'} />
@@ -1166,25 +1320,58 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                       ))}
                     </div>
 
-                    <div className="flex items-center space-x-1.5">
-                      <input
-                        type="text"
-                        value={replyInputs[inq.id] || ''}
-                        onChange={(e) => setReplyInputs({ ...replyInputs, [inq.id]: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSendReplyToBuyer(inq, replyInputs[inq.id] || '');
-                        }}
-                        placeholder="Type reply or tap instant chips above..."
-                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-hidden focus:border-amber-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleSendReplyToBuyer(inq, replyInputs[inq.id] || '')}
-                        className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl active:scale-95 transition cursor-pointer shrink-0 shadow-md"
-                      >
-                        Send
-                      </button>
-                    </div>
+                    {recordingBuyerInqId === inq.id ? (
+                      <div className="flex items-center justify-between p-2.5 bg-rose-950/60 border border-rose-500/50 rounded-xl animate-pulse">
+                        <span className="text-[10.5px] font-black text-rose-300">
+                          🎙️ Recording Voice Reply: 0:{buyerRecordingSecs < 10 ? '0' : ''}{buyerRecordingSecs}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={handleCancelVoiceToBuyer}
+                            className="px-2.5 py-1 bg-slate-800 text-slate-300 text-[9.5px] font-bold rounded-lg cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSendingBuyerVoice}
+                            onClick={() => handleStopAndSendVoiceToBuyer(inq)}
+                            className="px-3 py-1 bg-emerald-600 text-white font-black text-[9.5px] rounded-lg cursor-pointer shadow-md"
+                          >
+                            {isSendingBuyerVoice ? 'Sending...' : 'Send Voice ➔'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleStartVoiceToBuyer(inq.id)}
+                          title="Record Voice Note Reply to Customer"
+                          className="w-9 h-9 rounded-xl bg-amber-400/20 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/40 flex items-center justify-center text-sm font-black shadow-sm cursor-pointer shrink-0 transition"
+                        >
+                          🎙️
+                        </button>
+                        <input
+                          type="text"
+                          value={replyInputs[inq.id] || ''}
+                          onChange={(e) => setReplyInputs({ ...replyInputs, [inq.id]: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSendReplyToBuyer(inq, replyInputs[inq.id] || '');
+                          }}
+                          placeholder="Type reply, tap chip, or record voice 🎙️..."
+                          className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-semibold text-slate-100 focus:outline-hidden focus:border-amber-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSendReplyToBuyer(inq, replyInputs[inq.id] || '')}
+                          className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black text-xs rounded-xl active:scale-95 transition cursor-pointer shrink-0 shadow-md"
+                        >
+                          Send
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1277,9 +1464,39 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                       </div>
 
                       <div className="flex flex-col items-end space-y-1 shrink-0">
-                        <span className="px-2 py-0.5 rounded-lg bg-slate-950 border border-amber-500/30 text-amber-300 font-black text-[9.5px]">
-                          ⭐ {item.interestCount || item.interest_count || 0}
-                        </span>
+                        {(() => {
+                          const itemStats = hyperlocalStore.state.leadStats?.[String(item.id)] || {};
+                          const calls = Number(itemStats.call_clicks || 0);
+                          const wa = Number(itemStats.whatsapp_clicks || 0);
+                          const interests = Number(item.interestCount || item.interest_count || 0);
+                          return (
+                            <div className="flex items-center space-x-1">
+                              <span
+                                title="Phone Calls"
+                                className="px-1.5 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-amber-300 font-black text-[9px]"
+                              >
+                                📞 {calls}
+                              </span>
+                              <span
+                                title="WhatsApp Inquiries"
+                                className="px-1.5 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-emerald-400 font-black text-[9px]"
+                              >
+                                💬 {wa}
+                              </span>
+                              <span
+                                title="Customer Interests"
+                                className="px-1.5 py-0.5 rounded-lg bg-slate-950 border border-amber-500/30 text-yellow-300 font-black text-[9px]"
+                              >
+                                ⭐ {interests}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        {String(item.status || '').toLowerCase() === 'sold' && (
+                          <span className="text-[8px] font-black px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                            🔴 SOLD / OUT OF STOCK
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1384,7 +1601,30 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                     <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px] flex-wrap gap-y-1.5">
                       <span className="text-slate-500 font-semibold truncate max-w-[140px]">📍 {item.location || item.location_name || selectedCity}</span>
                       
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSoldStatus(item)}
+                          className={`px-2 py-1 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95 border ${
+                            String(item.status || '').toLowerCase() === 'sold'
+                              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-amber-400/50'
+                          }`}
+                          title="Toggle Sold / Available Status"
+                        >
+                          {String(item.status || '').toLowerCase() === 'sold' ? '🟢 Mark Available' : '🔴 Mark Sold'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleShareListingOnWhatsApp(item)}
+                          className="px-2 py-1 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95 flex items-center space-x-1"
+                          title="Share Listing on WhatsApp Status"
+                        >
+                          <span>📲</span>
+                          <span>Share</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleOpenEditModal(item)}
@@ -1401,13 +1641,13 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
                           className="px-2.5 py-1 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 text-slate-950 rounded-lg font-black text-[9.5px] transition cursor-pointer active:scale-95 flex items-center space-x-1 shadow-sm"
                         >
                           <span>🎁</span>
-                          <span>{activeDealBadge ? 'Edit Offer' : '+ Attach Offer'}</span>
+                          <span>{activeDealBadge ? 'Edit Offer' : '+ Offer'}</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handleDeleteMerchantListing(item.id, item.title || item.name)}
-                          className="px-2.5 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
+                          className="px-2 py-1 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg font-bold text-[9.5px] transition cursor-pointer active:scale-95"
                         >
                           🗑️
                         </button>
