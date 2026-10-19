@@ -1,4 +1,5 @@
 import React from 'react';
+import { hyperlocalStore } from '../../store/hyperlocalStore';
 
 export default function ContactSheetModal({
   item,
@@ -15,6 +16,25 @@ export default function ContactSheetModal({
 
   const sellerName = item?.sellerName || item?.provider_name || item?.driverName || 'Verified Merchant';
   const defaultMsg = message || `Namaste ${sellerName}, I saw your listing "${item?.title || ''}" on Aapke Kareeb (${selectedCity}). I want more details.`;
+
+  // Branded ApkeKareeb attributed WhatsApp message with deep-link
+  const attributedWaUrl =
+    hyperlocalStore.buildAttributedWhatsAppUrl(item, message) ||
+    `https://wa.me/${formattedWa}?text=${encodeURIComponent(defaultMsg)}`;
+
+  const handleWhatsAppClick = () => {
+    if (item) {
+      hyperlocalStore.recordLeadAction(item, 'whatsapp');
+    }
+    onClose();
+  };
+
+  const handleCallClick = () => {
+    if (item) {
+      hyperlocalStore.recordLeadAction(item, 'call');
+    }
+    onClose();
+  };
 
   // Resolve Instagram handle / link
   const rawInsta = instagram || item?.instagram || item?.insta || item?.instagram_handle || '';
@@ -56,10 +76,10 @@ export default function ContactSheetModal({
         <div className="space-y-2">
           {/* 1. Direct WhatsApp */}
           <a
-            href={`https://wa.me/${formattedWa}?text=${encodeURIComponent(defaultMsg)}`}
+            href={attributedWaUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={onClose}
+            onClick={handleWhatsAppClick}
             className="flex items-center justify-between p-3 rounded-2xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 transition active:scale-98 cursor-pointer group"
           >
             <div className="flex items-center space-x-3">
@@ -77,7 +97,7 @@ export default function ContactSheetModal({
           {/* 2. Phone Call */}
           <a
             href={`tel:${cleanPhone}`}
-            onClick={onClose}
+            onClick={handleCallClick}
             className="flex items-center justify-between p-3 rounded-2xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 transition active:scale-98 cursor-pointer group"
           >
             <div className="flex items-center space-x-3">

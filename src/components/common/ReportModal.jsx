@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { reportListing } from '../../services/listingService';
 import { getCurrentUserProfile, sanitizePhone } from '../../services/authService';
+import { hyperlocalStore } from '../../store/hyperlocalStore';
 
 const REPORT_REASONS = [
   'Spam / Repetitive Posting (स्पैम / बार-बार पोस्ट)',
@@ -25,6 +26,7 @@ export default function ReportModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [wasAutoHidden, setWasAutoHidden] = useState(false);
 
   if (!isOpen || !listing) return null;
 
@@ -39,6 +41,7 @@ export default function ReportModal({
     const targetListingId = listing.id || listing.listingId;
 
     try {
+      // 1. Submit to Supabase listing_reports & admin notifications
       const res = await reportListing(
         targetListingId,
         cleanPhone,
@@ -46,7 +49,18 @@ export default function ReportModal({
         listingTitle
       );
 
-      if (res && res.error) {
+      // 2. 🛡️ Trigger 3-Strike Automated Shield (hides listing if 3 unique reports reached)
+      const shieldRes = await hyperlocalStore.submitListingReport(
+        targetListingId,
+        selectedReason,
+        customNotes.trim()
+      );
+
+      if (shieldRes?.autoHidden) {
+        setWasAutoHidden(true);
+      }
+
+      if (res && res.error && !shieldRes?.ok) {
         setStatusMsg(res.error.message || 'Failed to submit report. Please check your connection.');
       } else {
         setIsSuccess(true);
@@ -54,7 +68,7 @@ export default function ReportModal({
         setTimeout(() => {
           setIsSuccess(false);
           onClose();
-        }, 1800);
+        }, wasAutoHidden || shieldRes?.autoHidden ? 2800 : 1800);
       }
     } catch (err) {
       console.error('Report submission error:', err);
@@ -93,6 +107,14 @@ export default function ReportModal({
           </span>
         </div>
 
+        {/* 🛡️ 3-Strike Community Shield Advisory */}
+        <div className="p-2 bg-slate-950/80 rounded-xl border border-slate-800 text-[9px] text-slate-400 space-y-0.5">
+          <span className="text-amber-400 font-bold block">🛡️ 3-Strike Community Shield</span>
+          <p className="leading-tight">
+            If 3 independent residents report this listing, it is <strong>automatically hidden from town feeds</strong> until verified by Admin[cite: 2, 3].
+          </p>
+        </div>
+
         {statusMsg && (
           <div className="p-2 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-[10px] font-bold text-center">
             ⚠️ {statusMsg}
@@ -100,11 +122,15 @@ export default function ReportModal({
         )}
 
         {isSuccess ? (
-          <div className="py-6 text-center space-y-1.5 animate-fade-in">
-            <span className="text-3xl block">🛡️</span>
-            <h4 className="text-sm font-black text-emerald-400">Report Sent to Master Admin</h4>
-            <p className="text-[10px] text-slate-400">
-              Thank you for helping keep our town marketplace authentic and fraud-free.
+          <div className="py-5 text-center space-y-2 animate-fade-in">
+            <span className="text-3xl block">{wasAutoHidden ? '🚫' : '🛡️'}</span>
+            <h4 className={`text-sm font-black ${wasAutoHidden ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {wasAutoHidden ? 'Listing Automatically Hidden!' : 'Report Sent to Master Admin'}
+            </h4>
+            <p className="text-[10px] text-slate-400 leading-relaxed max-w-[260px] mx-auto">
+              {wasAutoHidden
+                ? 'This listing accumulated 3 community reports and has been automatically removed from public feeds pending Admin review[cite: 2, 3].'
+                : 'Thank you for helping keep our town marketplace authentic and fraud-free[cite: 11].'}
             </p>
           </div>
         ) : (

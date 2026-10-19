@@ -320,9 +320,26 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     });
   }, [myListings, threadUpdateTick, selectedListingFilter, onlyUnanswered, isAuthorized]);
 
-  const pendingInquiriesCount = useMemo(() => {
+ const pendingInquiriesCount = useMemo(() => {
     return userInquiries.filter((q) => !q.sellerReply).length;
   }, [userInquiries]);
+
+  // 📊 Merchant ROI & Proof-of-Value Lead Metrics
+  const roiMetrics = useMemo(() => {
+    if (!isAuthorized || !sellerPhone) {
+      return {
+        totalListings: 0,
+        totalInterests: 0,
+        totalCalls: 0,
+        totalWhatsAppLeads: 0,
+        totalShares: 0,
+        totalComments: 0,
+        totalVoiceInquiries: 0,
+        totalDirectLeads: 0,
+      };
+    }
+    return hyperlocalStore.getSellerROIMetrics(sellerPhone, currentUser?.id);
+  }, [isAuthorized, sellerPhone, currentUser, myListings, threadUpdateTick]);
 
   // ✏️ Open Post Modal for Creation or Editing
   const handleOpenCreateModal = () => {
@@ -927,6 +944,48 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           ✓ {actionNotice}
         </div>
       )}
+
+      {/* 📊 ApkeKareeb Merchant ROI & Proof-of-Value Scorecard */}
+      <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/30 p-3.5 rounded-3xl space-y-2.5 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center text-xs font-black">
+              📈
+            </span>
+            <div>
+              <h3 className="text-xs font-black text-emerald-300 uppercase tracking-wider">
+                ApkeKareeb Business ROI (ग्राहक लाभ)
+              </h3>
+              <p className="text-[9px] text-slate-400">Total customer inquiries generated for your store</p>
+            </div>
+          </div>
+          <span className="text-xs font-black bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full shadow-sm">
+            {roiMetrics.totalDirectLeads} Leads
+          </span>
+        </div>
+
+        <div className="grid grid-cols-4 gap-1.5 pt-1 text-center">
+          <div className="bg-slate-950/80 p-2 rounded-xl border border-slate-800">
+            <span className="text-[8.5px] text-slate-400 font-bold block">📞 Calls</span>
+            <span className="text-sm font-black text-amber-400">{roiMetrics.totalCalls}</span>
+          </div>
+
+          <div className="bg-slate-950/80 p-2 rounded-xl border border-slate-800">
+            <span className="text-[8.5px] text-slate-400 font-bold block">💬 WhatsApp</span>
+            <span className="text-sm font-black text-emerald-400">{roiMetrics.totalWhatsAppLeads}</span>
+          </div>
+
+          <div className="bg-slate-950/80 p-2 rounded-xl border border-slate-800">
+            <span className="text-[8.5px] text-slate-400 font-bold block">🎤 Voice</span>
+            <span className="text-sm font-black text-cyan-400">{roiMetrics.totalVoiceInquiries}</span>
+          </div>
+
+          <div className="bg-slate-950/80 p-2 rounded-xl border border-slate-800">
+            <span className="text-[8.5px] text-slate-400 font-bold block">⭐ Interests</span>
+            <span className="text-sm font-black text-yellow-400">{roiMetrics.totalInterests}</span>
+          </div>
+        </div>
+      </div>
 
       {/* 2. Interactive Metrics */}
       <div className="grid grid-cols-3 gap-2">

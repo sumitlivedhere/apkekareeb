@@ -36,6 +36,114 @@ const USER_REVIEWS_STORAGE_KEY = 'aapkekareeb_user_reviews';
 const USER_NOTIFS_STORAGE_KEY = 'aapkekareeb_read_notifs';
 const PROMOTED_STORAGE_KEY = 'aapkekareeb_promoted_listings';
 
+// 💳 Monetization & Subscription Plans
+export const SUBSCRIPTION_PLANS = {
+  free: {
+    id: 'free',
+    name: 'Free Citizen Plan',
+    priceMonthly: 0,
+    badge: null,
+    canPostFlashDeals: false,
+    canPostPromotions: false,
+  },
+  retail_pro: {
+    id: 'retail_pro',
+    name: 'Local Dukaan Pro',
+    priceMonthly: 199,
+    badge: 'VERIFIED SHOP',
+    canPostFlashDeals: true,
+    canPostPromotions: true,
+    maxListingsPerCategory: 25,
+  },
+  commercial_partner: {
+    id: 'commercial_partner',
+    name: 'Verified Commercial Partner',
+    priceMonthly: 499,
+    badge: 'VERIFIED PARTNER',
+    canPostFlashDeals: true,
+    canPostPromotions: true,
+    maxListingsPerCategory: 100,
+  },
+};
+
+// 🏛️ 3-Tier Categorization Quotas
+export const MONETIZATION_TIER_CONFIG = {
+  // Tier 1: Community & Habit Builders (Free)
+  community: { tier: 1, tierName: 'Community & Habit', freeLimit: 999, requiredPlan: 'free' },
+  kaarigar: { tier: 1, tierName: 'Community & Habit', freeLimit: 5, requiredPlan: 'retail_pro' },
+  recommerce: { tier: 1, tierName: 'Community & Habit', freeLimit: 5, requiredPlan: 'retail_pro' },
+  creators: { tier: 1, tierName: 'Community & Habit', freeLimit: 5, requiredPlan: 'retail_pro' },
+
+  // Tier 2: Local Retail & Services (Freemium - 3 free listings)
+  market: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  restaurants: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  electronics: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  fashion: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  furniture: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  fitness: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  education: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  transporter: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  transporters: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+  travel: { tier: 2, tierName: 'Local Retail & Services', freeLimit: 3, requiredPlan: 'retail_pro' },
+
+  // Tier 2 Paid Boost Verticals (Flash Deals & Festival Offers)
+  surprise: { tier: 2, tierName: 'Flash Deals & Promos', freeLimit: 1, requiredPlan: 'retail_pro' },
+  festival: { tier: 2, tierName: 'Flash Deals & Promos', freeLimit: 1, requiredPlan: 'retail_pro' },
+
+  // Tier 3: High-Ticket Commercial (1 Free for Owners; Partner Plan for Brokers/Agencies)
+  property: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  vehicle: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  vehicles: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  shaadi: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  construction: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  malls: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  whitecollar: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  'white-collar': { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 1, requiredPlan: 'commercial_partner' },
+  advertising: { tier: 3, tierName: 'High-Ticket Commercial', freeLimit: 0, requiredPlan: 'commercial_partner' },
+};
+
+// ⏳ Freshness & Time-To-Live (Hours)
+export const CATEGORY_TTL_HOURS = {
+  surprise: 48,        // 48 hours for Flash Deals
+  festival: 24 * 7,    // 7 days for Festival Offers
+  recommerce: 24 * 21, // 21 days for Pre-owned / Used Goods
+  default: 24 * 60,    // 60 days default freshness window
+};
+
+// 🛡️ Legal, Safety & Privacy Rules by Vertical
+export const CATEGORY_SAFETY_RULES = {
+  medical: {
+    requiresDisclaimer: true,
+    requireLicenseField: true,
+    badgeLabel: 'DIRECTORY LISTING ONLY',
+    disclaimerTitle: 'Medical & Emergency Disclaimer',
+    disclaimerText:
+      'ApkeKareeb is a local discovery directory and does not provide medical advice, diagnosis, or emergency services. Verify practitioner registration independently. In a medical emergency, call 108 or 112 immediately.',
+  },
+  shaadi: {
+    requiresDisclaimer: true,
+    maskPublicPhone: true,
+    badgeLabel: 'PRIVACY PROTECTED',
+    disclaimerTitle: 'Matrimonial Privacy & Safety Notice',
+    disclaimerText:
+      'Family contact numbers are masked for public visitors. Sign in to send a verified interest request, and always conduct independent family/background verification.',
+  },
+  whitecollar: {
+    requiresDisclaimer: true,
+    badgeLabel: 'ZERO JOB FEE POLICY',
+    disclaimerTitle: 'Job Seeker Safety Warning',
+    disclaimerText:
+      'Never pay any registration fee, security deposit, or interview charge to any employer or recruiter. Report any listing demanding money immediately.',
+  },
+  property: {
+    requiresDisclaimer: true,
+    badgeLabel: 'VERIFY DOCUMENTS',
+    disclaimerTitle: 'Property Transaction Advisory',
+    disclaimerText:
+      'Never transfer token money or advance rent without visiting the property in person and verifying ownership documents.',
+  },
+};
+
 const sanitizePhone = (phone) => (phone ? String(phone).replace(/\D/g, '').slice(-10) : null);
 
 function isValidUuid(id) {
@@ -76,7 +184,6 @@ const LEGACY_GENERIC_FALLBACK_IDS = new Set([
 
 // 🎨 Curated Multi-Image Pools by Category & Subcategory Keyword
 const SUBCATEGORY_IMAGE_POOLS = {
-  // Property subcategories
   property_rent: [
     'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=700',
     'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=700',
@@ -85,15 +192,13 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=700',
     'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=700',
   ],
-
   travel: [
-  'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=700',
-  'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=700',
-  'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=700',
-  'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=700',
-  'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=700',
-],
-
+    'https://images.unsplash.com/photo-1534567153574-2b12153a87f0?w=700',
+    'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=700',
+    'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=700',
+    'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=700',
+    'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=700',
+  ],
   property_house: [
     'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=700',
     'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=700',
@@ -122,8 +227,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1540518614846-7ede433c4efb?w=700',
     'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=700',
   ],
-
-  // Kaarigar & Mistri
   kaarigar: [
     'https://images.unsplash.com/photo-1621905252507-b35492cc74b4?w=700',
     'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=700',
@@ -134,8 +237,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1585704032915-c3400ca199e7?w=700',
     'https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=700',
   ],
-
-  // Transporters
   transporters: [
     'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=700',
     'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=700',
@@ -144,8 +245,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1580674285054-bed31e145f59?w=700',
     'https://images.unsplash.com/photo-1519003722824-194d4455a60c?w=700',
   ],
-
-  // Vehicles
   vehicles: [
     'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=700',
     'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=700',
@@ -154,8 +253,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=700',
     'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=700',
   ],
-
-  // Market / Kirana
   market: [
     'https://images.unsplash.com/photo-1542838132-92c53300491e?w=700',
     'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=700',
@@ -164,8 +261,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=700',
     'https://images.unsplash.com/photo-1506617420156-8e4536971650?w=700',
   ],
-
-  // Malls & Showrooms
   malls: [
     'https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=700',
     'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=700',
@@ -173,8 +268,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?w=700',
     'https://images.unsplash.com/photo-1582037928769-181f2644ecb7?w=700',
   ],
-
-  // Restaurants & Food
   restaurants: [
     'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=700',
     'https://images.unsplash.com/photo-1552566626-52f8b828add9?w=700',
@@ -183,8 +276,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=700',
     'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=700',
   ],
-
-  // Medical & Doctors
   medical: [
     'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=700',
     'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?w=700',
@@ -193,8 +284,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=700',
     'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=700',
   ],
-
-  // Fitness & Gym
   fitness: [
     'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=700',
     'https://images.unsplash.com/photo-1571902943202-507ec2618e8f?w=700',
@@ -202,8 +291,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=700',
     'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=700',
   ],
-
-  // Education & Coaching
   education: [
     'https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=700',
     'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=700',
@@ -211,8 +298,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=700',
     'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=700',
   ],
-
-  // Shaadi & Events
   shaadi: [
     'https://images.unsplash.com/photo-1519741497674-611481863552?w=700',
     'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=700',
@@ -220,8 +305,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1520854221256-17451cc331bf?w=700',
     'https://images.unsplash.com/photo-1519225421980-715cb0215aed?w=700',
   ],
-
-  // Electronics
   electronics: [
     'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700',
     'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=700',
@@ -229,8 +312,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=700',
     'https://images.unsplash.com/photo-1546868871-7041f2a55e12?w=700',
   ],
-
-  // Fashion
   fashion: [
     'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=700',
     'https://images.unsplash.com/photo-1445205170230-053b83016050?w=700',
@@ -238,8 +319,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=700',
     'https://images.unsplash.com/photo-1567401893414-76b7b1e5a7a5?w=700',
   ],
-
-  // Furniture
   furniture: [
     'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=700',
     'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=700',
@@ -247,8 +326,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=700',
     'https://images.unsplash.com/photo-1540574163026-643ea20ade25?w=700',
   ],
-
-  // Construction
   construction: [
     'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=700',
     'https://images.unsplash.com/photo-1541888946425-d09bb18086f6?w=700',
@@ -256,8 +333,6 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=700',
     'https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=700',
   ],
-
-  // ReCommerce / Purana Bazaar
   recommerce: [
     'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=700',
     'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700',
@@ -265,40 +340,30 @@ const SUBCATEGORY_IMAGE_POOLS = {
     'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700',
     'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=700',
   ],
-
-  // White Collar / Jobs
   'white-collar': [
     'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=700',
     'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=700',
     'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=700',
     'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=700',
   ],
-
-  // Creators
   creators: [
     'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=700',
     'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=700',
     'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=700',
     'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=700',
   ],
-
-  // Advertising
   advertising: [
     'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=700',
     'https://images.unsplash.com/photo-1557838923-2985c318be48?w=700',
     'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=700',
     'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=700',
   ],
-
-  // Community
   community: [
     'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=700',
     'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=700',
     'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=700',
     'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=700',
   ],
-
-  // Festival
   festival: [
     'https://images.unsplash.com/photo-1514222134-b57cbb8ce073?w=700',
     'https://images.unsplash.com/photo-1604514628550-37477afdf4e3?w=700',
@@ -317,9 +382,6 @@ function computeDeterministicHash(str = '') {
   return Math.abs(hash);
 }
 
-/**
- * 🎨 Picks a unique, subcategory-accurate image for a listing based on its category, subCategory, title & ID
- */
 export function getUniqueSubcategoryFallback(category = 'property', subCategory = 'all', seedStr = '') {
   const cat = String(category || 'property').toLowerCase().trim();
   const sub = String(subCategory || '').toLowerCase().trim();
@@ -491,6 +553,7 @@ export const ADMIN_TAGS = new Set([
   'SELLER_FEEDBACK_REPLY',
   'SELLER VOICE REPLY',
   'SELLER_VOICE_REPLY',
+  'TRUST & SAFETY ALERT',
 ]);
 
 export const SELLER_TAGS = new Set([
@@ -510,6 +573,8 @@ export const SELLER_TAGS = new Set([
   'INTEREST_ALERT',
   'NEW_REVIEW',
   'CART_ADDITION',
+  'WHATSAPP LEAD',
+  'CALL INQUIRY',
 ]);
 
 export function parseNumericPrice(priceStr) {
@@ -547,10 +612,6 @@ export const CATEGORY_SLICE_MAP = {
   festival: 'festivalOffers',
 };
 
-/**
- * 🛠️ Fixed: Returns `null` when URL is missing/invalid so `||` chains in `normalizeDBListing`
- * never short-circuit over valid `item.image`, `item.photo`, or `item.images` fields!
- */
 export function sanitizeImageUrl(url) {
   if (!url || typeof url !== 'string') return null;
   const clean = url.trim();
@@ -585,7 +646,6 @@ export function normalizeDBListing(item) {
   const subCatId = sanitizeSubCategoryId ? sanitizeSubCategoryId(catId, rawSub) : rawSub;
   const nameVal = item.title || item.name || 'Untitled Listing';
 
-  // 1. Gather all candidate images from every possible property name
   let rawImages = [];
   if (Array.isArray(item.image_urls) && item.image_urls.length > 0) {
     rawImages = item.image_urls;
@@ -601,16 +661,12 @@ export function normalizeDBListing(item) {
     .map((img) => (typeof img === 'string' ? sanitizeImageUrl(img) : sanitizeImageUrl(img?.url)))
     .filter(Boolean);
 
-  // 2. Check explicit single-image properties (`image`, `photo`, `avatar`, `image_url`)
   const explicitSingleImage =
     sanitizeImageUrl(item.image) ||
     sanitizeImageUrl(item.photo) ||
     sanitizeImageUrl(item.avatar) ||
     sanitizeImageUrl(item.image_url);
 
-  // 3. Determine unique cover image:
-  // If the only image on the record is one of the old overused generic category fallbacks,
-  // upgrade it to a deterministic subcategory-specific image so listings inside a subcategory look distinct.
   const uniqueFallback = getUniqueSubcategoryFallback(catId, subCatId, `${itemId}_${nameVal}`);
 
   let coverImage = explicitSingleImage || (sanitizedImages.length > 0 ? sanitizedImages[0] : null);
@@ -618,7 +674,6 @@ export function normalizeDBListing(item) {
     coverImage = uniqueFallback;
   }
 
-  // Filter out generic fallback duplicates from array if replaced
   sanitizedImages = sanitizedImages.map((imgUrl) =>
     isGenericFallbackUrl(imgUrl) ? coverImage : imgUrl
   );
@@ -684,7 +739,6 @@ export function normalizeDBListing(item) {
   const hasPendingApproval = Boolean(item.has_pending_approval);
   const pendingChanges = item.pending_changes || null;
 
-  // 🚀 Check both Database Promotion Flags AND LocalStorage Promotion Registry
   const now = Date.now();
   const storedPromos = getStoredPromotionsMap();
   const localPromo = storedPromos[itemId];
@@ -810,6 +864,7 @@ export function normalizeDBListing(item) {
     stock_count: rawStock ? parseInt(rawStock, 10) : null,
     qualifications: item.qualifications || '',
     regNumber: item.regNumber || '',
+    status: item.status || 'active',
     is_active: isActive,
     is_shadowbanned: Boolean(item.is_shadowbanned),
     has_pending_approval: hasPendingApproval,
@@ -819,6 +874,7 @@ export function normalizeDBListing(item) {
     isAvailableNow: true,
     isNew: Boolean(item.isNew),
     created_at: item.created_at || new Date().toISOString(),
+    expires_at: item.expires_at || null,
   };
 }
 
@@ -836,7 +892,7 @@ class HyperlocalEngineStore {
         normalizeDBListing({ ...i, category: 'fitness' })
       ),
       travelListings: (initialTravelListings || []).map((i) =>
-       normalizeDBListing({ ...i, category: 'travel' })
+        normalizeDBListing({ ...i, category: 'travel' })
       ),
       medicalListings: (initialMedicalListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'medical' })
@@ -844,7 +900,6 @@ class HyperlocalEngineStore {
       creatorsListings: (initialCreatorsListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'creators' })
       ),
-      
       kaarigarWorkers: (initialKaarigarWorkers || []).map((i) =>
         normalizeDBListing({ ...i, category: 'kaarigar' })
       ),
@@ -872,7 +927,7 @@ class HyperlocalEngineStore {
       constructionListings: (initialConstructionListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'construction' })
       ),
-     marketProducts: (
+      marketProducts: (
         marketDataModule.initialMarketListings ||
         marketDataModule.initialMarketProducts ||
         marketDataModule.marketListings ||
@@ -891,6 +946,46 @@ class HyperlocalEngineStore {
       reCommerceListings: (initialReCommerceListings || []).map((i) =>
         normalizeDBListing({ ...i, category: 'recommerce' })
       ),
+
+      // 📊 Lead Attribution & Proof of Value
+      leadStats: (() => {
+        try {
+          const saved = localStorage.getItem('ak_lead_stats_v1');
+          return saved ? JSON.parse(saved) : {};
+        } catch {
+          return {};
+        }
+      })(),
+
+      // 💳 Commercial Subscription Tiers
+      sellerPlans: (() => {
+        try {
+          const saved = localStorage.getItem('ak_seller_plans_v1');
+          return saved ? JSON.parse(saved) : {};
+        } catch {
+          return {};
+        }
+      })(),
+
+      // 🛡️ Trust & Safety Community Moderation
+      safetyReports: (() => {
+        try {
+          const saved = localStorage.getItem('ak_safety_reports_v1');
+          return saved ? JSON.parse(saved) : {};
+        } catch {
+          return {};
+        }
+      })(),
+
+      // 🛡️ SMS OTP Rate-Limiting Guard
+      otpRateLimits: (() => {
+        try {
+          const saved = localStorage.getItem('ak_otp_rate_limits_v1');
+          return saved ? JSON.parse(saved) : {};
+        } catch {
+          return {};
+        }
+      })(),
 
       threads: {},
       interests: {},
@@ -986,6 +1081,7 @@ class HyperlocalEngineStore {
     return list.filter((item) => {
       if (!item || !item.id || seen.has(String(item.id))) return false;
       if (item.is_active === false || item.is_shadowbanned === true) return false;
+      if (item.status === 'flagged_hidden') return false;
       seen.add(String(item.id));
       return true;
     });
@@ -1023,6 +1119,7 @@ class HyperlocalEngineStore {
       const bucket = this.state[key] || [];
       bucket.forEach((item) => {
         if (item && item.id && !seenIds.has(String(item.id))) {
+          if (item.status === 'flagged_hidden') return;
           const strId = String(item.id);
           seenIds.add(strId);
           if (promoMap[strId] && !item.is_promoted) {
@@ -1186,7 +1283,6 @@ class HyperlocalEngineStore {
       );
 
       if (idx !== -1) {
-        // Preserve original mock image if the DB row only had a generic fallback URL
         const existingImg = list[idx].image;
         const incomingRawImg = row.image_url || row.image;
         const keepExistingImage =
@@ -1447,7 +1543,6 @@ class HyperlocalEngineStore {
     this.notify(`thread:${strId}`);
     this.notify('threads');
 
-    // saveCommentToDB automatically dispatches notifySellerComment() -> saveNotificationToDB()
     saveCommentToDB(
       strId,
       {
@@ -1606,6 +1701,553 @@ class HyperlocalEngineStore {
     return res.count;
   }
 
+  // ==========================================
+  // 🎯 STEP 2: LEAD ATTRIBUTION & SELLER ROI ENGINE
+  // ==========================================
+
+  buildAttributedWhatsAppUrl(listing, customNote = '') {
+    if (!listing) return '';
+    const rawPhone =
+      listing.seller_phone ||
+      listing.phone ||
+      listing.contact ||
+      listing.whatsapp ||
+      '';
+    const cleanPhone = sanitizePhone(rawPhone);
+    if (!cleanPhone) return '';
+
+    const fullPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const title = listing.title || listing.name || listing.shopName || 'Listing';
+    const rawPrice = listing.price || listing.rent || listing.salary || listing.startingPrice;
+    const priceLabel = rawPrice ? ` (₹${rawPrice})` : '';
+    const locality = listing.locality || listing.location || listing.zone || '';
+    const localityLabel = locality ? ` 📍 ${locality}` : '';
+
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://apkekareeb.com';
+    const deepLink = listing.id ? `${baseUrl}/?listing=${encodeURIComponent(String(listing.id))}` : baseUrl;
+
+    const messageLines = [
+      `Namaste! 🙏 Maine *ApkeKareeb* app par aapki listing dekhi:`,
+      `*${title}*${priceLabel}${localityLabel}`,
+      customNote ? `\n💬 ${customNote}` : `\nMujhe iske baare mein jaankari chahiye. Kya yeh abhi available hai?`,
+      `\n🔗 Listing Link: ${deepLink}`,
+    ];
+
+    return `https://wa.me/${fullPhone}?text=${encodeURIComponent(messageLines.join('\n'))}`;
+  }
+
+  recordLeadAction(listingOrId, actionType = 'whatsapp') {
+    const targetListing =
+      typeof listingOrId === 'object' && listingOrId !== null
+        ? listingOrId
+        : this.getAllListings().find((item) => String(item.id) === String(listingOrId));
+
+    const strId = String(targetListing?.id || listingOrId || '');
+    if (!strId) return null;
+
+    const prev = this.state.leadStats?.[strId] || {
+      whatsapp_clicks: Number(targetListing?.whatsapp_clicks) || 0,
+      call_clicks: Number(targetListing?.call_clicks) || 0,
+      status_shares: Number(targetListing?.status_shares) || 0,
+    };
+
+    const nextStats = {
+      ...prev,
+      whatsapp_clicks: actionType === 'whatsapp' ? prev.whatsapp_clicks + 1 : prev.whatsapp_clicks,
+      call_clicks: actionType === 'call' ? prev.call_clicks + 1 : prev.call_clicks,
+      status_shares: actionType === 'share' ? prev.status_shares + 1 : prev.status_shares,
+      lastLeadAt: new Date().toISOString(),
+    };
+
+    this.state.leadStats = {
+      ...(this.state.leadStats || {}),
+      [strId]: nextStats,
+    };
+
+    try {
+      localStorage.setItem('ak_lead_stats_v1', JSON.stringify(this.state.leadStats));
+    } catch {}
+
+    if (targetListing && (actionType === 'whatsapp' || actionType === 'call')) {
+      const currentUser = getCurrentUserProfile();
+      const buyerName = currentUser?.name || 'A local customer';
+      const buyerPhone = sanitizePhone(currentUser?.phone);
+      const sellerPhone = sanitizePhone(
+        targetListing.seller_phone || targetListing.phone || targetListing.contact
+      );
+      const sellerUserId = targetListing.user_id || targetListing.seller_id || null;
+
+      if (!buyerPhone || buyerPhone !== sellerPhone) {
+        this.addNotification({
+          user_id: sellerUserId,
+          tag: actionType === 'whatsapp' ? 'WHATSAPP LEAD' : 'CALL INQUIRY',
+          title: `New ${actionType === 'whatsapp' ? 'WhatsApp' : 'Call'} Lead on "${targetListing.title || targetListing.name || 'Listing'}"`,
+          message: `${buyerName} clicked to ${actionType === 'whatsapp' ? 'chat on WhatsApp' : 'call you'} via ApkeKareeb.`,
+          time: 'Just now',
+          type: 'lead',
+          targetId: strId,
+          recipient_role: 'seller',
+          recipient_phone: sellerPhone,
+          metadata: {
+            listingId: strId,
+            actionType,
+            buyerName,
+            buyerPhone,
+            sellerPhone,
+          },
+        });
+      }
+    }
+
+    this.notify('leadStats');
+    this.notify(`leadStats:${strId}`);
+    return nextStats;
+  }
+
+  getSellerROIMetrics(sellerPhone, sellerUserId = null) {
+    const cleanTargetPhone = sanitizePhone(sellerPhone);
+    const allListings = this.getAllListings();
+
+    const sellerListings = allListings.filter((item) => {
+      if (sellerUserId && (item.user_id === sellerUserId || item.seller_id === sellerUserId)) {
+        return true;
+      }
+      const itemPhone = sanitizePhone(item.seller_phone || item.phone || item.contact);
+      return Boolean(cleanTargetPhone && itemPhone && itemPhone === cleanTargetPhone);
+    });
+
+    let totalInterests = 0;
+    let totalCalls = 0;
+    let totalWhatsAppLeads = 0;
+    let totalShares = 0;
+    let totalComments = 0;
+    let totalVoiceInquiries = 0;
+
+    sellerListings.forEach((item) => {
+      const idStr = String(item.id);
+      const stats = this.state.leadStats?.[idStr] || {};
+      const threads = this.state.threads?.[idStr] || [];
+
+      totalInterests += Number(this.state.interests?.[idStr] ?? item.interest_count ?? item.interests ?? 0);
+      totalCalls += Number(stats.call_clicks ?? item.call_clicks ?? 0);
+      totalWhatsAppLeads += Number(stats.whatsapp_clicks ?? item.whatsapp_clicks ?? 0);
+      totalShares += Number(stats.status_shares ?? item.status_shares ?? 0);
+      totalComments += threads.length;
+      totalVoiceInquiries += threads.filter((t) => Boolean(t.audioUrl || t.audio_url)).length;
+    });
+
+    const totalDirectLeads = totalCalls + totalWhatsAppLeads + totalVoiceInquiries + totalInterests;
+
+    return {
+      totalListings: sellerListings.length,
+      totalInterests,
+      totalCalls,
+      totalWhatsAppLeads,
+      totalShares,
+      totalComments,
+      totalVoiceInquiries,
+      totalDirectLeads,
+    };
+  }
+
+  // ==========================================
+  // 💳 STEP 3: MONETIZATION ARCHITECTURE & QUOTAS
+  // ==========================================
+
+  getSellerPlan(userOrPhone = null) {
+    const targetUser =
+      typeof userOrPhone === 'object' && userOrPhone !== null
+        ? userOrPhone
+        : getCurrentUserProfile();
+
+    if (targetUser?.role === 'admin' || targetUser?.isAdmin) {
+      return SUBSCRIPTION_PLANS.commercial_partner;
+    }
+
+    const rawPhone = typeof userOrPhone === 'string' ? userOrPhone : targetUser?.phone || '';
+    const cleanPhone = sanitizePhone(rawPhone);
+
+    const planKey =
+      targetUser?.subscription_plan ||
+      (cleanPhone && this.state.sellerPlans?.[cleanPhone]?.planId) ||
+      'free';
+
+    return SUBSCRIPTION_PLANS[planKey] || SUBSCRIPTION_PLANS.free;
+  }
+
+  setSellerPlan(phone, planId = 'retail_pro', expiresAt = null) {
+    const cleanPhone = sanitizePhone(phone);
+    if (!cleanPhone) return null;
+
+    const validPlan = SUBSCRIPTION_PLANS[planId] ? planId : 'free';
+    const nextEntry = {
+      phone: cleanPhone,
+      planId: validPlan,
+      updatedAt: new Date().toISOString(),
+      expiresAt: expiresAt || new Date(Date.now() + 30 * 86400000).toISOString(),
+    };
+
+    this.state.sellerPlans = {
+      ...(this.state.sellerPlans || {}),
+      [cleanPhone]: nextEntry,
+    };
+
+    try {
+      localStorage.setItem('ak_seller_plans_v1', JSON.stringify(this.state.sellerPlans));
+    } catch {}
+
+    this.notify('sellerPlans');
+    return nextEntry;
+  }
+
+  checkPostingQuota(categorySlug = 'market', userOrPhone = null, options = {}) {
+    const normCat = String(categorySlug || 'market').toLowerCase().trim();
+    const tierRule = MONETIZATION_TIER_CONFIG[normCat] || {
+      tier: 2,
+      tierName: 'Local Retail & Services',
+      freeLimit: 3,
+      requiredPlan: 'retail_pro',
+    };
+
+    const targetUser =
+      typeof userOrPhone === 'object' && userOrPhone !== null
+        ? userOrPhone
+        : getCurrentUserProfile();
+
+    const rawPhone = typeof userOrPhone === 'string' ? userOrPhone : targetUser?.phone || '';
+    const cleanPhone = sanitizePhone(rawPhone);
+    const userId = targetUser?.id || null;
+
+    const activePlan = this.getSellerPlan(userOrPhone);
+
+    const allListings = this.getAllListings();
+    const userCategoryListings = allListings.filter((item) => {
+      const itemCat = String(item.category || '').toLowerCase().trim();
+      if (itemCat !== normCat) return false;
+      const idStr = String(item.id || '');
+      if (!isValidUuid(idStr) && !idStr.startsWith('live_') && !item.user_id) {
+        return false;
+      }
+      if (item.status === 'sold' || item.status === 'archived' || item.status === 'rejected') {
+        return false;
+      }
+      if (userId && (item.user_id === userId || item.seller_id === userId)) {
+        return true;
+      }
+      const itemPhone = sanitizePhone(item.seller_phone || item.phone || item.contact);
+      return Boolean(cleanPhone && itemPhone && itemPhone === cleanPhone);
+    });
+
+    const activeCount = userCategoryListings.length;
+
+    let effectiveLimit = tierRule.freeLimit;
+    if (activePlan.id === 'commercial_partner') {
+      effectiveLimit = SUBSCRIPTION_PLANS.commercial_partner.maxListingsPerCategory;
+    } else if (activePlan.id === 'retail_pro' && tierRule.tier <= 2) {
+      effectiveLimit = SUBSCRIPTION_PLANS.retail_pro.maxListingsPerCategory;
+    }
+
+    const wantsFeaturedBoost = Boolean(options.isFeatured || options.isPromoted);
+    const isCommercialBroker = Boolean(options.isBroker || options.isAgency);
+
+    if (wantsFeaturedBoost && !activePlan.canPostPromotions) {
+      const targetUpgrade = SUBSCRIPTION_PLANS[tierRule.requiredPlan] || SUBSCRIPTION_PLANS.retail_pro;
+      return {
+        allowed: false,
+        requiresUpgrade: true,
+        tier: tierRule.tier,
+        tierName: tierRule.tierName,
+        activeCount,
+        freeLimit: tierRule.freeLimit,
+        effectiveLimit,
+        remainingFree: Math.max(0, effectiveLimit - activeCount),
+        currentPlan: activePlan,
+        recommendedPlan: targetUpgrade,
+        reason: `Featured Banner & Flash Promotions require the ${targetUpgrade.name} (₹${targetUpgrade.priceMonthly}/mo).`,
+      };
+    }
+
+    if (tierRule.tier === 3 && isCommercialBroker && activePlan.id !== 'commercial_partner') {
+      const targetUpgrade = SUBSCRIPTION_PLANS.commercial_partner;
+      return {
+        allowed: false,
+        requiresUpgrade: true,
+        tier: tierRule.tier,
+        tierName: tierRule.tierName,
+        activeCount,
+        freeLimit: tierRule.freeLimit,
+        effectiveLimit,
+        remainingFree: 0,
+        currentPlan: activePlan,
+        recommendedPlan: targetUpgrade,
+        reason: `Brokers, Dealers & Commercial Agencies in ${normCat.toUpperCase()} require the ${targetUpgrade.name} (₹${targetUpgrade.priceMonthly}/mo). Individual owners get 1 free listing.`,
+      };
+    }
+
+    const allowed = activeCount < effectiveLimit;
+    const targetUpgrade = SUBSCRIPTION_PLANS[tierRule.requiredPlan] || SUBSCRIPTION_PLANS.retail_pro;
+
+    return {
+      allowed,
+      requiresUpgrade: !allowed,
+      tier: tierRule.tier,
+      tierName: tierRule.tierName,
+      activeCount,
+      freeLimit: tierRule.freeLimit,
+      effectiveLimit,
+      remainingFree: Math.max(0, effectiveLimit - activeCount),
+      currentPlan: activePlan,
+      recommendedPlan: targetUpgrade,
+      reason: allowed
+        ? `You have ${Math.max(0, effectiveLimit - activeCount)} free listing slot(s) remaining in ${normCat.toUpperCase()}.`
+        : `You have reached your free limit (${tierRule.freeLimit} active listing${tierRule.freeLimit === 1 ? '' : 's'}) in ${normCat.toUpperCase()}. Upgrade to ${targetUpgrade.name} (₹${targetUpgrade.priceMonthly}/mo) to post more.`,
+    };
+  }
+
+  // ==========================================
+  // 🛡️ STEP 4: TRUST, SAFETY, LEGAL & OPERATIONAL PROTECTIONS
+  // ==========================================
+
+  getCategorySafetyRule(categorySlug = '') {
+    const normCat = String(categorySlug || '').toLowerCase().trim();
+    return CATEGORY_SAFETY_RULES[normCat] || null;
+  }
+
+  getSafeDisplayPhone(listing) {
+    if (!listing) return { masked: true, displayPhone: 'XXXXXXXXXX', canCallDirect: false };
+    const rawPhone =
+      listing.seller_phone || listing.phone || listing.contact || listing.whatsapp || '';
+    const clean = sanitizePhone(rawPhone);
+    if (!clean) return { masked: true, displayPhone: 'Not Provided', canCallDirect: false };
+
+    const normCat = String(listing.category || '').toLowerCase().trim();
+    const rule = CATEGORY_SAFETY_RULES[normCat];
+    const currentUser = getCurrentUserProfile();
+    const isLoggedIn = Boolean(currentUser?.phone || currentUser?.id);
+
+    if (rule?.maskPublicPhone && !isLoggedIn) {
+      const visiblePrefix = clean.slice(0, 2);
+      const visibleSuffix = clean.slice(-2);
+      return {
+        masked: true,
+        displayPhone: `+91 ${visiblePrefix}••••••${visibleSuffix}`,
+        canCallDirect: false,
+        reason: 'Sign in with your verified phone number to view family contact details.',
+      };
+    }
+
+    return {
+      masked: false,
+      displayPhone: `+91 ${clean.slice(-10)}`,
+      rawPhone: clean.slice(-10),
+      canCallDirect: true,
+    };
+  }
+
+  isListingExpiredOrHidden(listing) {
+    if (!listing) return true;
+    const status = String(listing.status || 'active').toLowerCase();
+    if (status === 'flagged_hidden' || status === 'rejected' || status === 'archived') {
+      return true;
+    }
+
+    if (listing.expires_at) {
+      const expTime = new Date(listing.expires_at).getTime();
+      if (!Number.isNaN(expTime) && Date.now() > expTime) {
+        return true;
+      }
+    }
+
+    const normCat = String(listing.category || '').toLowerCase().trim();
+    const ttlHours = CATEGORY_TTL_HOURS[normCat];
+    if (ttlHours && listing.created_at) {
+      const createdTime = new Date(listing.created_at).getTime();
+      if (!Number.isNaN(createdTime)) {
+        const ageHours = (Date.now() - createdTime) / (1000 * 60 * 60);
+        if (ageHours > ttlHours) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  async markListingAsSold(listingId) {
+    const strId = String(listingId || '');
+    if (!strId) return false;
+
+    const listingKeys = Object.values(CATEGORY_SLICE_MAP);
+    for (const key of listingKeys) {
+      const list = this.state[key];
+      if (Array.isArray(list)) {
+        const idx = list.findIndex((item) => String(item.id) === strId);
+        if (idx !== -1) {
+          this.state[key][idx] = {
+            ...this.state[key][idx],
+            status: 'sold',
+            sold_at: new Date().toISOString(),
+          };
+          this.notify(key);
+        }
+      }
+    }
+
+    if (supabase && isValidUuid(strId)) {
+      try {
+        await supabase
+          .from('listings')
+          .update({ status: 'sold' })
+          .eq('id', strId);
+      } catch {}
+    }
+
+    this.notify('listings');
+    return true;
+  }
+
+  async submitListingReport(listingId, reason = 'Misleading or Scam', details = '') {
+    const strId = String(listingId || '');
+    if (!strId) return { ok: false, message: 'Invalid listing ID' };
+
+    const currentUser = getCurrentUserProfile();
+    const reporterPhone =
+      sanitizePhone(currentUser?.phone) ||
+      currentUser?.id ||
+      'guest_reporter';
+
+    const existingReports = Array.isArray(this.state.safetyReports?.[strId])
+      ? this.state.safetyReports[strId]
+      : [];
+
+    const alreadyReported = existingReports.some((r) => r.reporter === reporterPhone);
+    const nextReports = alreadyReported
+      ? existingReports
+      : [
+          ...existingReports,
+          {
+            reporter: reporterPhone,
+            reason,
+            details,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+
+    this.state.safetyReports = {
+      ...(this.state.safetyReports || {}),
+      [strId]: nextReports,
+    };
+
+    try {
+      localStorage.setItem('ak_safety_reports_v1', JSON.stringify(this.state.safetyReports));
+    } catch {}
+
+    const reportCount = nextReports.length;
+    const autoHidden = reportCount >= 3;
+
+    if (autoHidden) {
+      const listingKeys = Object.values(CATEGORY_SLICE_MAP);
+      for (const key of listingKeys) {
+        const list = this.state[key];
+        if (Array.isArray(list)) {
+          const idx = list.findIndex((item) => String(item.id) === strId);
+          if (idx !== -1) {
+            this.state[key][idx] = {
+              ...this.state[key][idx],
+              status: 'flagged_hidden',
+            };
+            this.notify(key);
+          }
+        }
+      }
+
+      if (supabase && isValidUuid(strId)) {
+        try {
+          await supabase
+            .from('listings')
+            .update({ status: 'flagged_hidden' })
+            .eq('id', strId);
+        } catch {}
+      }
+
+      this.addNotification({
+        tag: 'TRUST & SAFETY ALERT',
+        title: `Listing Auto-Hidden (${reportCount} Reports)`,
+        message: `Listing #${strId.slice(0, 8)} was automatically hidden after ${reportCount} community reports (${reason}).`,
+        time: 'Just now',
+        type: 'moderation',
+        targetId: strId,
+        recipient_role: 'admin',
+      });
+    }
+
+    this.notify('safetyReports');
+    this.notify('listings');
+
+    return {
+      ok: true,
+      reportCount,
+      autoHidden,
+      message: autoHidden
+        ? 'Thank you. This listing reached 3 community reports and has been automatically hidden pending Admin review.'
+        : 'Report submitted to ApkeKareeb Trust & Safety team.',
+    };
+  }
+
+  checkOtpRateLimit(rawPhone) {
+    const cleanPhone = sanitizePhone(rawPhone);
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return { allowed: false, waitSeconds: 0, message: 'Please enter a valid 10-digit mobile number.' };
+    }
+
+    const now = Date.now();
+    const oneHourAgo = now - 60 * 60 * 1000;
+    const history = Array.isArray(this.state.otpRateLimits?.[cleanPhone])
+      ? this.state.otpRateLimits[cleanPhone].filter((ts) => ts > oneHourAgo)
+      : [];
+
+    if (history.length > 0) {
+      const lastRequestTs = history[history.length - 1];
+      const elapsedSeconds = Math.floor((now - lastRequestTs) / 1000);
+      if (elapsedSeconds < 60) {
+        const waitSeconds = 60 - elapsedSeconds;
+        return {
+          allowed: false,
+          waitSeconds,
+          message: `Please wait ${waitSeconds}s before requesting another OTP.`,
+        };
+      }
+    }
+
+    if (history.length >= 3) {
+      return {
+        allowed: false,
+        waitSeconds: 3600,
+        message: 'Maximum OTP limit (3 per hour) reached for this number. Please try again later.',
+      };
+    }
+
+    const updatedHistory = [...history, now];
+    this.state.otpRateLimits = {
+      ...(this.state.otpRateLimits || {}),
+      [cleanPhone]: updatedHistory,
+    };
+
+    try {
+      localStorage.setItem('ak_otp_rate_limits_v1', JSON.stringify(this.state.otpRateLimits));
+    } catch {}
+
+    return {
+      allowed: true,
+      remainingThisHour: Math.max(0, 3 - updatedHistory.length),
+      waitSeconds: 60,
+    };
+  }
+
+  // ==========================================
+  // 🌟 REVIEWS & RATINGS ENGINE
+  // ==========================================
+
   getListingReviews(listingId) {
     const strId = String(listingId);
     return this.state.reviews[strId] || [];
@@ -1697,6 +2339,10 @@ class HyperlocalEngineStore {
       breakdown,
     };
   }
+
+  // ==========================================
+  // 🛒 CART MANAGEMENT ENGINE
+  // ==========================================
 
   async loadUserCart(phone) {
     if (!phone) {
@@ -1866,7 +2512,7 @@ class HyperlocalEngineStore {
     this.notify('cart');
     this.notify('all');
 
-   if (supabase && isValidUuid(targetId)) {
+    if (supabase && isValidUuid(targetId)) {
       supabase
         .from('user_carts')
         .upsert(
@@ -2031,6 +2677,9 @@ export const useHyperlocalStore = () => ({
   notifications: hyperlocalStore.state.notifications,
   selectedSeller: hyperlocalStore.state.selectedSeller,
   isSellerProfileOpen: hyperlocalStore.state.isSellerProfileOpen,
+  leadStats: hyperlocalStore.state.leadStats,
+  sellerPlans: hyperlocalStore.state.sellerPlans,
+  safetyReports: hyperlocalStore.state.safetyReports,
   openSellerProfile: (seller) => hyperlocalStore.openSellerProfile(seller),
   closeSellerProfile: () => hyperlocalStore.closeSellerProfile(),
   getListingsBySeller: (seller) => hyperlocalStore.getListingsBySeller(seller),
@@ -2048,6 +2697,20 @@ export const useHyperlocalStore = () => ({
   markNotificationRead: (id) => hyperlocalStore.markNotificationRead(id),
   markAllNotificationsRead: (ids) => hyperlocalStore.markAllNotificationsRead(ids),
   setListingPromotion: (id, promoted, days) => hyperlocalStore.setListingPromotion(id, promoted, days),
+
+  // Step 2 & 3 & 4 additions surfaced in the hook
+  buildAttributedWhatsAppUrl: (listing, note) => hyperlocalStore.buildAttributedWhatsAppUrl(listing, note),
+  recordLeadAction: (listing, action) => hyperlocalStore.recordLeadAction(listing, action),
+  getSellerROIMetrics: (phone, uid) => hyperlocalStore.getSellerROIMetrics(phone, uid),
+  getSellerPlan: (userOrPhone) => hyperlocalStore.getSellerPlan(userOrPhone),
+  setSellerPlan: (phone, planId, exp) => hyperlocalStore.setSellerPlan(phone, planId, exp),
+  checkPostingQuota: (cat, user, opt) => hyperlocalStore.checkPostingQuota(cat, user, opt),
+  getCategorySafetyRule: (cat) => hyperlocalStore.getCategorySafetyRule(cat),
+  getSafeDisplayPhone: (listing) => hyperlocalStore.getSafeDisplayPhone(listing),
+  isListingExpiredOrHidden: (listing) => hyperlocalStore.isListingExpiredOrHidden(listing),
+  markListingAsSold: (lid) => hyperlocalStore.markListingAsSold(lid),
+  submitListingReport: (lid, reason, details) => hyperlocalStore.submitListingReport(lid, reason, details),
+  checkOtpRateLimit: (phone) => hyperlocalStore.checkOtpRateLimit(phone),
 });
 
 let inFlightHydration = null;
@@ -2115,7 +2778,6 @@ export async function hydrateFromDB(force = false) {
         .order('created_at', { ascending: false })
         .limit(150);
 
-      // Run all 4 queries concurrently
       const [listingsRes, notifsRes, reviewsRes, threadsRes] = await Promise.allSettled([
         withTimeout(listingsFetch),
         withTimeout(notifsQuery),

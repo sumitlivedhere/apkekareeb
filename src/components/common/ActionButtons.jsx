@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getCurrentUserProfile } from '../../services/authService';
+import { hyperlocalStore } from '../../store/hyperlocalStore';
 import AuthModal from './AuthModal';
 
 export default function ActionButtons({
@@ -22,9 +23,12 @@ export default function ActionButtons({
     return false;
   };
 
-  const handleCall = (e) => {
+ const handleCall = (e) => {
     e.stopPropagation();
     if (!checkMemberAuthOrPrompt('Sign In to Call Seller')) return;
+    if (listing) {
+      hyperlocalStore.recordLeadAction(listing, 'call');
+    }
     const cleanPhone = String(listing.phone || '').replace(/\D/g, '').slice(-10);
     window.location.href = `tel:+91${cleanPhone}`;
   };
@@ -32,11 +36,19 @@ export default function ActionButtons({
   const handleWhatsApp = (e) => {
     e.stopPropagation();
     if (!checkMemberAuthOrPrompt('Sign In to WhatsApp Seller')) return;
-    const cleanPhone = String(listing.whatsapp || listing.phone || '').replace(/\D/g, '').slice(-10);
-    const text = encodeURIComponent(
-      `Namaste! I saw your listing "${listing.title || listing.name}" on Aapke Kareeb (${selectedCity}). I am interested to know more.`
-    );
-    window.open(`https://wa.me/91${cleanPhone}?text=${text}`, '_blank');
+    if (listing) {
+      hyperlocalStore.recordLeadAction(listing, 'whatsapp');
+    }
+    const attributedUrl = hyperlocalStore.buildAttributedWhatsAppUrl(listing);
+    if (attributedUrl) {
+      window.open(attributedUrl, '_blank');
+    } else {
+      const cleanPhone = String(listing.whatsapp || listing.phone || '').replace(/\D/g, '').slice(-10);
+      const text = encodeURIComponent(
+        `Namaste! I saw your listing "${listing.title || listing.name}" on Aapke Kareeb (${selectedCity}). I am interested to know more.`
+      );
+      window.open(`https://wa.me/91${cleanPhone}?text=${text}`, '_blank');
+    }
   };
 
   const handleCartClick = (e) => {

@@ -9,7 +9,7 @@ import {
   saveNotificationToDB,
   getCategoryFallback,
 } from '../../services/listingService';
-import { hyperlocalStore } from '../../store/hyperlocalStore';
+import { hyperlocalStore, CATEGORY_TTL_HOURS } from '../../store/hyperlocalStore';
 import { getCurrentUserProfile } from '../../services/authService';
 import { TOWN_CENTERS } from '../../utils/geoFence';
 import {
@@ -93,6 +93,13 @@ export default function PostListingModal({
     const vc = initialData?.visitingCharge || initialData?.visiting_charge;
     return vc ? String(vc).replace(/\D/g, '') : '';
   });
+  const [regNumber, setRegNumber] = useState(() => initialData?.regNumber || initialData?.reg_number || '');
+  const [isBroker, setIsBroker] = useState(() => Boolean(initialData?.is_broker || initialData?.isBroker));
+
+  const safetyRule = hyperlocalStore.getCategorySafetyRule(category);
+  const quota = !isEditMode
+    ? hyperlocalStore.checkPostingQuota(category, phone || cleanPhone, { isBroker })
+    : { allowed: true, requiresUpgrade: false };
 
   // 12-Hour AM/PM Time Picker State
   const [timePicker, setTimePicker] = useState(() => {
@@ -356,6 +363,22 @@ export default function PostListingModal({
       return;
     }
 
+    // 🛡️ Step 4: Medical License Mandatory Guard
+    if (safetyRule?.requireLicenseField && !regNumber.trim()) {
+      setErrorMsg('Medical practitioner or clinic registration number is required for patient safety.');
+      return;
+    }
+
+    // 💳 Step 3: Quota Enlistment Guard
+    if (!isEditMode && quota.requiresUpgrade) {
+      setErrorMsg(quota.reason || 'Free posting quota exceeded. Please upgrade your partner plan.');
+      return;
+    }
+
+    // ⏳ Step 4: Calculate Category Time-to-Live (TTL)
+    const catTtlHours = CATEGORY_TTL_HOURS[category.toLowerCase()] || CATEGORY_TTL_HOURS.default;
+    const computedExpiresAt = new Date(Date.now() + catTtlHours * 60 * 60 * 1000).toISOString();
+
     // Resolve Geolocation coordinates
     let finalLat = lat;
     let finalLng = lng;
@@ -423,6 +446,9 @@ export default function PostListingModal({
         stockCount: resolvedCapacity,
         condition: dynamicSpecs.condition || dynamicSpecs.device_condition || (isService ? 'Verified Service' : 'Brand New'),
         specs: dynamicSpecs,
+        regNumber: regNumber.trim() || null,
+        is_broker: Boolean(isBroker),
+        expires_at: computedExpiresAt,
         image: finalImageUrls[0] || getCategoryFallback(category),
         image_url: finalImageUrls[0] || getCategoryFallback(category),
         images: finalImageUrls,
@@ -606,6 +632,38 @@ export default function PostListingModal({
           {/* ═══════════════════════════════════════════════════════════ */}
           {currentStep === 1 && (
             <div className="space-y-3 animate-fade-in">
+              {/* 🛡️ Step 4: Vertical Legal & Safety Advisory */}
+              {safetyRule && (
+                <div className="p-2.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-[10px] space-y-1">
+                  <div className="flex items-center space-x-1.5 font-black text-amber-300">
+                    <span>🛡️</span>
+                    <span>{safetyRule.disclaimerTitle}</span>
+                  </div>
+                  <p className="text-slate-300 leading-relaxed text-[9px]">{safetyRule.disclaimerText}</p>
+                </div>
+              )}
+
+              {/* 💳 Step 3: Quota Warning & Upgrade Notice */}
+              {quota.requiresUpgrade && (
+                <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-transparent border border-amber-400/50 space-y-2">
+                  <div className="flex items-center space-x-1.5 text-amber-300 text-xs font-black">
+                    <span>👑</span>
+                    <span>{quota.recommendedPlan?.name} Required</span>
+                  </div>
+                  <p className="text-[10px] text-slate-300 leading-relaxed">{quota.reason}</p>
+                  <a
+                    href={`https://wa.me/919116544765?text=${encodeURIComponent(
+                      `Namaste Admin! I want to upgrade to ${quota.recommendedPlan?.name} (₹${quota.recommendedPlan?.priceMonthly}/mo) for posting in ${category.toUpperCase()}. Mobile: +91 ${phone || cleanPhone}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 font-black text-[10px] rounded-xl shadow-md cursor-pointer"
+                  >
+                    <span>💬</span>
+                    <span>Upgrade to {quota.recommendedPlan?.name} on WhatsApp ➔</span>
+                  </a>
+                </div>
+              )}
               {/* Category & Subcategory Selectors */}
               <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
@@ -685,6 +743,42 @@ export default function PostListingModal({
                   </>
                 );
               })()}
+
+             {/* Medical Practitioner / Clinic License Field */}
+              {safetyRule?.requireLicenseField && (
+                <div>
+                  <label className="text-[10px] font-bold text-amber-300 block mb-1">
+                    Medical Practitioner / Clinic Registration No. *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={regNumber}
+                    onChange={(e) => setRegNumber(e.target.value)}
+                    placeholder="e.g. RMC-2018-94821 or Clinic License No."
+                    className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-slate-100 font-mono text-xs focus:outline-hidden focus:border-amber-400"
+                  />
+                  <p className="text-[8.5px] text-slate-400 mt-0.5">
+                    Mandatory for verification on ApkeKareeb Medical Directory.
+                  </p>
+                </div>
+              )}
+
+              {/* Commercial Broker / Dealer Checkbox for Tier 3 Verticals */}
+              {quota.tier === 3 && (
+                <div className="flex items-center justify-between p-2.5 bg-slate-950 rounded-2xl border border-slate-800">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-200 block">Commercial Broker / Dealer / Agency?</span>
+                    <span className="text-[8.5px] text-slate-400 block">Individual owners get 1 free listing</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isBroker}
+                    onChange={(e) => setIsBroker(e.target.checked)}
+                    className="w-4 h-4 accent-amber-400 rounded cursor-pointer"
+                  />
+                </div>
+              )}
 
               {/* Contact Numbers */}
               <div className="grid grid-cols-2 gap-2">

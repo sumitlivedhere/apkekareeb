@@ -1,5 +1,7 @@
 import React from 'react';
 import { CATEGORY_BANNER_REGISTRY } from '../../data/categoryBannerRegistry';
+import { hyperlocalStore } from '../../store/hyperlocalStore';
+import { getCurrentUserProfile } from '../../services/authService';
 
 export default function CategoryListFreeBanner({
   category,
@@ -17,9 +19,19 @@ export default function CategoryListFreeBanner({
     textColor: 'text-amber-300',
   };
 
+  const currentUser = getCurrentUserProfile();
+  const quota = hyperlocalStore.checkPostingQuota(category, currentUser?.phone);
+
   const icon = customIcon || config.icon;
-  const title = customTitle || config.title;
-  const description = (customDescription || config.description).replace('{city}', selectedCity);
+  const title = customTitle || (quota.requiresUpgrade ? `👑 Upgrade to ${quota.recommendedPlan?.name}` : config.title);
+
+  const quotaNotice = currentUser?.phone
+    ? quota.requiresUpgrade
+      ? `You reached your free limit (${quota.freeLimit} listings). Tap to upgrade.`
+      : `${quota.remainingFree} free listing slot(s) remaining in this category.`
+    : '';
+
+  const description = quotaNotice || (customDescription || config.description).replace('{city}', selectedCity);
 
   return (
     <div
@@ -46,9 +58,13 @@ export default function CategoryListFreeBanner({
           e.stopPropagation();
           if (onPostClick) onPostClick();
         }}
-        className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-md active:scale-95 transition whitespace-nowrap shrink-0 cursor-pointer"
+        className={`px-3.5 py-2 font-black text-xs rounded-xl shadow-md active:scale-95 transition whitespace-nowrap shrink-0 cursor-pointer ${
+          quota.requiresUpgrade
+            ? 'bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950'
+            : 'bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 text-slate-950'
+        }`}
       >
-        List Free ➔
+        {quota.requiresUpgrade ? 'Upgrade Plan ➔' : 'List Free ➔'}
       </button>
     </div>
   );

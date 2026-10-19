@@ -447,6 +447,14 @@ export async function requestWhatsAppActivation({
     return { success: false, error: 'Please provide your full name.' };
   }
 
+  // 🛡️ Step 4: SMS OTP & Activation Rate-Limiting Guard
+  if (hyperlocalStore && typeof hyperlocalStore.checkOtpRateLimit === 'function') {
+    const rateCheck = hyperlocalStore.checkOtpRateLimit(cleanPhone);
+    if (!rateCheck.allowed) {
+      return { success: false, error: rateCheck.message };
+    }
+  }
+
   const payload = {
     phone: cleanPhone,
     full_name: fullName.trim(),
