@@ -137,15 +137,17 @@ export default function SellerProfileModal({
     `Namaste ${businessName}! 🙏 Maine Aapke Kareeb par aapka store (${locationDisplay}) dekha. Mujhe aapke products/services ke baare mein jankari chahiye.`
   )}`;
 
+  const primaryStoreListing = listings[0] || targetSeller || profile;
+
   const handleWhatsAppClick = () => {
-    if (targetSeller || profile) {
-      hyperlocalStore.recordLeadAction(profile || targetSeller, 'whatsapp');
+    if (primaryStoreListing) {
+      hyperlocalStore.recordLeadAction(primaryStoreListing, 'whatsapp');
     }
   };
 
   const handleCallClick = () => {
-    if (targetSeller || profile) {
-      hyperlocalStore.recordLeadAction(profile || targetSeller, 'call');
+    if (primaryStoreListing) {
+      hyperlocalStore.recordLeadAction(primaryStoreListing, 'call');
     }
   };
 

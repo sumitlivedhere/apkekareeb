@@ -1854,7 +1854,7 @@ class HyperlocalEngineStore {
   // 💳 STEP 3: MONETIZATION ARCHITECTURE & QUOTAS
   // ==========================================
 
-  getSellerPlan(userOrPhone = null) {
+ getSellerPlan(userOrPhone = null) {
     const targetUser =
       typeof userOrPhone === 'object' && userOrPhone !== null
         ? userOrPhone
@@ -1864,9 +1864,30 @@ class HyperlocalEngineStore {
       return SUBSCRIPTION_PLANS.commercial_partner;
     }
 
+    // 👑 1. Check Supabase DB user_profiles attributes (custom_badge, verification_tier, is_merchant)
+    if (targetUser && typeof targetUser === 'object') {
+      const tier = String(targetUser.verification_tier || targetUser.verificationTier || '').toLowerCase();
+      const badge = String(targetUser.custom_badge || targetUser.verificationBadge || targetUser.badge || '').toLowerCase();
+
+      if (tier === 'commercial_partner' || badge.includes('partner')) {
+        return SUBSCRIPTION_PLANS.commercial_partner;
+      }
+
+      if (
+        tier === 'merchant' ||
+        tier === 'verified_merchant' ||
+        Boolean(targetUser.is_merchant) ||
+        badge.includes('pro') ||
+        badge.includes('verified shop')
+      ) {
+        return SUBSCRIPTION_PLANS.retail_pro;
+      }
+    }
+
     const rawPhone = typeof userOrPhone === 'string' ? userOrPhone : targetUser?.phone || '';
     const cleanPhone = sanitizePhone(rawPhone);
 
+    // 💾 2. Fallback to localStorage plans or default free
     const planKey =
       targetUser?.subscription_plan ||
       (cleanPhone && this.state.sellerPlans?.[cleanPhone]?.planId) ||

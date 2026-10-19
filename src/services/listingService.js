@@ -671,10 +671,6 @@ export async function createListingInDB(listingData) {
     capacity: listingData.capacity || (rawStock ? `${rawStock} Units Available` : 'Ready Stock'),
    stock_count: rawStock ? parseInt(rawStock, 10) : null,
     condition: listingData.condition || 'Brand New',
-    expires_at: listingData.expires_at || null,
-    is_broker: Boolean(listingData.is_broker),
-    reg_number: listingData.regNumber || listingData.reg_number || null,
-    status: listingData.status || 'active',
     image_url: cleanImages[0] || (typeof listingData.image === 'string' && listingData.image.startsWith('http') ? listingData.image : getCategoryFallback(listingData.category)),
     image_urls: cleanImages.length > 0 ? cleanImages : [getCategoryFallback(listingData.category)],
     video_urls: cleanVideos.map((v) => v.url),
@@ -783,13 +779,11 @@ export async function approveListingChanges(listingId, approvedData) {
       image_urls: normalizedImages,
       video_urls: cleanVideoUrls,
       videos: cleanVideos,
-      is_active: true,
+     is_active: true,
       has_pending_approval: false,
       pending_changes: null,
       admin_feedback: null,
       seller_feedback_reply: null,
-      status: 'active',
-      expires_at: approvedData.expires_at || null,
       verification_badge: 'Verified Listing',
       updated_at: new Date().toISOString(),
     };
@@ -1247,10 +1241,16 @@ export function formatListingRow(row, selectedCity = 'Alwar') {
     pending_changes: row.pending_changes || null,
     admin_feedback: row.admin_feedback || null,
     seller_feedback_reply: row.seller_feedback_reply || null,
-    status: row.status || (row.is_active === false ? 'pending' : 'active'),
-    expires_at: row.expires_at || null,
-    is_broker: Boolean(row.is_broker),
-    regNumber: row.reg_number || row.regNumber || '',
+    status:
+      row.status ||
+      (String(row.capacity || '').toUpperCase().includes('SOLD')
+        ? 'sold'
+        : row.is_active === false
+        ? 'pending'
+        : 'active'),
+    expires_at: row.expires_at || row.pending_changes?.expires_at || null,
+    is_broker: Boolean(row.is_broker || row.pending_changes?.is_broker),
+    regNumber: row.reg_number || row.regNumber || row.pending_changes?.regNumber || '',
     is_active: row.is_active !== undefined ? Boolean(row.is_active) : true,
     createdAt: row.created_at,
     created_at: row.created_at,
@@ -1758,4 +1758,33 @@ export async function adminTogglePaidPromotion(
     console.warn('Paid promo DB error:', err.message);
     return { success: true, expiresAt };
   }
+}
+
+/**
+ * 🔄 Persist Sold Out / Available Stock Toggle to Supabase DB
+ */
+export async function updateListingStockStatusInDB(listingId, isSold = true) {
+  if (!listingId) return { success: false };
+  const strId = String(listingId).trim();
+  const nextCapacity = isSold ? '🔴 Sold Out' : 'Ready Stock';
+
+  if (supabase && isValidDatabaseId(strId)) {
+    try {
+      const { data, error } = await supabase
+        .from('listings')
+        .update({
+          capacity: nextCapacity,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', strId)
+        .select()
+        .maybeSingle();
+
+      if (error) console.warn('Stock status DB update notice:', error.message);
+      return { success: !error, data, capacity: nextCapacity };
+    } catch (err) {
+      console.warn('Stock status DB catch:', err.message);
+    }
+  }
+  return { success: true, capacity: nextCapacity };
 }

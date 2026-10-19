@@ -814,6 +814,14 @@ export default function PostListingModal({
                     setErrorMsg('Please enter a valid title, seller name, and 10-digit mobile number.');
                     return;
                   }
+                  if (safetyRule?.requireLicenseField && !regNumber.trim()) {
+                    setErrorMsg('Please enter your Medical Practitioner / Clinic Registration No.');
+                    return;
+                  }
+                  if (!isEditMode && quota.requiresUpgrade) {
+                    setErrorMsg(quota.reason || 'Free posting limit reached. Please upgrade your plan via WhatsApp above.');
+                    return;
+                  }
                   setErrorMsg('');
                   setCurrentStep(2);
                 }}

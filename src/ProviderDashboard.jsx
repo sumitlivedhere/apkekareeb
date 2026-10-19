@@ -8,6 +8,7 @@ import {
   sendSellerReplyToAdmin,
   uploadVoiceNoteToStorage,
   saveReplyToDB,
+  updateListingStockStatusInDB,
   notifyUserSellerReply,
 } from './services/listingService';
 import {
@@ -364,16 +365,29 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
     setIsPostModalOpen(true);
   };
 
-  // 🔄 1-Tap Toggle Sold / Active Status (Preserves Reviews & Deep Links)
+  // 🔄 1-Tap Toggle Sold / Active Status (Persists to Supabase + Local Store)
   const handleToggleSoldStatus = async (item) => {
-    const isCurrentlySold = String(item.status || '').toLowerCase() === 'sold';
-    if (!isCurrentlySold) {
+    const isCurrentlySold =
+      String(item.status || '').toLowerCase() === 'sold' ||
+      String(item.capacity || '').toUpperCase().includes('SOLD');
+
+    const nextIsSold = !isCurrentlySold;
+    await updateListingStockStatusInDB(item.id, nextIsSold);
+
+    if (nextIsSold) {
       await hyperlocalStore.markListingAsSold(item.id);
+      hyperlocalStore.insertListing(item.category, {
+        ...item,
+        status: 'sold',
+        capacity: '🔴 Sold Out',
+        sold_at: new Date().toISOString(),
+      });
       showNotice(`"${item.title || item.name}" marked as Sold / Out of Stock.`);
     } else {
       hyperlocalStore.insertListing(item.category, {
         ...item,
         status: 'active',
+        capacity: 'Ready Stock',
         sold_at: null,
       });
       showNotice(`"${item.title || item.name}" is now Active & In Stock again!`);
@@ -450,8 +464,20 @@ export default function ProviderDashboard({ onBack, selectedCity = 'Alwar' }) {
           sellerName: currentUser?.business_name || currentUser?.full_name || 'You (Owner)',
         };
 
-        await saveReplyToDB(inq.id, audioReplyPayload.text, publicAudioUrl, durationStr);
-        handleSendReplyToBuyer(inq, audioReplyPayload.text, audioReplyPayload);
+        // 1. Update local store thread with full audio object
+        hyperlocalStore.addSellerReply(inq.listingId, inq.id, audioReplyPayload);
+
+        // 2. Persist audio URL, duration, and notify buyer in Supabase
+        await saveReplyToDB(
+          inq.id,
+          audioReplyPayload,
+          inq.listingTitle,
+          inq.userPhone,
+          inq.userId
+        );
+
+        setThreadUpdateTick((prev) => prev + 1);
+        showNotice(`🎙️ Voice reply sent to ${inq.userName}!`);
       } catch (err) {
         console.error('Buyer voice reply failed:', err);
         alert('Could not upload voice note. Please try again.');
